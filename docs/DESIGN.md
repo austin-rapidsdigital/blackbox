@@ -7,7 +7,8 @@ Blackbox reads Windows event logs and Linux audit logs, **translates events into
 plain English**, groups them into the categories auditors actually review, and
 produces a self-contained HTML report on a recurring schedule.
 
-Status: **draft for discussion.** Nothing here is final.
+Status: **M1 (Windows single host) implemented.** Section 13 records the
+decisions made so far.
 
 ---
 
@@ -77,9 +78,13 @@ with no runtime to install: no Python, .NET, Java or Node.
     actor (user and SID/UID), target, action, outcome, source IP, process,
     command line, raw event.
 - **Classify and translate**
-  - YAML rule files map raw events to a category and a plain-English
-    template. Rules are data, not code, so we can add or adjust them without
-    rebuilding the binary.
+  - A built-in catalog (`internal/winevt/translate.go`) maps each raw event
+    to a category and a plain-English sentence. Many events need logic, not
+    just a template: decoding failure codes, telling a real person from a
+    service account, working out elevation. So the catalog is Go code with
+    tests, which also makes it easier for a security reviewer to read.
+    Site-specific tuning (excluded users and programs) goes in the config
+    file.
 - **Report**
   - One self-contained HTML file per run, plus `events.jsonl` and CSV files.
 - **Seal**
@@ -368,27 +373,20 @@ blackbox uninstall            # remove the task/timer; reports are kept
 
 ## 10. Configuration (default shown)
 
-```yaml
-site_name: "Example Site"
-banner:
-  text: "UNCLASSIFIED"
-  color: "green"
-schedule: weekly            # daily | weekly | monthly (used by install)
-output_dir: default         # platform default path
-retention_days: 0           # 0 = keep forever
-categories:                 # everything on by default
-  privileged: true
-  usb: true
-  failed_logons: true
-  account_changes: true
-  audit_integrity: true
-  logon_summary: true
-  other: true
-exclude:                    # noise filters, e.g. service accounts
-  users: []
-review:
-  signature_block: true
-  roles: [ "ISSO/Auditor", "ISSM" ]
+The config is a plain `key = value` file (`blackbox.conf`), not YAML, so no
+third-party parser is needed. Lines starting with `#` are comments, and
+lists are comma-separated.
+
+```
+site_name =
+classification = UNCLASSIFIED      # SECRET, SECRET//NOFORN, CUI, … (standard colors applied)
+classification_color =             # optional #rrggbb override
+report_every = weekly              # daily | weekly | monthly
+retention_days = 0                 # 0 = keep forever
+exclude_users =                    # e.g. svc_backup, svc_scanner
+exclude_processes =                # e.g. C:\Tools\Scanner\scan.exe
+signature_block = true
+review_roles = ISSO / Auditor, ISSM
 ```
 
 ---
@@ -407,7 +405,9 @@ review:
 
 ---
 
-## 12. Open questions
+## 12. Open questions (answered)
+
+The answers are in section 13. The original questions were:
 
 1. Report schedule: weekly for everyone, or does it vary by system?
 2. Does anyone other than the ISSO and ISSM review reports, for example
@@ -418,3 +418,51 @@ review:
 4. What classification banner text and colors should the defaults use?
 5. Are there existing site templates or formats that the reports should match
    for ISSM or DCSA review?
+
+---
+
+## 13. Decisions
+
+| Topic | Decision |
+|---|---|
+| Report schedule | Windows LAN hosts currently run PowerStrux daily because a noisy tool overwrites logs within a week. Blackbox separates **collection (hourly by default, `--collect-every`)** from **reporting (`report_every`: daily/weekly/monthly, default weekly)**. Hourly collection captures events before rollover, so weekly reports lose nothing. Linux reports are weekly. |
+| Reviewers | ISSO/Auditor, then ISSM. Nobody else. The report ends with a printable signature block for both roles. Electronic review records (`blackbox review`) are still planned for M4. |
+| Audit baseline | **Report only.** `check` and the report's health panel show what is missing and the command that fixes it. Blackbox never changes settings. |
+| Classification | Configurable per install (`--classification` / `classification =`). The default is UNCLASSIFIED; production is SECRET. `blackbox report --classification` overrides it for a single report. Standard banner colors are applied automatically. |
+| Report template | No existing template needs to be matched. |
+| Config format | Plain `key = value`, not YAML. This keeps the module at zero third-party dependencies. |
+| Report chain | Each report covers the time up to its period end and includes every event not already reported. Events collected late, for example from before a system was powered off, go into the next report marked *Late*. Every event appears in exactly one report (`app.SelectWindow`). |
+| Log volume | Every report lists the busiest event IDs with their share of all events read. This identifies noisy tools and over-broad audit settings, the cause of fast rollover. |
+
+## 14. M1 implementation status
+
+**Done:**
+
+- Live collection from the Windows Event Log API
+  - Logs read: Security, System, Partition/Diagnostic,
+    Kernel-PnP/Configuration, DriverFrameworks-UserMode, Defender.
+  - Collection is resumed from bookmarks.
+  - Reports detect events lost to rollover and cleared logs.
+- Translation of all events listed in section 4 for Windows.
+  - Routine service and computer account noise is filtered out.
+  - Duplicate records of the same activity from different logs are
+    merged; one USB stick appears in up to four logs.
+  - USB activity is attributed to the logged-on user.
+  - Devices seen for the first time are flagged.
+- Pattern findings: password guessing, one source trying several accounts,
+  and a successful logon after failures.
+- The HTML report (section 6), CSV, JSONL, `summary.json`, a SHA-256
+  manifest, `verify`, and an index page listing all reports.
+- `check`, which compares the audit policy, command-line auditing, forced
+  subcategories, log sizes and USB logs against the Windows 11 STIG.
+- `install` / `uninstall` (scheduled task as SYSTEM, restricted data
+  folder), and `report --xml` for exported logs on any OS.
+
+**Verification:**
+
+- Unit tests cover translation, patterns, the report chain, the store,
+  config, checks and the task definition.
+- CI runs the tests on Linux and Windows. It also runs `check`, `collect`,
+  `report` and `verify` against the Windows runner's real event logs.
+
+**Next:** M2 (Linux: auditd and journald).

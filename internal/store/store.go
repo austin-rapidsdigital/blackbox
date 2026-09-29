@@ -1,0 +1,337 @@
+// Package store keeps Blackbox's on-disk state: where each log was last
+// read up to (bookmarks), the translated events collected so far (the
+// spool), and a record of every collection run.
+//
+// Layout under the data directory:
+//
+//	state.json                 bookmarks and report history
+//	spool/events-YYYY-MM-DD.jsonl  translated events, by collection date
+//	spool/runs-YYYY-MM-DD.jsonl    one record per collection run
+//	reports/…                  generated reports
+package store
+
+import (
+	"bufio"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/casea1/blackbox/internal/event"
+)
+
+// Bookmark is the last record read from one log.
+type Bookmark struct {
+	RecordID uint64    `json:"record_id"`
+	Time     time.Time `json:"time"`
+}
+
+// State is persisted between runs.
+type State struct {
+	Bookmarks map[string]Bookmark `json:"bookmarks"` // key: host|channel
+
+	// Report chain: every event is reported exactly once.
+	LastWindowEnd time.Time `json:"last_window_end,omitzero"` // events before this were reported…
+	LastGenerated time.Time `json:"last_generated,omitzero"`  // …if collected before this
+	LastCollect   time.Time `json:"last_collect,omitzero"`
+
+	// Removable devices seen before, so new ones can be flagged.
+	KnownDevices map[string]time.Time `json:"known_devices"`
+}
+
+// Gap records events lost before they could be collected.
+type Gap struct {
+	Lost uint64    `json:"lost"`          // number of records overwritten
+	From time.Time `json:"from,omitzero"` // last event we had
+	To   time.Time `json:"to,omitzero"`   // oldest event still in the log
+}
+
+// ChannelRun is what happened reading one log in one run.
+type ChannelRun struct {
+	Channel      string      `json:"channel"`
+	Read         int         `json:"read"` // records read
+	Kept         int         `json:"kept"` // translated (security-relevant)
+	FirstRecord  uint64      `json:"first_record,omitempty"`
+	LastRecord   uint64      `json:"last_record,omitempty"`
+	OldestTime   time.Time   `json:"oldest_time,omitzero"` // oldest event still in the log
+	MaxSizeBytes uint64      `json:"max_size_bytes,omitempty"`
+	Gap          *Gap        `json:"gap,omitempty"`
+	Reset        bool        `json:"reset,omitempty"` // record numbers went backwards (log cleared/recreated)
+	Unavailable  string      `json:"unavailable,omitempty"`
+	Error        string      `json:"error,omitempty"`
+	EventCounts  map[int]int `json:"event_counts,omitempty"`
+}
+
+// Run is one collection run on one host.
+type Run struct {
+	Time     time.Time    `json:"time"`
+	Host     string       `json:"host"`
+	Version  string       `json:"version"`
+	Duration float64      `json:"duration_seconds"`
+	Channels []ChannelRun `json:"channels"`
+}
+
+// Store is an opened data directory.
+type Store struct {
+	Dir   string
+	State *State
+}
+
+// Open loads (or initialises) the data directory.
+func Open(dir string) (*Store, error) {
+	if err := os.MkdirAll(filepath.Join(dir, "spool"), 0o750); err != nil {
+		return nil, err
+	}
+	s := &Store{Dir: dir, State: &State{}}
+	b, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
+		return nil, err
+	default:
+		if err := json.Unmarshal(b, s.State); err != nil {
+			return nil, fmt.Errorf("state.json is damaged (%v); move it aside to start fresh", err)
+		}
+	}
+	if s.State.Bookmarks == nil {
+		s.State.Bookmarks = map[string]Bookmark{}
+	}
+	if s.State.KnownDevices == nil {
+		s.State.KnownDevices = map[string]time.Time{}
+	}
+	return s, nil
+}
+
+// Save writes state.json atomically.
+func (s *Store) Save() error {
+	b, err := json.MarshalIndent(s.State, "", "  ")
+	if err != nil {
+		return err
+	}
+	return WriteFileAtomic(filepath.Join(s.Dir, "state.json"), b, 0o640)
+}
+
+// BookmarkKey identifies a log on a host.
+func BookmarkKey(host, channel string) string { return strings.ToUpper(host) + "|" + channel }
+
+// AppendEvents adds events to today's spool file and flushes to disk.
+// Callers must only advance bookmarks after this returns successfully.
+func (s *Store) AppendEvents(now time.Time, events []*event.Event) error {
+	if len(events) == 0 {
+		return nil
+	}
+	return s.appendJSONL("events-"+now.UTC().Format("2006-01-02")+".jsonl", func(enc *json.Encoder) error {
+		for _, e := range events {
+			if err := enc.Encode(e); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// AppendRun records a collection run.
+func (s *Store) AppendRun(r *Run) error {
+	return s.appendJSONL("runs-"+r.Time.UTC().Format("2006-01-02")+".jsonl", func(enc *json.Encoder) error {
+		return enc.Encode(r)
+	})
+}
+
+func (s *Store) appendJSONL(name string, write func(*json.Encoder) error) error {
+	f, err := os.OpenFile(filepath.Join(s.Dir, "spool", name), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o640)
+	if err != nil {
+		return err
+	}
+	w := bufio.NewWriter(f)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	if err := write(enc); err != nil {
+		f.Close()
+		return err
+	}
+	if err := w.Flush(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// spoolFiles lists spool files with the prefix whose date is on or after
+// since (zero = all), oldest first.
+func (s *Store) spoolFiles(prefix string, since time.Time) ([]string, error) {
+	matches, err := filepath.Glob(filepath.Join(s.Dir, "spool", prefix+"-*.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(matches)
+	if since.IsZero() {
+		return matches, nil
+	}
+	cut := since.UTC().AddDate(0, 0, -1).Format("2006-01-02")
+	var out []string
+	for _, m := range matches {
+		d := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(m), prefix+"-"), ".jsonl")
+		if d >= cut {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+// ReadEvents returns spooled events collected on or after since (by file
+// date, so callers still filter precisely).
+func (s *Store) ReadEvents(since time.Time) ([]*event.Event, error) {
+	files, err := s.spoolFiles("events", since)
+	if err != nil {
+		return nil, err
+	}
+	var out []*event.Event
+	for _, f := range files {
+		err := readJSONL(f, func(b []byte) error {
+			var e event.Event
+			if err := json.Unmarshal(b, &e); err != nil {
+				return err
+			}
+			out = append(out, &e)
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// ReadRuns returns collection runs on or after since.
+func (s *Store) ReadRuns(since time.Time) ([]*Run, error) {
+	files, err := s.spoolFiles("runs", since)
+	if err != nil {
+		return nil, err
+	}
+	var out []*Run
+	for _, f := range files {
+		err := readJSONL(f, func(b []byte) error {
+			var r Run
+			if err := json.Unmarshal(b, &r); err != nil {
+				return err
+			}
+			if !r.Time.Before(since) {
+				out = append(out, &r)
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// readJSONL calls fn for each line. A damaged final line (e.g. from a
+// power loss mid-write) is ignored rather than failing the report.
+func readJSONL(path string, fn func([]byte) error) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1024*1024), 64*1024*1024)
+	var pending error
+	for sc.Scan() {
+		if pending != nil {
+			return fmt.Errorf("%s: %w", path, pending)
+		}
+		line := sc.Bytes()
+		if len(strings.TrimSpace(string(line))) == 0 {
+			continue
+		}
+		pending = fn(line)
+	}
+	return sc.Err()
+}
+
+// Prune deletes spool files older than days (0 = never).
+func (s *Store) Prune(days int, now time.Time) error {
+	if days <= 0 {
+		return nil
+	}
+	cut := now.UTC().AddDate(0, 0, -days).Format("2006-01-02")
+	// Never delete anything that has not been reported yet.
+	if !s.State.LastWindowEnd.IsZero() {
+		if lw := s.State.LastWindowEnd.UTC().AddDate(0, 0, -2).Format("2006-01-02"); lw < cut {
+			cut = lw
+		}
+	}
+	for _, prefix := range []string{"events", "runs"} {
+		files, err := s.spoolFiles(prefix, time.Time{})
+		if err != nil {
+			return err
+		}
+		for _, f := range files {
+			d := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(f), prefix+"-"), ".jsonl")
+			if d < cut {
+				if err := os.Remove(f); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// Lock prevents two runs at once. Locks older than two hours are treated
+// as left over from a crash.
+func (s *Store) Lock() (unlock func(), err error) {
+	p := filepath.Join(s.Dir, "blackbox.lock")
+	for attempt := 0; attempt < 2; attempt++ {
+		f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
+		if err == nil {
+			fmt.Fprintf(f, "%d %s\n", os.Getpid(), time.Now().Format(time.RFC3339))
+			f.Close()
+			return func() { os.Remove(p) }, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, err
+		}
+		if fi, serr := os.Stat(p); serr == nil && time.Since(fi.ModTime()) > 2*time.Hour {
+			os.Remove(p)
+			continue
+		}
+		return nil, fmt.Errorf("another Blackbox run is in progress (lock file %s)", p)
+	}
+	return nil, fmt.Errorf("could not take lock %s", p)
+}
+
+// WriteFileAtomic writes to a temp file and renames it into place.
+func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	os.Chmod(name, perm)
+	return os.Rename(name, path)
+}
