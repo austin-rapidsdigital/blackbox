@@ -3,6 +3,7 @@
 package check
 
 import (
+	"errors"
 	"os/exec"
 
 	"github.com/casea1/blackbox/internal/winevt"
@@ -29,3 +30,11 @@ func Run() []Result {
 	out = append(out, EvaluateLogs(winevt.GetLogSettings)...)
 	return out
 }
+
+// MissingRulesLive is only available on Linux.
+func MissingRulesLive() (string, bool, error) {
+	return "", false, errors.New("audit rules are for Linux")
+}
+
+// RulesOnlyInAuditRules is only meaningful on Linux.
+func RulesOnlyInAuditRules() int { return 0 }

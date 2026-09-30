@@ -100,3 +100,90 @@ func TestLinuxAuditRules(t *testing.T) {
 		t.Errorf("auditd.conf evaluation wrong: %+v", rs)
 	}
 }
+
+// usgLoaded is `auditctl -l` output in the form the DISA STIG for Ubuntu
+// 24.04 (applied by Canonical USG) loads: its own key names, the mount
+// program rather than the mount syscall, trailing slashes dropped.
+var usgLoaded = strings.Join([]string{
+	"-w /etc/passwd -p wa -k usergroup_modification",
+	"-w /etc/group -p wa -k usergroup_modification",
+	"-w /etc/shadow -p wa -k usergroup_modification",
+	"-w /etc/gshadow -p wa -k usergroup_modification",
+	"-w /etc/security/opasswd -p wa -k usergroup_modification",
+	"-w /etc/sudoers -p wa -k privilege_modification",
+	"-w /etc/sudoers.d -p wa -k privilege_modification",
+	"-a always,exit -F arch=b64 -S execve -C uid!=euid -F euid=0 -F key=execpriv",
+	"-a always,exit -F arch=b32 -S execve -C uid!=euid -F euid=0 -F key=execpriv",
+	"-a always,exit -F arch=b64 -S execve -C gid!=egid -F egid=0 -F key=execpriv",
+	"-a always,exit -F arch=b32 -S execve -C gid!=egid -F egid=0 -F key=execpriv",
+	"-a always,exit -F arch=b64 -S init_module,finit_module -F auid>=1000 -F auid!=-1 -F key=module_chng",
+	"-a always,exit -F arch=b64 -S delete_module -F auid>=1000 -F auid!=-1 -F key=module_chng",
+	"-a always,exit -F arch=b32 -S init_module,finit_module -F auid>=1000 -F auid!=-1 -F key=module_chng",
+	"-a always,exit -F arch=b32 -S delete_module -F auid>=1000 -F auid!=-1 -F key=module_chng",
+	"-a always,exit -S all -F path=/usr/bin/mount -F perm=x -F auid>=1000 -F auid!=-1 -F key=privileged-mount",
+	"-w /var/log/lastlog -p wa -k logins",
+}, "\n")
+
+func TestSTIGHardenedRulesPass(t *testing.T) {
+	for _, r := range EvaluateAuditRules(usgLoaded, "enabled 2\nbacklog_limit 8192\n") {
+		if r.Status == Fail {
+			t.Errorf("a STIG-hardened system fails %q", r.Item)
+		}
+	}
+}
+
+func TestWatchMatchingIsExact(t *testing.T) {
+	// /etc/sudoers.d alone must not count as watching /etc/sudoers.
+	if watches("/etc/sudoers")([]string{"-w /etc/sudoers.d -p wa -k x"}) {
+		t.Error("/etc/sudoers.d matched /etc/sudoers")
+	}
+	// auditctl lists "-w /etc/audit/" without the slash.
+	if !watches("/etc/audit/")([]string{"-w /etc/audit -p wa -k auditconfig"}) {
+		t.Error("/etc/audit without the trailing slash not recognised")
+	}
+}
+
+func TestLockedRulesSayReboot(t *testing.T) {
+	for _, r := range EvaluateAuditRules("No rules", "enabled 2\nbacklog_limit 8192\n") {
+		if r.Status == Fail && !strings.Contains(r.Fix, "reboot") {
+			t.Errorf("%s: fix %q should say a reboot is needed while rules are locked", r.Item, r.Fix)
+		}
+	}
+}
+
+func TestMissingRulesAddsOnlyGaps(t *testing.T) {
+	exists := func(p string) bool { return p != "/var/run/faillock" }
+	missing := MissingRules(AuditRules, usgLoaded, exists)
+	joined := strings.Join(missing, "\n")
+	// Already loaded under the STIG's own keys: not added again.
+	for _, dup := range []string{"-w /etc/passwd ", "-w /etc/sudoers ", "-w /etc/sudoers.d/", "uid!=euid", "init_module", "-w /var/log/lastlog"} {
+		if strings.Contains(joined, dup) {
+			t.Errorf("rule already loaded would be added again: %s", dup)
+		}
+	}
+	// Not loaded: added.
+	for _, want := range []string{"-S mount,umount2", "clock_settime", "-w /etc/audit/", "-k root_commands", "-k log_tamper"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing rule not added: %s\n%s", want, joined)
+		}
+	}
+	// A watch on a path that does not exist would stop the rules loading.
+	if strings.Contains(joined, "/var/run/faillock") {
+		t.Error("watch on a missing path added")
+	}
+	// Nothing is missing once everything is loaded.
+	if again := MissingRules(AuditRules, AuditRules, nil); len(again) != 0 {
+		t.Errorf("rules missing from themselves: %v", again)
+	}
+}
+
+func TestNotInRulesDFindsRulesAugenrulesWouldDrop(t *testing.T) {
+	auditRules := "-D\n-b 8192\n-w /etc/sudoers -p wa -k actions\n-a always,exit -F arch=b64 -S execve -F euid=0 -k rootcmd\n-e 2\n"
+	if n := NotInRulesD(auditRules, nil); n != 2 {
+		t.Errorf("empty rules.d: %d, want 2", n)
+	}
+	d := []string{"-w /etc/sudoers/ -p aw -k other_key\n", "-a always,exit -F arch=b64 -S execve -F euid=0\n"}
+	if n := NotInRulesD(auditRules, d); n != 0 {
+		t.Errorf("all in rules.d: %d, want 0", n)
+	}
+}

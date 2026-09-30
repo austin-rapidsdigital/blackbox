@@ -64,6 +64,16 @@ The Linux service is also sandboxed with `ProtectSystem=strict`,
     by root.
   - Neither is ever written to the settings file or shown on screen.
   - In a domain, Windows senders need no stored password.
+- **Passwords typed on command lines are hidden.** Command-line auditing
+  records commands as typed, including any password in them. Before an
+  event is stored or reported, Blackbox replaces these with `********`:
+  - `NAME=value` where the name contains PASSWORD, PASSWD or SECRET
+  - PowerShell `-Password …` and `ConvertTo-SecureString '…'`
+  - `net user NAME PASSWORD` and `net use \\server\share PASSWORD`
+  - `sshpass -p …`, and `echo … | sudo -S`
+
+  PowerShell `-EncodedCommand` is decoded first, so a password inside it
+  is hidden too. The original logs are not changed.
 - **Share mount (Linux).** The share is mounted inside Blackbox's data
   folder only, with root-only file permissions and `nosuid,nodev,noexec`.
 - **Tamper evidence in transit.** Each batch has:

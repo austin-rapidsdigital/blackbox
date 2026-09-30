@@ -92,6 +92,31 @@ Review the rules against your site's STIG checklist before using them. The
 last rule (`-e 2`) locks the rules until the next reboot, as the STIG
 requires.
 
+**On a STIG-hardened system** (for example, one built with Ubuntu's USG
+or an Ansible STIG role), most of these rules are already loaded under
+other key names. Install only the ones that are missing, so nothing is
+recorded twice:
+
+```sh
+sudo blackbox check --audit-rules --missing | sudo install -m 0600 /dev/stdin /etc/audit/rules.d/99-blackbox.rules
+sudo augenrules --load
+```
+
+`--missing` compares against the rules actually loaded (`auditctl -l`),
+ignores key names, and leaves out watches on files that do not exist. If
+the loaded rules are locked (`-e 2`), the new ones take effect at the next
+reboot, and `blackbox check` says so.
+
+> **Ubuntu USG (`usg fix`) writes `/etc/audit/audit.rules` directly.**
+> `augenrules` rebuilds that file from `rules.d`, so adding any file to
+> `rules.d` would drop the STIG rules at the next `augenrules --load` or
+> reboot. `--missing` warns when this applies. Keep the existing rules
+> first:
+>
+> ```sh
+> sudo install -m 0600 /etc/audit/audit.rules /etc/audit/rules.d/50-existing.rules
+> ```
+
 `blackbox check` also looks for:
 
 - `audit=1` on the kernel command line

@@ -536,8 +536,28 @@ func cmdCheck(args []string) error {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	all := fs.Bool("all", false, "also list settings that pass")
 	rules := fs.Bool("audit-rules", false, "Linux: print Blackbox's recommended auditd rules file and exit")
+	missing := fs.Bool("missing", false, "with --audit-rules: print only the rules this system does not already have loaded (run as root)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *rules && *missing {
+		text, locked, err := check.MissingRulesLive()
+		if err != nil {
+			return err
+		}
+		fmt.Print(text)
+		next := "augenrules --load"
+		if locked {
+			next = "reboot (the loaded rules are locked with -e 2)"
+		}
+		fmt.Fprintf(os.Stderr, "To install: blackbox check --audit-rules --missing | sudo install -m 0600 /dev/stdin %s, then %s.\n", check.RulesFile, next)
+		if n := check.RulesOnlyInAuditRules(); n > 0 {
+			fmt.Fprintf(os.Stderr, "\nCAUTION: /etc/audit/audit.rules has %d rules that are not in /etc/audit/rules.d (Ubuntu's usg fix\n"+
+				"writes audit.rules directly). augenrules rebuilds audit.rules from rules.d, so adding a file there\n"+
+				"would remove them, at the next augenrules --load or reboot. Keep them first:\n"+
+				"  sudo install -m 0600 /etc/audit/audit.rules /etc/audit/rules.d/50-existing.rules\n", n)
+		}
+		return nil
 	}
 	if *rules {
 		fmt.Print(check.AuditRules)

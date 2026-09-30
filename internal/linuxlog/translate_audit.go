@@ -150,6 +150,7 @@ func (t *Translator) Audit(ev *Event) *event.Event {
 			}
 		}
 	}
+	e.RedactSecrets()
 	return e
 }
 
@@ -231,8 +232,47 @@ func (t *Translator) audit(ev *Event) *event.Event {
 		return nil
 	case "SYSCALL":
 		return t.syscall(ev, r)
+	case "USER_DEVICE":
+		return usbguard(r)
 	}
 	return nil
+}
+
+var (
+	ruleNameRE = regexp.MustCompile(`name "([^"]*)"`)
+	ruleIDRE   = regexp.MustCompile(`\bid ([0-9a-fA-F]{4}:[0-9a-fA-F]{4})`)
+)
+
+// usbguard translates a USBGuard decision (it logs USER_DEVICE records with
+// target=allow, block or reject). The kernel still logs a blocked device as
+// connected, so the report must say it was blocked.
+func usbguard(r *Record) *event.Event {
+	target := strings.ToLower(r.Get("target"))
+	if target != "block" && target != "reject" {
+		return nil // allowed devices are reported from the kernel messages
+	}
+	rule := r.Get("device_rule")
+	name, id := "", ""
+	if m := ruleNameRE.FindStringSubmatch(rule); m != nil {
+		name = m[1]
+	}
+	if m := ruleIDRE.FindStringSubmatch(rule); m != nil {
+		id = m[1]
+	}
+	what := firstNonEmpty(name, id, "a USB device")
+	if name != "" && id != "" {
+		what = fmt.Sprintf("%s (ID %s)", name, id)
+	}
+	e := &event.Event{Category: event.CatRemovable, Severity: event.SevMedium, Action: "usb_blocked", Target: what,
+		DedupeKey: "usbblock|" + firstNonEmpty(id, name), Priority: 2,
+		Summary: fmt.Sprintf("USBGuard blocked %s; it could not be used.", what)}
+	if target == "reject" {
+		e.Summary = fmt.Sprintf("USBGuard rejected %s (removed from the system); it could not be used.", what)
+	}
+	e.AddDetail("Decision", target)
+	e.AddDetail("Device rule", rule)
+	e.AddDetail("Operation", r.Get("op"))
+	return e
 }
 
 // learnUsers records uid → name pairs from enriched records, so later
@@ -297,7 +337,11 @@ func session(exe, terminal string) (phrase, label string) {
 	switch {
 	case b == "sshd" || terminal == "ssh":
 		return "via SSH", "SSH"
-	case strings.Contains(b, "gdm") || strings.Contains(b, "lightdm") || strings.Contains(b, "sddm") || strings.Contains(b, "xrdp"):
+	case strings.Contains(b, "xrdp"):
+		// Remote, not at the machine: must not be treated as the console
+		// user when a USB device is plugged in.
+		return "via Remote Desktop (RDP)", "Remote Desktop"
+	case strings.Contains(b, "gdm") || strings.Contains(b, "lightdm") || strings.Contains(b, "sddm"):
 		return "at the graphical console", "Graphical console"
 	case b == "login" || strings.HasPrefix(terminal, "tty") || strings.HasPrefix(terminal, "/dev/tty"):
 		return "at the text console", "Text console"
@@ -797,6 +841,8 @@ var setuidHelpers = map[string]bool{
 	"sudo": true, "su": true, "sudoedit": true, "pkexec": true, "unix_chkpwd": true, "ssh-keysign": true,
 	"dbus-daemon-launch-helper": true, "polkit-agent-helper-1": true, "Xorg.wrap": true, "fusermount3": true,
 	"fusermount": true, "gnome-keyring-daemon": true, "chrome-sandbox": true,
+	// Started at every desktop logon; the STIG audits it as a privileged program.
+	"ssh-agent": true,
 }
 
 var identityFiles = map[string]bool{
@@ -804,6 +850,27 @@ var identityFiles = map[string]bool{
 }
 
 // syscallName uses the enriched name, or common x86_64 numbers.
+// destroysFile reports whether a system call deletes, renames or empties
+// the file it names (opening with O_TRUNC is how "> file" empties one).
+func destroysFile(sc string, r *Record) bool {
+	switch sc {
+	case "unlink", "unlinkat", "rename", "renameat", "renameat2", "truncate", "ftruncate", "rmdir", "creat":
+		return true
+	case "open":
+		return truncates(r.Get("a1"))
+	case "openat", "openat2":
+		return truncates(r.Get("a2"))
+	}
+	return false
+}
+
+// truncates reports whether open flags (hex, as auditd records them)
+// include O_TRUNC.
+func truncates(hexFlags string) bool {
+	f, err := strconv.ParseUint(hexFlags, 16, 64)
+	return err == nil && f&0o1000 != 0
+}
+
 func syscallName(r *Record) string {
 	if n := r.Fields["SYSCALL"]; n != "" {
 		return n
@@ -831,6 +898,31 @@ func syscallName(r *Record) string {
 		return "adjtimex"
 	case "305":
 		return "clock_adjtime"
+	// File changes (x86_64 numbers; ENRICHED logs give the names).
+	case "2":
+		return "open"
+	case "257":
+		return "openat"
+	case "85":
+		return "creat"
+	case "76":
+		return "truncate"
+	case "77":
+		return "ftruncate"
+	case "82":
+		return "rename"
+	case "264":
+		return "renameat"
+	case "316":
+		return "renameat2"
+	case "87":
+		return "unlink"
+	case "263":
+		return "unlinkat"
+	case "84":
+		return "rmdir"
+	case "169":
+		return "reboot"
 	}
 	return r.Get("syscall")
 }
@@ -910,12 +1002,14 @@ func (t *Translator) syscall(ev *Event, r *Record) *event.Event {
 			return e
 		}
 	}
-	// Log files deleted or changed by a person.
+	// Log files deleted, renamed or emptied by a person. Ordinary writes are
+	// not tampering: sudo appends to /var/log/sudo.log and logins update
+	// wtmp and lastlog, and the STIG audit rules watch those files.
 	for _, p := range paths {
-		if actor != "" && strings.HasPrefix(p, "/var/log/") && sc != "execve" {
+		if actor != "" && strings.HasPrefix(p, "/var/log/") && destroysFile(sc, r) {
 			e := &event.Event{Category: event.CatIntegrity, Severity: event.SevHigh, Action: "log_tampered",
 				User: actor, Target: p, Process: exe, DedupeKey: "logfile|" + p,
-				Summary: fmt.Sprintf("%s modified or deleted the log file %s%s.", actor, p, using)}
+				Summary: fmt.Sprintf("%s deleted, renamed or emptied the log file %s%s.", actor, p, using)}
 			e.AddDetail("System call", sc)
 			e.AddDetail("Command", cmd)
 			return e

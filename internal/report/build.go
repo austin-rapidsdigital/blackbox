@@ -667,6 +667,7 @@ var actionLabels = map[string][2]string{
 	"removable_delete":        {"file deleted from removable media", "files deleted from removable media"},
 	"removable_execute":       {"program run from removable media", "programs run from removable media"},
 	"removable_access_denied": {"blocked removable media access attempt", "blocked removable media access attempts"},
+	"usb_blocked":             {"USB device blocked by USBGuard", "USB devices blocked by USBGuard"},
 	"account_locked":          {"account lockout", "account lockouts"},
 	"account_created":         {"user account created", "user accounts created"},
 	"account_enabled":         {"user account enabled", "user accounts enabled"},

@@ -1,6 +1,7 @@
 package linuxlog
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -352,5 +353,63 @@ func TestGroupsFromCommand(t *testing.T) {
 		if got := strings.Join(groupsFromCommand(cmd, "bob"), ","); got != want {
 			t.Errorf("groupsFromCommand(%q) = %q, want %q", cmd, got, want)
 		}
+	}
+}
+
+// On a STIG-hardened system the audit rules watch /var/log/sudo.log,
+// wtmp and lastlog, which sudo and logins write on every use. Only
+// deleting, renaming or emptying a log file is tampering.
+func TestLogTamperingIsOnlyDestructiveChanges(t *testing.T) {
+	rec := func(serial int, syscall, a1, a2, comm, exe, file, key string) []string {
+		head := fmt.Sprintf("type=SYSCALL msg=audit(1790730000.%03d:%d): arch=c000003e syscall=%s success=yes exit=3 a0=ffffff9c a1=%s a2=%s a3=1b6 items=1 ppid=1 pid=%d auid=1001 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=pts0 ses=3 comm=%q exe=%q subj=unconfined key=%q",
+			serial, serial, syscall, a1, a2, 4000+serial, comm, exe, key)
+		return []string{head,
+			fmt.Sprintf(`type=PATH msg=audit(1790730000.%03d:%d): item=0 name=%q inode=12 dev=08:01 mode=0100600 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL`, serial, serial, file),
+			fmt.Sprintf(`type=EOE msg=audit(1790730000.%03d:%d):`, serial, serial)}
+	}
+	var lines []string
+	lines = append(lines, rec(1, "257", "7ffd0000", "441", "sudo", "/usr/bin/sudo", "/var/log/sudo.log", "maintenance")...) // append: routine
+	lines = append(lines, rec(2, "257", "7ffd0000", "401", "sshd", "/usr/sbin/sshd", "/var/log/wtmp", "logins")...)         // write: routine
+	lines = append(lines, rec(3, "257", "7ffd0000", "241", "bash", "/usr/bin/bash", "/var/log/auth.log", "")...)            // "> auth.log": emptied
+	lines = append(lines, rec(4, "263", "7ffd0000", "0", "rm", "/usr/bin/rm", "/var/log/syslog.1", "delete")...)            // deleted
+	tr := NewTranslator("ws12", Users{1001: "jsmith"})
+	var tampered []string
+	ParseAuditStream(strings.NewReader(strings.Join(lines, "\n")), func(ev *Event) error {
+		if e := tr.Audit(ev); e != nil && e.Action == "log_tampered" {
+			tampered = append(tampered, e.Target)
+		}
+		return nil
+	})
+	if strings.Join(tampered, ",") != "/var/log/auth.log,/var/log/syslog.1" {
+		t.Errorf("log tampering reported for %v; want only the emptied and the deleted file", tampered)
+	}
+}
+
+// xrdp logons are remote: they must not look like someone at the console
+// (the report names the console user when a USB device is connected).
+func TestXrdpIsRemoteDesktop(t *testing.T) {
+	if _, label := session("/usr/sbin/xrdp-sesman", "?"); label != "Remote Desktop" {
+		t.Errorf("xrdp session labelled %q", label)
+	}
+	if _, label := session("/usr/libexec/gdm-session-worker", "/dev/tty2"); label != "Graphical console" {
+		t.Errorf("gdm session labelled %q", label)
+	}
+	if _, label := consoleSession("xrdp-sesman"); label != "Remote Desktop" {
+		t.Errorf("xrdp syslog session labelled %q", label)
+	}
+}
+
+func TestUSBGuardBlock(t *testing.T) {
+	line := `type=USER_DEVICE msg=audit(1790731000.000:400): pid=812 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='op=changed-authorization-state-for device="/devices/pci0000:00/0000:00:14.0/usb1/1-2" target=block device_rule="block id 0781:5567 serial \"4C530001231109115405\" name \"Cruzer Blade\" via-port \"1-2\" with-interface 08:06:50" exe="/usr/sbin/usbguard-daemon" hostname=? addr=? terminal=? res=success'`
+	tr := NewTranslator("ws12", nil)
+	var got []string
+	ParseAuditStream(strings.NewReader(line+"\n"), func(ev *Event) error {
+		if e := tr.Audit(ev); e != nil {
+			got = append(got, e.Action+": "+e.Summary)
+		}
+		return nil
+	})
+	if len(got) != 1 || !strings.Contains(got[0], "usb_blocked: USBGuard blocked Cruzer Blade (ID 0781:5567)") {
+		t.Errorf("got %v", got)
 	}
 }
