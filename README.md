@@ -4,8 +4,9 @@
 
 Blackbox reads your Windows event logs and Linux audit logs every hour. On
 a daily, weekly or monthly schedule it turns them into a single HTML report
-an auditor can actually read. No server, no database, no network
-connection, no dependencies.
+an auditor can actually read. No server, no database, no dependencies,
+and nothing listening on the network. One PC, a PC with Linux VMs, or a
+whole air-gapped LAN can be covered by one report.
 
 **[⬇ Download the latest release](https://github.com/casea1/blackbox/releases/latest)** · [Windows guide](docs/windows.md) · [Linux guide](docs/linux.md) · [Security review notes](docs/security.md)
 
@@ -27,7 +28,8 @@ connection, no dependencies.
   devices, users added to admin groups, audit tampering and more, and
   lists them first.
 - **Easy to approve.** It's one small program with no third-party code. It
-  only reads logs, never writes to them, and makes no network connections.
+  only reads logs and never writes to them. It opens no ports and never
+  listens on the network; on a LAN it only copies files to a shared folder.
   Every report is SHA-256 hashed so tampering can be detected.
 
 ## Supported systems
@@ -54,8 +56,10 @@ cd blackbox-<version>-linux-amd64
 sudo ./install.sh
 ```
 
-Setup asks four questions, each with a default you can accept by pressing
-Enter:
+Setup asks a few questions, each with a default you can accept by pressing
+Enter. First it asks how this computer's events will be reviewed: on this
+computer, or by a collector (see [Several computers](#several-computers)).
+For a single computer it then asks:
 
 - a site name
 - how often to produce reports
@@ -63,7 +67,8 @@ Enter:
 - how often to collect events
 
 It then schedules collection, checks your audit settings against the DISA
-STIG (it never changes them), and produces the first report.
+STIG (it never changes them), and produces the first report. Run
+`blackbox status` as an administrator at any time to check it is working.
 
 **To change settings later**, such as moving reports to another folder,
 run the installer again. It shows your current settings as the defaults.
@@ -144,5 +149,9 @@ Blackbox needs Go 1.24 or later and has no other dependencies:
 
 ```sh
 go test ./...
-VERSION=0.1.0 scripts/build.sh    # packages in dist/
+VERSION=0.2.0 scripts/build.sh    # packages in dist/
 ```
+
+## License
+
+Copyright 2026 Austin Case. Licensed under the [Apache License, Version 2.0](LICENSE).
