@@ -23,7 +23,7 @@ import (
 // version is set at build time with -ldflags "-X main.version=…".
 var version = "dev"
 
-const usage = `Blackbox — audit log review for air-gapped systems
+const usage = `GE Aerospace Blackbox — audit log review for air-gapped systems
 
 Usage:
   blackbox install               Set up (or change) scheduled collection and reporting; asks each setting

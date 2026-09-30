@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/casea1/blackbox/internal/brand"
 	"github.com/casea1/blackbox/internal/collect"
 	"github.com/casea1/blackbox/internal/lan"
 	"github.com/casea1/blackbox/internal/store"
@@ -28,7 +29,7 @@ func (a *App) Status(w io.Writer) error {
 		fmt.Fprintf(w, "  %-17s %s\n", label, fmt.Sprintf(format, args...))
 	}
 
-	fmt.Fprintf(w, "Blackbox %s on %s\n\n", a.Version, host)
+	fmt.Fprintf(w, "%s %s on %s\n\n", brand.Name, a.Version, host)
 	switch a.Cfg.Role() {
 	case "standalone":
 		p("Role:", "standalone (reports on this computer only)")

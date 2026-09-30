@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/casea1/blackbox/internal/brand"
 	"github.com/casea1/blackbox/internal/config"
 )
 
@@ -173,9 +174,9 @@ func (w *wizard) run(cur Answers, defaultReports string, reinstall bool) (Answer
 	if a.Role == "" {
 		a.Role = RoleOf(a.SendTo, a.Inbox)
 	}
-	title := "Blackbox setup"
+	title := brand.Name + " setup"
 	if reinstall {
-		title = "Blackbox setup (already installed: your current settings are shown as the defaults)"
+		title = brand.Name + " setup (already installed: your current settings are shown as the defaults)"
 	}
 	w.printf("\n%s\n%s\n", title, strings.Repeat("-", len(title)))
 	w.printf("Press Enter to keep the value in [brackets].\n")

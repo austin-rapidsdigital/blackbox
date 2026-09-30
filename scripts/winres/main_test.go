@@ -106,15 +106,11 @@ func TestVersionInfo(t *testing.T) {
 	}
 }
 
-func TestIconSharpAtSmallSizes(t *testing.T) {
-	// On the 16-unit grid, every pixel of the 16 and 32 pixel icons is
-	// either fully transparent or fully opaque (no blurred edges).
-	for _, size := range []int{16, 32} {
+func TestIconIsTheLogo(t *testing.T) {
+	for _, size := range []int{16, 32, 256} {
 		img := Icon(size)
-		for i := 3; i < len(img.Pix); i += 4 {
-			if a := img.Pix[i]; a != 0 && a != 255 {
-				t.Fatalf("%dpx icon has a partly transparent pixel (alpha %d)", size, a)
-			}
+		if img.Bounds().Dx() != size || img.NRGBAAt(size/2, size/2).A == 0 || img.NRGBAAt(0, 0).A > 40 {
+			t.Errorf("%dpx icon is not the round logo", size)
 		}
 	}
 }

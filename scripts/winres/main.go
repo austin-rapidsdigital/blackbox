@@ -14,20 +14,21 @@ import (
 	"flag"
 	"fmt"
 	"image"
-	"image/color"
 	"image/png"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf16"
+
+	"github.com/casea1/blackbox/internal/brand"
 )
 
 // Details shown in the file's Properties and in Settings > Apps.
 const (
 	Publisher   = "Austin Case"
-	ProductName = "Blackbox"
-	Description = "Blackbox audit log reporter"
+	ProductName = brand.Name
+	Description = brand.Name + " audit log reporter"
 	Copyright   = "Copyright Austin Case"
 )
 
@@ -95,55 +96,8 @@ func Resources(version string) []Resource {
 	return res
 }
 
-// Icon draws the program icon: a dark square holding three log lines, the
-// last one highlighted, in the colours of the report. Shapes sit on a
-// 16-unit grid so the 16, 32, 48, 64 and 256 pixel sizes are sharp.
-func Icon(size int) *image.NRGBA {
-	type rect struct {
-		x0, y0, x1, y1 float64
-		c              color.RGBA
-	}
-	var (
-		ink    = color.RGBA{0x15, 0x18, 0x1c, 0xff}
-		line   = color.RGBA{0xe6, 0xe8, 0xeb, 0xff}
-		dim    = color.RGBA{0x9a, 0xa1, 0xa9, 0xff}
-		accent = color.RGBA{0x5b, 0x9b, 0xd5, 0xff}
-	)
-	shapes := []rect{
-		{1, 1, 15, 15, ink},
-		{4, 4, 12, 6, line},
-		{4, 7, 10, 9, dim},
-		{4, 10, 11, 12, accent},
-	}
-	const ss = 8 // samples per pixel on each axis, for smooth edges at odd sizes
-	img := image.NewNRGBA(image.Rect(0, 0, size, size))
-	unit := float64(size) / 16
-	for py := 0; py < size; py++ {
-		for px := 0; px < size; px++ {
-			var r, g, b, a int
-			for sy := 0; sy < ss; sy++ {
-				for sx := 0; sx < ss; sx++ {
-					x := (float64(px) + (float64(sx)+0.5)/ss) / unit
-					y := (float64(py) + (float64(sy)+0.5)/ss) / unit
-					for i := len(shapes) - 1; i >= 0; i-- {
-						s := shapes[i]
-						if x >= s.x0 && x < s.x1 && y >= s.y0 && y < s.y1 {
-							r, g, b, a = r+int(s.c.R), g+int(s.c.G), b+int(s.c.B), a+255
-							break
-						}
-					}
-				}
-			}
-			n := ss * ss
-			if a > 0 {
-				// Colour averaged over covered samples; coverage becomes alpha.
-				k := a / 255
-				img.SetNRGBA(px, py, color.NRGBA{uint8(r / k), uint8(g / k), uint8(b / k), uint8(a / n)})
-			}
-		}
-	}
-	return img
-}
+// Icon is the program icon at size×size pixels: the GE Aerospace logo.
+func Icon(size int) *image.NRGBA { return brand.Logo(size) }
 
 func pngBytes(img image.Image) []byte {
 	var b bytes.Buffer
