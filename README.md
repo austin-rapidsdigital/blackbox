@@ -16,6 +16,28 @@ trail is complete.
 | `1006 · BusType 7 · Capacity 15634268160 · USB\VID_0781&PID_5567\4C53…` | USB storage connected: SanDisk Cruzer Blade (serial 4C530001231109115405), 15.6 GB. |
 | `4719 · %%8274 · {0cce9245-…} · %%8448, %%8450` | Audit policy for "Removable Storage" was changed by admin_jd: success auditing removed, failure auditing removed. |
 
+## Screenshots
+
+These come from the synthetic sample in `testdata/sample-events.xml`, a
+made-up workstation day. Regenerate them with `scripts/screenshots.sh`.
+
+**Overview:** the reporting period, whether collection was complete, and
+what needs attention.
+![Overview](docs/screenshots/overview.png)
+
+**Failed Logons & Lockouts,** with one event expanded to show its decoded
+details.
+![Failed logons](docs/screenshots/failed-logons.png)
+
+**USB & Removable Media**
+![USB and removable media](docs/screenshots/usb.png)
+
+**Privileged Activity**
+![Privileged activity](docs/screenshots/privileged.png)
+
+**Audit health:** the logs read, events lost, and the busiest event types.
+![Audit health](docs/screenshots/health.png)
+
 ## What a report contains
 
 Each report is one self-contained file, `report.html`, laid out for a
