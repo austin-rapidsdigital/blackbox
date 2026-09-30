@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/casea1/blackbox/internal/check"
 	"github.com/casea1/blackbox/internal/event"
 	"github.com/casea1/blackbox/internal/linuxlog"
 	"github.com/casea1/blackbox/internal/store"
@@ -39,7 +38,14 @@ type Options struct {
 	// ones are flagged. Nil disables the check.
 	KnownDevices map[string]time.Time
 
-	Checks []check.Result
+	// CheckSets are the latest audit settings check of each computer.
+	CheckSets []CheckSet
+
+	// LAN: the computers this data folder knows about, whether this is a
+	// collector, and problems noticed receiving from other computers.
+	Systems     []SystemInfo
+	Collector   bool
+	LANWarnings []string
 }
 
 // Row is one event in a section table.
@@ -144,7 +150,6 @@ type Health struct {
 	TotalRead    int
 	TotalKept    int
 	Warnings     []string
-	Checks       []check.Result
 	ChecksPass   int
 	ChecksFail   int
 	ChecksWarn   int
@@ -170,6 +175,8 @@ type Report struct {
 	Late       int
 	NewDevices map[string]time.Time
 	BySev      map[string]int // by severity
+	SystemRows []SystemRow    // Systems page
+	Silent     []SystemRow    // computers with no collection in this period
 }
 
 // Build assembles a report from events (already filtered to the period)
@@ -211,6 +218,10 @@ func Build(events []*event.Event, runs []*store.Run, opt Options) *Report {
 	r.buildAttention(rows)
 	r.buildUsers(events)
 	r.buildHealth(runs, events)
+	r.buildSystems(runs, events)
+	for _, s := range r.Silent {
+		r.Health.Warnings = append(r.Health.Warnings, s.Name+": "+s.StatusMsg)
+	}
 	return r
 }
 
@@ -763,8 +774,11 @@ func (r *Report) buildUsers(events []*event.Event) {
 
 func (r *Report) buildHealth(runs []*store.Run, events []*event.Event) {
 	h := &r.Health
-	h.Checks = r.Checks
-	h.ChecksPass, h.ChecksFail, h.ChecksWarn = check.Summary(r.Checks)
+	for _, cs := range r.CheckSets {
+		h.ChecksPass += cs.Pass
+		h.ChecksFail += cs.Fail
+		h.ChecksWarn += cs.Warn
+	}
 	for _, e := range events {
 		if e.Action == "log_cleared" {
 			h.LogClears++
@@ -774,17 +788,24 @@ func (r *Report) buildHealth(runs []*store.Run, events []*event.Event) {
 	chIdx := map[string]*ChannelHealth{}
 	var chOrder []string
 	vol := map[string]*VolumeRow{}
-	for i, run := range runs {
+	lastRun := map[string]time.Time{} // by host, for gaps between runs
+	pause := map[string]time.Duration{}
+	for _, run := range runs {
 		h.Runs++
 		if h.FirstRun.IsZero() {
 			h.FirstRun = run.Time
 		}
 		h.LastRun = run.Time
-		if i > 0 {
-			if p := run.Time.Sub(runs[i-1].Time); p > h.LongestPause {
+		hk := store.SystemKey(run.Host)
+		if prev, ok := lastRun[hk]; ok {
+			if p := run.Time.Sub(prev); p > pause[hk] {
+				pause[hk] = p
+			}
+			if p := run.Time.Sub(prev); p > h.LongestPause {
 				h.LongestPause = p
 			}
 		}
+		lastRun[hk] = run.Time
 		for _, c := range run.Channels {
 			k := run.Host + "|" + c.Channel
 			ch := chIdx[k]
@@ -884,12 +905,25 @@ func (r *Report) buildHealth(runs []*store.Run, events []*event.Event) {
 		}
 	}
 	if r.Source == "" || strings.HasPrefix(r.Source, "Live") {
-		if h.Runs == 0 {
+		if h.Runs == 0 && len(r.Systems) <= 1 {
 			h.Warnings = append(h.Warnings, "No collection runs were recorded in this period.")
-		} else if h.LongestPause > 6*time.Hour {
-			h.Warnings = append(h.Warnings, fmt.Sprintf("The longest time between collections was %s (the system may have been off, or the scheduled task did not run).", roughDuration(h.LongestPause)))
+		}
+		hosts := make([]string, 0, len(pause))
+		for k := range pause {
+			hosts = append(hosts, k)
+		}
+		sort.Strings(hosts)
+		for _, k := range hosts {
+			if p := pause[k]; p > 6*time.Hour {
+				who := "The"
+				if len(lastRun) > 1 {
+					who = k + ": the"
+				}
+				h.Warnings = append(h.Warnings, fmt.Sprintf("%s longest time between collections was %s (the computer may have been off, or the scheduled task did not run).", who, roughDuration(p)))
+			}
 		}
 	}
+	h.Warnings = append(h.Warnings, r.LANWarnings...)
 }
 
 // ---------------------------------------------------------------- formatting

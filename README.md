@@ -70,6 +70,26 @@ run the installer again. It shows your current settings as the defaults.
 On Windows, Blackbox appears in **Settings → Apps**, where it can be
 uninstalled like any other program.
 
+## Several computers
+
+A Linux VM on a Windows PC, or a whole air-gapped LAN, can be reviewed in
+one report. One computer, the **collector**, produces the reports. The
+others send their events to its inbox folder every hour:
+
+- a VM uses a VirtualBox shared folder
+- LAN computers use an ordinary Windows share
+
+Nothing listens on the network, and a computer that is off catches up when
+it is back on. The report's **Systems** page shows every computer and
+flags any that stopped sending.
+
+Set up the collector first: run the installer and choose **This is the
+collector**. Then run it on each other computer and choose **Send to a
+collector**. The [LAN guide](docs/lan.md) walks through each setup,
+including LAN PCs that host their own VMs.
+
+![Systems page of a combined report](docs/images/lan-systems.png)
+
 ## Reports
 
 Reports are written to `C:\ProgramData\Blackbox\reports\` on Windows and
@@ -87,6 +107,7 @@ these views:
 | **Audit & System Integrity** | Logs cleared, auditing stopped, audit rules changed, time changes |
 | **Other Security Events** | New services and tasks, kernel modules, anti-malware, SELinux/AppArmor |
 | **Logon Activity** | Who logged on, how, and from where |
+| **Systems** | On a collector: every computer, its last collection, and whether any stopped sending |
 | **Audit health** | Collection completeness, STIG audit-setting check, busiest event types |
 | **People** | Everything above, counted per account |
 
@@ -108,6 +129,7 @@ blackbox report --audit testdata/linux/ubuntu-audit.log \
 
 ## Documentation
 
+- [Several computers (VMs and LANs)](docs/lan.md): collector, senders, relays, day-to-day use
 - [Windows guide](docs/windows.md): install, audit settings, what is read
 - [Linux guide](docs/linux.md): install, auditd setup, what is read
 - [Reports](docs/reports.md): report periods, severities, findings, output files

@@ -10,7 +10,9 @@
 | `internal/collect/` | Collection runs and bookmarks, for Windows and Linux |
 | `internal/report/` | Report building (merging duplicates, findings, health) and the HTML template |
 | `internal/check/` | Audit-setting checks against the STIG, and the recommended auditd rules |
-| `internal/install/` | Windows scheduled task and Linux systemd timer |
+| `internal/install/` | Windows scheduled task and Linux systemd timer, the setup wizard, LAN setup (inbox, share, mount) |
+| `internal/lan/` | Sending batches to a collector and importing them (see [lan.md](lan.md#how-it-works)) |
+| `internal/share/` | Reaching a collector's share: Windows share sign-in and DPAPI-protected password, Linux mount point |
 | `internal/store/`, `internal/config/`, `internal/app/` | State, settings, and the report schedule |
 | `packaging/` | Files shipped in the release packages (`Install.cmd`, `install.sh`, …) |
 | `testdata/` | Synthetic Windows and Ubuntu logs, used by the tests and the samples |

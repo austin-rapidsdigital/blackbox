@@ -112,3 +112,53 @@ func TestSetValueCreatesMissingFile(t *testing.T) {
 		t.Errorf("got %+v, %v", c, err)
 	}
 }
+
+func TestLANSettings(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "blackbox.conf")
+	// A config written by an older version, without the LAN settings.
+	old := "site_name = Lab\nreport_every = weekly\n"
+	os.WriteFile(p, []byte(old), 0o640)
+	share := "//COLLECTOR/BlackboxInbox"
+	if runtime.GOOS == "windows" {
+		share = `\\COLLECTOR\BlackboxInbox`
+	}
+	if err := SetValues(p, [][2]string{{"send_to", share}, {"share_user", "bbsend"}}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.SendTo != share || c.ShareUser != "bbsend" || c.Role() != "sender" || c.MakesReports() {
+		t.Errorf("got %+v, role %s", c, c.Role())
+	}
+	b, _ := os.ReadFile(p)
+	if !strings.Contains(string(b), "# LAN:") || strings.Count(string(b), "# LAN:") != 1 {
+		t.Errorf("LAN explanation should be added once:\n%s", b)
+	}
+	if err := SetValue(p, "send_to", "relative/folder"); err == nil {
+		t.Error("a relative send_to was accepted")
+	}
+	inbox := "/srv/inbox"
+	if runtime.GOOS == "windows" {
+		inbox = `C:\BlackboxInbox`
+	}
+	if err := SetValue(p, "inbox", inbox); err != nil {
+		t.Fatal(err)
+	}
+	c, _ = Load(p)
+	if c.Role() != "relay" {
+		t.Errorf("role %s, want relay", c.Role())
+	}
+	for _, s := range []string{`\\server\share`, "//server/share", `\\server\share\sub`} {
+		if !IsShare(s) {
+			t.Errorf("IsShare(%q) = false", s)
+		}
+	}
+	for _, s := range []string{`\\server`, "//", "/srv/x"} {
+		if IsShare(s) {
+			t.Errorf("IsShare(%q) = true", s)
+		}
+	}
+}

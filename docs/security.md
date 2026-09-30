@@ -14,9 +14,20 @@ use.
 
 ## What it does not do
 
-- **It makes no network connections.** It has no listening ports and never
-  connects out. On Linux, the systemd service runs with
-  `PrivateNetwork=yes`, so it has no network access at all.
+- **It opens no network connections of its own and listens on no port.**
+  On a standalone computer it never touches the network. On Linux, the
+  systemd service runs with `PrivateNetwork=yes`, so it has no network
+  access at all.
+- **On a LAN it only reads and writes files.** A computer set to send to a
+  collector copies files into the collector's shared folder. It uses the
+  operating system's own file sharing:
+  - Windows: the SMB client, signed in with the stored account, or the
+    computer's domain account
+  - Linux: a CIFS mount that systemd sets up before each run; the
+    sandboxed service itself still has no network access
+  - a VirtualBox shared folder, which needs no network at all
+
+  See [LAN security](#lan-security).
 - **It never modifies logs.** It never clears, rotates, deletes or forwards
   them.
 - **It never changes audit settings.** `check` only reports; the fixes it
@@ -33,6 +44,45 @@ restricted to Administrators and SYSTEM on Windows, and to root on Linux.
 The Linux service is also sandboxed with `ProtectSystem=strict`,
 `ReadWritePaths=/var/lib/blackbox`, `NoNewPrivileges=yes` and
 `PrivateTmp=yes`.
+
+## LAN security
+
+- **Least privilege on the inbox.** On a Windows collector, the inbox
+  folder is restricted by SID to:
+  - Administrators and SYSTEM
+  - a local group, **Blackbox Senders**, that may add, change and remove files
+    there (Modify), and nothing else
+
+  If shared, the share grants Change to that group only. The installer
+  creates the group and, when asked, adds named accounts to it. It never
+  creates accounts itself.
+- **Stored credentials.**
+  - Windows: a sender's share password is encrypted with DPAPI, bound to
+    the machine. It is kept in the data folder, which only Administrators
+    and SYSTEM can read.
+  - Linux: the password is in `/etc/blackbox/share.cred`, mode 0600, owned
+    by root.
+  - Neither is ever written to the settings file or shown on screen.
+  - In a domain, Windows senders need no stored password.
+- **Share mount (Linux).** The share is mounted inside Blackbox's data
+  folder only, with root-only file permissions and `nosuid,nodev,noexec`.
+- **Tamper evidence in transit.** Each batch has:
+  - a SHA-256 checksum, and a closing record that detects a cut-short file
+  - a per-sender sequence number
+
+  The collector reports missing batch numbers, and sets damaged or
+  altered batches aside and reports them. These checks detect loss and
+  accidental or careless change, not a determined attacker with write
+  access to the inbox. The batches are not cryptographically signed.
+- **No loops, no spoofed collectors.**
+  - A computer refuses its own batches.
+  - It only delivers to a folder that has the collector's marker file, so
+    an unmounted share (an empty local folder) is never written to by
+    mistake.
+- **What a sender can claim.** A sender, or a relay, supplies the host
+  names in its events. The report shows which computer delivered each
+  system's data ("via"), and the Systems page lists every system seen, so
+  an unexpected one stands out.
 
 ## Integrity
 

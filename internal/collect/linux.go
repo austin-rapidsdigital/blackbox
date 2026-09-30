@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/casea1/blackbox/internal/event"
@@ -42,13 +42,10 @@ func Linux(st *store.Store, opt Options) (*store.Run, error) {
 		opt.Logf = func(string, ...any) {}
 	}
 	start := opt.Now()
-	host, _ := os.Hostname()
-	if i := strings.IndexByte(host, '.'); i > 0 {
-		host = host[:i]
-	}
+	host := LocalHost()
 	tr := linuxlog.NewTranslator(host, linuxlog.LoadUsers(PasswdFile))
 	parser := &linuxlog.LineParser{Loc: time.Local, Ref: start}
-	run := &store.Run{Time: start, Host: host, Version: opt.Version}
+	run := &store.Run{Time: start, Host: host, OS: runtime.GOOS, Version: opt.Version}
 
 	haveAudit := false
 	if fi, err := os.Stat(AuditLog); err == nil && !fi.IsDir() {

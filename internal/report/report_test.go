@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/casea1/blackbox/internal/check"
 	"github.com/casea1/blackbox/internal/collect"
 	"github.com/casea1/blackbox/internal/event"
 	"github.com/casea1/blackbox/internal/store"
@@ -230,5 +231,117 @@ func TestLinuxReport(t *testing.T) {
 	}
 	if !bytes.Contains(buf.Bytes(), []byte("auditd USER_CMD record, serial")) {
 		t.Error("Linux 'recorded as' text missing")
+	}
+}
+
+func TestSystemsPage(t *testing.T) {
+	end := time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)
+	start := end.AddDate(0, 0, -7)
+	runs := []*store.Run{
+		{Time: end.Add(-2 * time.Hour), Host: "WS-01", OS: "windows"},
+		{Time: end.Add(-26 * time.Hour), Host: "WS-01", OS: "windows"}, // a 24-hour pause
+		{Time: end.Add(-3 * time.Hour), Host: "ubuntu-vm", OS: "linux"},
+	}
+	events := []*event.Event{
+		{Time: end.Add(-3 * time.Hour), Host: "ubuntu-vm", OS: "linux", Category: event.CatPrivileged, Severity: event.SevHigh, Action: "sudo", Summary: "sudo"},
+		{Time: end.Add(-4 * time.Hour), Host: "WS-01", OS: "windows", Category: event.CatLogon, Severity: event.SevInfo, Action: "logon", Summary: "logon"},
+	}
+	r := Build(events, runs, Options{
+		WindowStart: start, WindowEnd: end, Generated: end, Location: time.UTC, Source: "Live collection", Collector: true,
+		Systems: []SystemInfo{
+			{Name: "WS-01", OS: "windows", FirstSeen: start.AddDate(0, -1, 0)},
+			{Name: "UBUNTU-VM", OS: "linux", Via: "WS-01", FirstSeen: start.AddDate(0, -1, 0)},
+			{Name: "WS-03", OS: "windows", FirstSeen: start.AddDate(0, -1, 0), LastRun: start.Add(-72 * time.Hour)},
+		},
+		CheckSets: []CheckSet{
+			NewCheckSet("WS-01", end, []check.Result{{Area: "a", Item: "b", Status: check.Fail}, {Area: "a", Item: "c", Status: check.Pass}}),
+			NewCheckSet("ubuntu-vm", end, []check.Result{{Area: "a", Item: "c", Status: check.Pass}}),
+		},
+	})
+	if !r.ShowSystems() || len(r.SystemRows) != 3 {
+		t.Fatalf("systems: %+v", r.SystemRows)
+	}
+	first := r.SystemRows[0]
+	if first.Name != "WS-03" || first.Status != "silent" || !strings.Contains(first.StatusMsg, "No collection received") {
+		t.Errorf("silent system should be listed first: %+v", first)
+	}
+	if len(r.Silent) != 1 {
+		t.Errorf("silent systems: %v", r.Silent)
+	}
+	var vm, ws SystemRow
+	for _, s := range r.SystemRows {
+		switch s.Name {
+		case "ubuntu-vm", "UBUNTU-VM":
+			vm = s
+		case "WS-01":
+			ws = s
+		}
+	}
+	if vm.Events != 1 || vm.High != 1 || vm.Via != "WS-01" || vm.Status != "ok" {
+		t.Errorf("VM row (names differ only in case, so they are one system): %+v", vm)
+	}
+	if ws.Status != "warn" || ws.Checks == nil || ws.Checks.Fail != 1 {
+		t.Errorf("WS-01 has a failing audit setting: %+v", ws)
+	}
+	if len(r.Hosts) != 3 {
+		t.Errorf("every system is listed in the report, even with no events: %v", r.Hosts)
+	}
+	warned := strings.Join(r.Health.Warnings, "\n")
+	if !strings.Contains(warned, "WS-03") || !strings.Contains(warned, "WS-01: the longest time between collections") {
+		t.Errorf("warnings:\n%s", warned)
+	}
+
+	var html bytes.Buffer
+	if err := r.WriteHTML(&html); err != nil {
+		t.Fatal(err)
+	}
+	h := html.String()
+	for _, want := range []string{`data-view="systems"`, `<option>WS-03</option>`, `data-host="WS-01"`, `id="checks-WS-01" open`, "via WS-01", "The audit trail is not complete"} {
+		if !strings.Contains(h, want) {
+			t.Errorf("report HTML missing %q", want)
+		}
+	}
+	sum := r.summary()
+	if len(sum.Systems) != 3 || sum.Systems[0].Status != "silent" {
+		t.Errorf("summary.json systems: %+v", sum.Systems)
+	}
+}
+
+// Old events can carry a computer's former name (a renamed PC, or a VM
+// cloned from an image). That is not a second computer gone silent.
+func TestFormerNameIsNotASilentSystem(t *testing.T) {
+	end := time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)
+	runs := []*store.Run{{Time: end.Add(-time.Hour), Host: "WS-07", OS: "windows"}}
+	events := []*event.Event{
+		{Time: end.Add(-2 * time.Hour), Host: "WS-07", Category: event.CatLogon, Severity: event.SevInfo, Action: "logon", Summary: "logon"},
+		{Time: end.AddDate(0, -2, 0), Host: "IMAGE-BUILD-01", Category: event.CatLogon, Severity: event.SevInfo, Action: "logon", Summary: "old logon"},
+	}
+	r := Build(events, runs, Options{WindowEnd: end, Generated: end, Location: time.UTC, Source: "Live collection",
+		Systems: []SystemInfo{{Name: "WS-07", OS: "windows", LastRun: end.Add(-time.Hour)}}})
+	if r.ShowSystems() || len(r.Silent) != 0 || len(r.SystemRows) != 1 {
+		t.Errorf("a former name became a system: %+v", r.SystemRows)
+	}
+	if len(r.Events) != 2 {
+		t.Error("events under the former name must still be reported")
+	}
+	for _, w := range r.Health.Warnings {
+		if strings.Contains(w, "IMAGE-BUILD-01") {
+			t.Errorf("false warning: %s", w)
+		}
+	}
+}
+
+func TestSingleSystemHasNoSystemsPage(t *testing.T) {
+	r := build(t, Options{CheckSets: []CheckSet{NewCheckSet("WS-07", time.Now(), []check.Result{{Area: "a", Item: "b", Status: check.Pass}})}})
+	if r.ShowSystems() {
+		t.Error("a standalone report should not have a Systems page")
+	}
+	var html bytes.Buffer
+	r.WriteHTML(&html)
+	if strings.Contains(html.String(), `select class="host"`) {
+		t.Error("no system filter on a single-system report")
+	}
+	if !strings.Contains(html.String(), "Checked ") {
+		t.Error("single check set should be shown directly")
 	}
 }

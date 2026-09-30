@@ -8,12 +8,25 @@ INSTALL
   Setup schedules hourly collection, checks the audit settings, and
   produces the first report.
 
+SEVERAL COMPUTERS (a Linux VM on this PC, or a LAN)
+  The first question asks how this computer's events are reviewed.
+  - On the PC that should produce the reports, choose "This is the
+    collector". Setup creates an inbox folder (C:\BlackboxInbox) and can
+    share it with VirtualBox VMs on this PC and with the network.
+  - On each other computer, choose "Send to a collector".
+  - On a LAN PC that hosts a Linux VM, choose "Relay".
+  Set up the collector first. See docs/lan.md in the documentation.
+
 CHANGE SETTINGS LATER (for example, the report folder)
   Double-click Install.cmd again: it shows the current settings as the
   defaults, so change only what you need.
 
 REPORTS
   Default folder: C:\ProgramData\Blackbox\reports  (open index.html)
+
+CHECK IT IS WORKING
+  Open Command Prompt as administrator and run:
+    "C:\Program Files\Blackbox\blackbox.exe" status
 
 UNINSTALL
   Settings > Apps > Blackbox > Uninstall, or double-click Uninstall.cmd.
