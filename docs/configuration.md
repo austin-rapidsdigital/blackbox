@@ -17,6 +17,7 @@ file:
 | `retention_days` | `0` | Days to keep reports and collected events; `0` keeps them forever |
 | `exclude_users` | *(none)* | Accounts to leave out of reports, e.g. `svc_backup, svc_scanner` |
 | `exclude_processes` | *(none)* | Programs to leave out, by name or full path, e.g. `scan.exe` |
+| `working_hours` | *(blank)* | When administrator activity is expected, e.g. `Mon-Fri 06:00-18:00`, `Daily 07:00-19:00` or `Mon-Fri 22:00-06:00` (a night shift). Activity outside these hours is shown under [Detections](reports.md#detections). Blank turns the check off |
 | `data_dir` | platform default | Where reports and collected events are stored |
 | `send_to` | *(blank)* | The collector's inbox this computer sends to: `\\COLLECTOR\BlackboxInbox` (Windows), `//COLLECTOR/BlackboxInbox` or `/media/sf_BlackboxInbox` (Linux). When set, this computer makes no reports of its own. See [lan.md](lan.md) |
 | `share_user` | *(blank)* | Account on the collector for `send_to`. The password is never in this file: it is stored encrypted (Windows) or root-only (Linux) by the installer |
@@ -28,6 +29,7 @@ the current values as defaults. To change one setting from a script:
 ```
 blackbox config set report_dir D:\AuditReports
 blackbox config set report_every daily
+blackbox config set working_hours "Mon-Fri 06:00-18:00"
 ```
 
 `blackbox config set` checks the value before saving it:

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/casea1/blackbox/internal/config"
 	"github.com/casea1/blackbox/internal/event"
 	"github.com/casea1/blackbox/internal/linuxlog"
 	"github.com/casea1/blackbox/internal/store"
@@ -37,6 +38,19 @@ type Options struct {
 	// KnownDevices lists removable devices seen in earlier reports; new
 	// ones are flagged. Nil disables the check.
 	KnownDevices map[string]time.Time
+
+	// Context is events from the day before the period, already reported,
+	// so a detection that started then can be completed now.
+	Context []*event.Event
+
+	// Baseline is what has been seen before (first logons, administrator
+	// use, logon addresses), and BaselineHosts the computers whose normal
+	// activity has been learned. Nil Baseline turns first-time detection off.
+	Baseline      map[string]time.Time
+	BaselineHosts map[string]time.Time
+
+	// WorkingHours: administrator activity outside them is detected.
+	WorkingHours config.WorkingHours
 
 	// CheckSets are the latest audit settings check of each computer.
 	CheckSets []CheckSet
@@ -174,9 +188,11 @@ type Report struct {
 	Duplicates int
 	Late       int
 	NewDevices map[string]time.Time
-	BySev      map[string]int // by severity
-	SystemRows []SystemRow    // Systems page
-	Silent     []SystemRow    // computers with no collection in this period
+	Learned    map[string]time.Time // baseline items seen in this period
+	Learning   []string             // computers whose normal activity is being learned
+	BySev      map[string]int       // by severity
+	SystemRows []SystemRow          // Systems page
+	Silent     []SystemRow          // computers with no collection in this period
 }
 
 // Build assembles a report from events (already filtered to the period)
@@ -185,7 +201,7 @@ func Build(events []*event.Event, runs []*store.Run, opt Options) *Report {
 	if opt.Location == nil {
 		opt.Location = time.Local
 	}
-	r := &Report{Options: opt, NewDevices: map[string]time.Time{}, BySev: map[string]int{}}
+	r := &Report{Options: opt, NewDevices: map[string]time.Time{}, Learned: map[string]time.Time{}, BySev: map[string]int{}}
 
 	sort.SliceStable(events, func(i, j int) bool { return events[i].Time.Before(events[j].Time) })
 	events = r.exclude(events)
@@ -215,6 +231,7 @@ func Build(events []*event.Event, runs []*store.Run, opt Options) *Report {
 	r.flagNewDevices(rows)
 	r.buildSections(rows)
 	r.findPatterns(rows)
+	r.detect(rows, r.withContext(rows))
 	r.buildAttention(rows)
 	r.buildUsers(events)
 	r.buildHealth(runs, events)
@@ -613,13 +630,26 @@ func (r *Report) findPatterns(rows []*Row) {
 		}
 		r.Findings = append(r.Findings, f)
 	}
-	sort.SliceStable(r.Findings, func(i, j int) bool {
-		a, b := r.Findings[i], r.Findings[j]
-		if a.Severity.Rank() != b.Severity.Rank() {
-			return a.Severity.Rank() > b.Severity.Rank()
-		}
-		return a.Time.Before(b.Time)
-	})
+}
+
+// withContext returns the rows of the period preceded by the context
+// events (filtered and merged the same way, with no row ID).
+func (r *Report) withContext(rows []*Row) []*Row {
+	if len(r.Context) == 0 {
+		return rows
+	}
+	ctx := append([]*event.Event(nil), r.Context...)
+	sort.SliceStable(ctx, func(i, j int) bool { return ctx[i].Time.Before(ctx[j].Time) })
+	excluded, dups := r.Excluded, r.Duplicates
+	ctx = r.dedupe(r.exclude(ctx))
+	r.Excluded, r.Duplicates = excluded, dups
+	all := make([]*Row, 0, len(ctx)+len(rows))
+	for _, e := range ctx {
+		all = append(all, &Row{Event: e})
+	}
+	all = append(all, rows...)
+	sort.SliceStable(all, func(i, j int) bool { return all[i].Time.Before(all[j].Time) })
+	return all
 }
 
 // clusters splits time-sorted rows into runs where each row is within

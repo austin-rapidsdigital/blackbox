@@ -39,6 +39,16 @@ type Summary struct {
 	Version     string         `json:"blackbox_version"`
 	Source      string         `json:"source"`
 	Systems     []SystemStatus `json:"systems,omitempty"`
+	Detections  []Detection    `json:"detections,omitempty"`
+}
+
+// Detection is one detection in summary.json.
+type Detection struct {
+	Severity string    `json:"severity"`
+	Time     time.Time `json:"time"`
+	Host     string    `json:"host"`
+	Title    string    `json:"title"`
+	Detail   string    `json:"detail"`
 }
 
 // SystemStatus is one computer's line in summary.json.
@@ -61,6 +71,7 @@ func (r *Report) summary() Summary {
 	}
 	s.High = len(r.HighRows)
 	for _, f := range r.Findings {
+		s.Detections = append(s.Detections, Detection{Severity: string(f.Severity), Time: f.Time, Host: f.Host, Title: f.Title, Detail: f.Detail})
 		if f.Severity == event.SevHigh {
 			s.High++
 		}

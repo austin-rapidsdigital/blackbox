@@ -61,3 +61,16 @@ func TestSelectWindowReportsEachEventOnce(t *testing.T) {
 		t.Error("late-collected event should be marked Late, others not")
 	}
 }
+
+func TestContextEventsAreTheDayBefore(t *testing.T) {
+	start := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	at := func(h int) *event.Event { return &event.Event{Time: start.Add(time.Duration(h) * time.Hour)} }
+	old, dayBefore, inReport, lateArrival := at(-30), at(-3), at(2), at(-5)
+	got := contextEvents([]*event.Event{old, dayBefore, inReport, lateArrival}, []*event.Event{inReport, lateArrival}, start)
+	if len(got) != 1 || got[0] != dayBefore {
+		t.Errorf("context = %v", got)
+	}
+	if contextEvents([]*event.Event{dayBefore}, nil, time.Time{}) != nil {
+		t.Error("the first report has no previous period")
+	}
+}

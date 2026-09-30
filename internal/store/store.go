@@ -52,6 +52,11 @@ type State struct {
 	// Removable devices seen before, so new ones can be flagged.
 	KnownDevices map[string]time.Time `json:"known_devices"`
 
+	// What people normally do, so first times can be pointed out (see
+	// report.UpdateBaseline), and the computers already learned.
+	Baseline      map[string]time.Time `json:"baseline,omitempty"`
+	BaselineHosts map[string]time.Time `json:"baseline_hosts,omitempty"`
+
 	// LastCheck is when the audit settings were last checked.
 	LastCheck time.Time `json:"last_check,omitzero"`
 
@@ -126,6 +131,12 @@ func Open(dir string) (*Store, error) {
 	}
 	if s.State.KnownDevices == nil {
 		s.State.KnownDevices = map[string]time.Time{}
+	}
+	if s.State.Baseline == nil {
+		s.State.Baseline = map[string]time.Time{}
+	}
+	if s.State.BaselineHosts == nil {
+		s.State.BaselineHosts = map[string]time.Time{}
 	}
 	if s.State.Senders == nil {
 		s.State.Senders = map[string]*SenderState{}

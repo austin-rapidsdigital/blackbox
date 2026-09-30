@@ -244,11 +244,18 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 	if !prevGen.IsZero() && prevGen.Before(since) {
 		since = prevGen
 	}
-	all, err := st.ReadEvents(since)
+	// A day before the period is read as well, for detections that span
+	// two reports.
+	readFrom := since
+	if !readFrom.IsZero() {
+		readFrom = readFrom.Add(-contextSpan)
+	}
+	all, err := st.ReadEvents(readFrom)
 	if err != nil {
 		return "", err
 	}
 	events := SelectWindow(all, prevEnd, prevGen, end, generated)
+	context := contextEvents(all, events, prevEnd)
 	runs, err := st.ReadRuns(prevGen)
 	if err != nil {
 		return "", err
@@ -275,7 +282,9 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		Source: "Live collection", Location: a.loc(), InReportsDir: true,
 		ExcludeUsers: a.Cfg.ExcludeUsers, ExcludeProcesses: a.Cfg.ExcludeProcesses,
 		KnownDevices: st.State.KnownDevices, CheckSets: sets,
-		Systems: systemsFor(st, prevEnd), Collector: a.Cfg.Inbox != "",
+		Context: context, Baseline: st.State.Baseline, BaselineHosts: st.State.BaselineHosts,
+		WorkingHours: a.Cfg.WorkingHours,
+		Systems:      systemsFor(st, prevEnd), Collector: a.Cfg.Inbox != "",
 		LANWarnings: lanWarnings(st, prevGen, generated, a.loc()),
 	})
 	if len(r.Hosts) == 0 {
@@ -295,6 +304,7 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		for k, t := range r.NewDevices {
 			st.State.KnownDevices[k] = t
 		}
+		report.UpdateBaseline(st.State.Baseline, st.State.BaselineHosts, r, generated)
 		if err := st.Save(); err != nil {
 			return dir, err
 		}
@@ -309,6 +319,28 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		a.logf("updating report index: %v", err)
 	}
 	return dir, nil
+}
+
+// contextSpan is how far before a report's period detections look.
+const contextSpan = 24 * time.Hour
+
+// contextEvents returns the events from the day before the period start
+// that are not in the report itself (they were in the previous one).
+func contextEvents(all, inReport []*event.Event, start time.Time) []*event.Event {
+	if start.IsZero() {
+		return nil
+	}
+	in := make(map[*event.Event]bool, len(inReport))
+	for _, e := range inReport {
+		in[e] = true
+	}
+	var out []*event.Event
+	for _, e := range all {
+		if !in[e] && !e.Time.Before(start.Add(-contextSpan)) && e.Time.Before(start) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // systemsFor lists the computers to show in a report whose period starts
