@@ -161,7 +161,7 @@ func (t *Translator) logonSuccess(r *Raw) *event.Event {
 		return nil
 	}
 	e := &event.Event{Category: event.CatLogon, Action: "logon", User: user, Outcome: "success",
-		SourceIP: cleanIP(r.Get("IpAddress"))}
+		SourceIP: cleanIP(r.Get("IpAddress")), Interactive: interactiveLogon(lt) || lt == "7"}
 	if len(t.logons) > 100000 {
 		t.logons = map[string]logonInfo{}
 	}

@@ -78,3 +78,65 @@ func isoDuration(d time.Duration) string {
 func xmlEscape(s string) string {
 	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;").Replace(s)
 }
+
+// systemdService is the unit that runs one collection (and a report when
+// one is due). It is sandboxed: no network, read-only system, and the only
+// writable place is Blackbox's data folder.
+func systemdService(exe, dataDir string) string {
+	return fmt.Sprintf(`[Unit]
+Description=Blackbox audit log collection and reporting
+Documentation=https://github.com/casea1/blackbox
+After=auditd.service local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=%s run
+Nice=10
+IOSchedulingClass=idle
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%s
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+UMask=0077
+TimeoutStartSec=2h
+`, exe, dataDir)
+}
+
+// systemdTimer runs the service on a fixed schedule and catches up after
+// the system was off (Persistent=true).
+func systemdTimer(every time.Duration) (string, error) {
+	cal, err := onCalendar(every)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(`[Unit]
+Description=Run Blackbox audit collection every %s
+
+[Timer]
+OnCalendar=%s
+OnBootSec=5min
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
+`, every, cal), nil
+}
+
+// onCalendar turns an interval into a systemd calendar expression. The
+// interval must divide an hour (minutes) or a day (hours) evenly.
+func onCalendar(d time.Duration) (string, error) {
+	switch {
+	case d < time.Hour && d >= time.Minute && time.Hour%d == 0 && d%time.Minute == 0:
+		return fmt.Sprintf("*-*-* *:00/%d:00", int(d.Minutes())), nil
+	case d >= time.Hour && d%time.Hour == 0 && (24*time.Hour)%d == 0:
+		return fmt.Sprintf("*-*-* 00/%d:05:00", int(d.Hours())), nil
+	}
+	return "", fmt.Errorf("collection interval %s must divide an hour or a day evenly (e.g. 15m, 30m, 1h, 2h)", d)
+}

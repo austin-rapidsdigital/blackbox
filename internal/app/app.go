@@ -62,7 +62,7 @@ func (a *App) Scheduled() (string, error) {
 		return "", err
 	}
 	defer unlock()
-	if _, err := collect.Windows(st, collect.Options{Version: a.Version, Now: a.now, Logf: a.Logf}); err != nil {
+	if _, err := collect.Live(st, collect.Options{Version: a.Version, Now: a.now, Logf: a.Logf}); err != nil {
 		return "", err
 	}
 	end, due := DueWindowEnd(a.Cfg.ReportEvery, st.State.LastWindowEnd, a.now(), a.loc())
@@ -84,7 +84,7 @@ func (a *App) ReportNow(advance bool) (string, error) {
 		return "", err
 	}
 	defer unlock()
-	if _, err := collect.Windows(st, collect.Options{Version: a.Version, Now: a.now, Logf: a.Logf}); err != nil {
+	if _, err := collect.Live(st, collect.Options{Version: a.Version, Now: a.now, Logf: a.Logf}); err != nil {
 		return "", err
 	}
 	return a.report(st, a.now(), advance)
@@ -101,7 +101,7 @@ func (a *App) Collect() (*store.Run, error) {
 		return nil, err
 	}
 	defer unlock()
-	return collect.Windows(st, collect.Options{Version: a.Version, Now: a.now, Logf: a.Logf})
+	return collect.Live(st, collect.Options{Version: a.Version, Now: a.now, Logf: a.Logf})
 }
 
 func (a *App) report(st *store.Store, end time.Time, advance bool) (string, error) {
@@ -245,14 +245,28 @@ func pruneReports(dir string, days int, now time.Time) error {
 	return nil
 }
 
-// ReportFromFiles builds a one-off report from exported logs (XML from
-// wevtutil/Event Viewer on any OS, or .evtx on Windows).
-func (a *App) ReportFromFiles(xmlFiles, evtxFiles []string, outDir string) (string, error) {
+// Inputs are exported log files for a one-off report.
+type Inputs struct {
+	XML    []string // Windows: wevtutil / Event Viewer XML (any OS)
+	EVTX   []string // Windows: .evtx (Windows only)
+	Audit  []string // Linux: auditd logs (audit.log, rotated copies, .gz)
+	Syslog []string // Linux: syslog, messages, kern.log, auth.log, secure, journalctl output
+	Host   string   // Linux: host name when the logs do not say
+	Passwd string   // Linux: /etc/passwd copy for turning user IDs into names
+}
+
+// Empty reports whether no files were given.
+func (in Inputs) Empty() bool {
+	return len(in.XML)+len(in.EVTX)+len(in.Audit)+len(in.Syslog) == 0
+}
+
+// ReportFromFiles builds a one-off report from exported logs.
+func (a *App) ReportFromFiles(in Inputs, outDir string) (string, error) {
 	now := a.now()
 	var events []*event.Event
 	var runs []*store.Run
 	var names []string
-	for _, p := range xmlFiles {
+	for _, p := range in.XML {
 		ev, run, err := collect.FromRaw(func(fn func(*winevt.Raw) error) error {
 			f, err := os.Open(p)
 			if err != nil {
@@ -267,13 +281,23 @@ func (a *App) ReportFromFiles(xmlFiles, evtxFiles []string, outDir string) (stri
 		events, runs = append(events, ev...), append(runs, run)
 		names = append(names, filepath.Base(p))
 	}
-	for _, p := range evtxFiles {
+	for _, p := range in.EVTX {
 		ev, run, err := collect.FromRaw(func(fn func(*winevt.Raw) error) error { return winevt.ReadFile(p, fn) }, p, now)
 		if err != nil {
 			return "", err
 		}
 		events, runs = append(events, ev...), append(runs, run)
 		names = append(names, filepath.Base(p))
+	}
+	if len(in.Audit)+len(in.Syslog) > 0 {
+		ev, run, err := collect.LinuxFiles(in.Audit, in.Syslog, in.Host, in.Passwd, now)
+		if err != nil {
+			return "", err
+		}
+		events, runs = append(events, ev...), append(runs, run)
+		for _, p := range append(append([]string{}, in.Audit...), in.Syslog...) {
+			names = append(names, filepath.Base(p))
+		}
 	}
 	end := now
 	if len(events) > 0 {

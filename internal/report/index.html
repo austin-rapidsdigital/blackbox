@@ -39,7 +39,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 <td>{{join .Hosts ", "}}</td><td class="num">{{commas .Events}}</td>
 <td class="num">{{if .High}}<span class="c-high">{{.High}}</span>{{else}}0{{end}}</td>
 <td class="num">{{if .Medium}}<span class="c-med">{{.Medium}}</span>{{else}}0{{end}}</td>
-<td>{{if .Lost}}<span class="c-high">{{commas .Lost}} events lost</span>{{else if .LogClears}}<span class="c-high">log cleared</span>{{else}}<span class="ok">complete</span>{{end}}</td>
+<td>{{if .Lost}}<span class="c-high">{{commas .Lost}} events lost</span>{{else if .LogClears}}<span class="c-high">log cleared</span>{{else if .AuditOff}}<span class="c-high">auditing was off</span>{{else}}<span class="ok">complete</span>{{end}}</td>
 <td><a href="{{.Dir}}/report.html">Open report</a></td>
 </tr>{{end}}
 </tbody></table>

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -28,8 +29,11 @@ Usage:
   blackbox install [options]     Set up scheduled collection and reporting (run as administrator)
   blackbox run                   Collect new events; produce a report if one is due (what the schedule runs)
   blackbox report [options]      Collect and produce a report now
-  blackbox report --xml FILE     Produce a report from exported event logs (any OS)
+  blackbox report --xml FILE     Produce a report from exported Windows event logs (any OS)
+  blackbox report --audit FILE --syslog FILE
+                                 Produce a report from copied Linux logs (any OS)
   blackbox check                 Check audit settings against the DISA STIG (report only; changes nothing)
+  blackbox check --audit-rules   Linux: print the recommended auditd rules file
   blackbox verify FOLDER         Confirm a report has not been altered since it was produced
   blackbox uninstall             Remove the scheduled task (keeps reports and data)
   blackbox version               Show the version
@@ -111,6 +115,9 @@ func cmdInstall(args []string) error {
 	}
 	if *collectEvery < 5*time.Minute || *collectEvery > 24*time.Hour || *collectEvery%time.Minute != 0 {
 		return fmt.Errorf("--collect-every must be whole minutes between 5m and 24h")
+	}
+	if runtime.GOOS == "linux" && time.Hour%*collectEvery != 0 && (*collectEvery%time.Hour != 0 || (24*time.Hour)%*collectEvery != 0) {
+		return fmt.Errorf("--collect-every must divide an hour or a day evenly on Linux (e.g. 15m, 30m, 1h, 2h)")
 	}
 	fmt.Println("Installing Blackbox", version)
 	err := install.Install(install.Options{Site: *site,
@@ -198,10 +205,14 @@ func cmdReport(args []string) error {
 	fs := flag.NewFlagSet("report", flag.ContinueOnError)
 	var c common
 	c.register(fs)
-	var xmlFiles, evtxFiles listFlag
-	fs.Var(&xmlFiles, "xml", "exported event XML (wevtutil qe … /f:xml, or Event Viewer \"Save as XML\"); repeatable")
-	fs.Var(&evtxFiles, "evtx", "exported .evtx file (Windows only); repeatable")
-	out := fs.String("out", "", "output folder for --xml/--evtx reports (default: ./blackbox-report-<time>)")
+	var in app.Inputs
+	fs.Var((*listFlag)(&in.XML), "xml", "Windows: exported event XML (wevtutil qe … /f:xml, or Event Viewer \"Save as XML\"); repeatable")
+	fs.Var((*listFlag)(&in.EVTX), "evtx", "Windows: exported .evtx file (read on Windows only); repeatable")
+	fs.Var((*listFlag)(&in.Audit), "audit", "Linux: auditd log (audit.log, rotated copies, .gz); repeatable")
+	fs.Var((*listFlag)(&in.Syslog), "syslog", "Linux: syslog/messages/kern.log (USB), or auth.log/secure when there is no audit log; repeatable")
+	fs.StringVar(&in.Host, "host", "", "Linux: host name to show, if the logs do not include it")
+	fs.StringVar(&in.Passwd, "passwd", "", "Linux: copy of /etc/passwd, to show names instead of user IDs")
+	out := fs.String("out", "", "output folder for reports from files (default: ./blackbox-report-<time>)")
 	preview := fs.Bool("preview", false, "produce a report without affecting the scheduled report sequence")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -212,8 +223,8 @@ func cmdReport(args []string) error {
 	}
 	a := newApp(cfg, printf)
 	var dir string
-	if len(xmlFiles) > 0 || len(evtxFiles) > 0 {
-		dir, err = a.ReportFromFiles(xmlFiles, evtxFiles, *out)
+	if !in.Empty() {
+		dir, err = a.ReportFromFiles(in, *out)
 	} else {
 		dir, err = a.ReportNow(!*preview)
 	}
@@ -227,11 +238,16 @@ func cmdReport(args []string) error {
 func cmdCheck(args []string) error {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	all := fs.Bool("all", false, "also list settings that pass")
+	rules := fs.Bool("audit-rules", false, "Linux: print Blackbox's recommended auditd rules file and exit")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if *rules {
+		fmt.Print(check.AuditRules)
+		return nil
+	}
 	if !check.Supported {
-		return errors.New("the audit settings check currently runs on Windows (Linux auditd checks come with Linux support)")
+		return errors.New("the audit settings check runs on Windows and Linux")
 	}
 	rs := check.Run()
 	printChecks(rs, *all)

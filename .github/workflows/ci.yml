@@ -42,3 +42,47 @@ jobs:
           $dir = Get-ChildItem C:\ProgramData\Blackbox\reports -Directory | Select-Object -First 1
           ./blackbox.exe verify $dir.FullName
           if ($LASTEXITCODE -ne 0) { exit 1 }
+  linux-live:
+    # End-to-end on a real Ubuntu machine: install auditd with Blackbox's
+    # recommended rules, make some changes an auditor must see, then
+    # collect, report and check the report says so.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: go build -o blackbox ./cmd/blackbox
+      - name: Install auditd with the recommended rules
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq auditd
+          sudo systemctl start auditd
+          ./blackbox check --audit-rules | sudo tee /etc/audit/rules.d/99-blackbox.rules > /dev/null
+          sudo augenrules --load
+          sudo auditctl -s
+      - name: Make changes an auditor must see
+        run: |
+          sudo useradd -m bbtestuser
+          sudo usermod -aG sudo bbtestuser
+          echo 'bbtestuser ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/bbtestuser > /dev/null
+          sleep 2
+      - name: Check, collect, report and verify
+        run: |
+          printf 'data_dir = %s/bbdata\n' "$PWD" > ci.conf
+          sudo ./blackbox check --all || [ $? -eq 3 ]
+          sudo ./blackbox collect --config ci.conf
+          sudo ./blackbox report --preview --config ci.conf
+          dir=$(sudo sh -c 'ls -d bbdata/reports/*/' | head -1)
+          sudo ./blackbox verify "$dir"
+          for want in "created the user account bbtestuser" "added bbtestuser to the privileged group sudo" "changed the sudo rules: /etc/sudoers.d/bbtestuser"; do
+            if ! sudo grep -q "$want" "$dir/report.html"; then
+              echo "report is missing: $want"
+              sudo grep -o 'class="row s[0-9]"[^<]*<td[^<]*<span[^>]*>[a-z]*</span></td><td class="mono">[^<]*</td><td>[^<]*</td><td>[^<]*' "$dir/report.html" | sed 's/<[^>]*>/ | /g' | head -40
+              echo "--- account-related audit records:"
+              sudo grep -E 'type=(ADD_USER|ADD_GROUP|USER_MGMT|GRP_MGMT|USER_CHAUTHTOK)' /var/log/audit/audit.log | tail -20
+              exit 1
+            fi
+          done
+          echo "All expected events found."
