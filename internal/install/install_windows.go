@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf16"
 
@@ -146,6 +147,7 @@ func Uninstall(logf func(string, ...any)) error {
 	if !isAdmin() {
 		return errors.New("uninstall must be run from an elevated (Run as administrator) prompt")
 	}
+	exec.Command("schtasks.exe", "/End", "/TN", TaskName).Run() // stop a run in progress
 	if out, err := exec.Command("schtasks.exe", "/Delete", "/TN", TaskName, "/F").CombinedOutput(); err != nil {
 		logf("Scheduled task: %s", strings.TrimSpace(string(out)))
 	} else {
@@ -158,7 +160,7 @@ func Uninstall(logf func(string, ...any)) error {
 	// removes the program folder once this process has exited.
 	dir := filepath.Dir(ProgramPath())
 	if _, err := os.Stat(dir); err == nil {
-		if err := exec.Command("cmd.exe", "/c", "ping -n 4 127.0.0.1 >nul & rmdir /s /q \""+dir+"\"").Start(); err == nil {
+		if err := removeAfterExit(dir); err == nil {
 			logf("Removing %s.", dir)
 		}
 	}
@@ -167,6 +169,23 @@ func Uninstall(logf func(string, ...any)) error {
 	}
 	logf("Settings and collected events were kept in %s.", config.DefaultDataDir())
 	return nil
+}
+
+// removeAfterExit starts a hidden cmd.exe that deletes dir once this
+// process has exited. It retries for about 30 seconds, in case the
+// scheduled task or an antivirus scan still has the program open.
+func removeAfterExit(dir string) error {
+	script := `ping -n 3 127.0.0.1 >nul & for /l %i in (1,1,30) do @(rmdir /s /q "` + dir +
+		`" 2>nul & if not exist "` + dir + `" (exit /b 0) & ping -n 2 127.0.0.1 >nul)`
+	cmd := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"))
+	// Set the command line directly: Go's argument quoting (\") is not
+	// understood by cmd.exe and breaks paths containing spaces.
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CmdLine:       `cmd.exe /d /s /c "` + script + `"`,
+		HideWindow:    true,
+		CreationFlags: 0x08000000 | syscall.CREATE_NEW_PROCESS_GROUP, // CREATE_NO_WINDOW
+	}
+	return cmd.Start()
 }
 
 // isAdmin checks for an elevated token by opening the raw physical disk,

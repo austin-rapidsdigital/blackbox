@@ -69,8 +69,11 @@ jobs:
           }
           Write-Host "Scheduled task wrote a report to $r2"
           & $exe uninstall
-          Start-Sleep 8
-          if (Test-Path "C:\Program Files\Blackbox") { throw "program folder not removed" }
+          $deadline = (Get-Date).AddSeconds(60)
+          while (Test-Path "C:\Program Files\Blackbox") {
+            if ((Get-Date) -gt $deadline) { Get-ChildItem "C:\Program Files\Blackbox"; throw "program folder not removed" }
+            Start-Sleep 2
+          }
           if (Test-Path $key) { throw "Programs and Features entry not removed" }
           schtasks /Query /TN "Blackbox Audit Collection" 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) { throw "scheduled task not removed" }
