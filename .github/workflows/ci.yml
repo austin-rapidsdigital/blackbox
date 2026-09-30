@@ -57,7 +57,8 @@ jobs:
           $r1 = Join-Path $env:RUNNER_TEMP "bb-reports"
           $r2 = Join-Path $env:RUNNER_TEMP "bb-reports-2"
           # An account other computers send as (a workgroup has no domain accounts).
-          net user bbsend "Bb-Sender-CI-2026!" /add | Out-Null
+          # 14 characters at most, or net user stops to ask for confirmation.
+          net user bbsend "BbSend-CI-26!x" /add | Out-Null
           ./blackbox.exe install --yes --site CI --report-dir $r1 --inbox C:\BlackboxInbox --share-inbox --inbox-writer bbsend --no-first-report
           if ($LASTEXITCODE -ne 0) { throw "install failed" }
           if (-not (Test-Path C:\BlackboxInbox\BLACKBOX-INBOX.txt)) { throw "inbox not prepared" }
@@ -68,7 +69,7 @@ jobs:
           # A second Blackbox (its own settings and data) sends over SMB with the account.
           $s = Join-Path $env:RUNNER_TEMP "sender"
           "data_dir = $s`r`nsend_to = \\localhost\BlackboxInbox`r`nshare_user = bbsend" | Set-Content "$s.conf"
-          $env:BLACKBOX_SHARE_PASSWORD = "Bb-Sender-CI-2026!"
+          $env:BLACKBOX_SHARE_PASSWORD = "BbSend-CI-26!x"
           ./blackbox.exe send --config "$s.conf"
           if ($LASTEXITCODE -ne 0) { throw "send over SMB failed" }
           Remove-Item Env:BLACKBOX_SHARE_PASSWORD
