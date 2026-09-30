@@ -300,14 +300,18 @@ func TestFollowRotationAndTruncation(t *testing.T) {
 	}
 }
 
-// Records as written on a real Ubuntu 24.04 system (seen in CI): usermod
-// reports group changes as USER_CHAUTHTOK, and commands run from a service
-// have no login user.
+// Records copied from a real Ubuntu 24.04 system (the linux-live CI job):
+// usermod writes "adding user to group" as USER_CHAUTHTOK, unquoted and
+// without the group name, which comes from the sudo command before it.
 func TestUbuntu2404AccountRecords(t *testing.T) {
 	lines := []string{
-		`type=USER_CHAUTHTOK msg=audit(1790729684.100:250): pid=3500 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='op=add-user-to-group grp="sudo" acct="bbtestuser" exe="/usr/sbin/usermod" hostname=runnervm addr=? terminal=? res=success'` + "\x1d" + `UID="root" AUID="unset"`,
-		`type=USER_CHAUTHTOK msg=audit(1790729684.101:251): pid=3500 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='op=add-to-shadow-group grp="sudo" acct="bbtestuser" exe="/usr/sbin/usermod" hostname=runnervm addr=? terminal=? res=success'` + "\x1d" + `UID="root" AUID="unset"`,
-		`type=USER_CHAUTHTOK msg=audit(1790729690.000:260): pid=3600 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='op=PAM:chauthtok grantors=pam_unix acct="bbtestuser" exe="/usr/bin/passwd" hostname=runnervm addr=? terminal=? res=success'` + "\x1d" + `UID="root" AUID="unset"`,
+		`type=ADD_GROUP msg=audit(1790729792.469:253): pid=3711 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='op=adding group acct="bbtestuser" exe="/usr/sbin/useradd" hostname=? addr=? terminal=? res=success'` + "\x1d" + `UID="root" AUID="unset"`,
+		`type=ADD_USER msg=audit(1790729792.471:254): pid=3711 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='op=adding user id=1002 exe="/usr/sbin/useradd" hostname=? addr=? terminal=? res=success'` + "\x1d" + `UID="root" AUID="unset" ID="unknown(1002)"`,
+		`type=ADD_USER msg=audit(1790729792.482:259): pid=3711 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='op=adding home directory id=1002 exe="/usr/sbin/useradd" hostname=? addr=? terminal=? res=success'` + "\x1d" + `UID="root" AUID="unset" ID="bbtestuser"`,
+		`type=USER_CMD msg=audit(1790729891.290:268): pid=3736 uid=1001 auid=4294967295 ses=4294967295 subj=unconfined msg='cwd="/home/runner" cmd=757365726D6F64202D6147207375646F2062627465737475736572 exe="/usr/bin/sudo" terminal=? res=success'` + "\x1d" + `UID="runner" AUID="unset"`,
+		`type=USER_CHAUTHTOK msg=audit(1790729891.298:271): pid=3737 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='op=adding user to group acct="bbtestuser" exe="/usr/sbin/usermod" hostname=? addr=? terminal=? res=success'` + "\x1d" + `UID="root" AUID="unset"`,
+		`type=USER_CHAUTHTOK msg=audit(1790729891.298:272): pid=3737 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='op=adding user to shadow group acct="bbtestuser" exe="/usr/sbin/usermod" hostname=? addr=? terminal=? res=success'` + "\x1d" + `UID="root" AUID="unset"`,
+		`type=USER_CHAUTHTOK msg=audit(1790729990.000:280): pid=3800 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='op=PAM:chauthtok grantors=pam_unix acct="bbtestuser" exe="/usr/bin/passwd" hostname=? addr=? terminal=? res=success'` + "\x1d" + `UID="root" AUID="unset"`,
 	}
 	tr := NewTranslator("runnervm", nil)
 	var got []string
@@ -318,11 +322,35 @@ func TestUbuntu2404AccountRecords(t *testing.T) {
 		return nil
 	})
 	want := []string{
+		"An administrator created the group bbtestuser.",
+		"An administrator created the user account bbtestuser.",
+		"runner ran with sudo: usermod -aG sudo bbtestuser",
 		"An administrator added bbtestuser to the privileged group sudo.",
 		"An administrator added bbtestuser to the privileged group sudo.", // shadow group; merged by the report
 		"The password of bbtestuser was changed.",
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	r, _ := ParseRecord(lines[4])
+	if r.Fields["op"] != "adding user to group" || r.Fields["acct"] != "bbtestuser" {
+		t.Errorf("unquoted multi-word op parsed as %q", r.Fields["op"])
+	}
+}
+
+func TestGroupsFromCommand(t *testing.T) {
+	cases := map[string]string{
+		"usermod -aG sudo bob":                "sudo",
+		"usermod -a -G sudo,adm bob":          "sudo,adm",
+		"usermod --append --groups=wheel bob": "wheel",
+		"gpasswd -a bob sudo":                 "sudo",
+		"adduser bob sudo":                    "sudo",
+		"usermod -aG sudo alice":              "",
+		"useradd -m bob":                      "",
+	}
+	for cmd, want := range cases {
+		if got := strings.Join(groupsFromCommand(cmd, "bob"), ","); got != want {
+			t.Errorf("groupsFromCommand(%q) = %q, want %q", cmd, got, want)
+		}
 	}
 }

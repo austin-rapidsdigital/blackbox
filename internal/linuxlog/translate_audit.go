@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/casea1/blackbox/internal/event"
 )
@@ -24,6 +25,88 @@ type Translator struct {
 
 	usb      map[string]*usbDevice // host|port → device being set up
 	scsiHost map[string]string     // host|scsi host number → USB port
+	recent   []recentCmd           // latest commands, to name groups usermod does not record
+	groupPID map[string]string     // host|pid → group just created by useradd
+}
+
+type recentCmd struct {
+	t    time.Time
+	host string
+	cmd  string
+}
+
+func (t *Translator) remember(tm time.Time, host, cmd string) {
+	if cmd == "" {
+		return
+	}
+	t.recent = append(t.recent, recentCmd{tm, host, cmd})
+	if len(t.recent) > 32 {
+		t.recent = t.recent[len(t.recent)-32:]
+	}
+}
+
+// groupsFor finds the groups named in a recent usermod, gpasswd, adduser
+// or deluser command for acct: shadow-utils on Ubuntu 24.04 records
+// "adding user to group" without the group name.
+func (t *Translator) groupsFor(tm time.Time, host, acct string) []string {
+	for i := len(t.recent) - 1; i >= 0; i-- {
+		c := t.recent[i]
+		if c.host != host || tm.Sub(c.t) > time.Minute || c.t.After(tm.Add(5*time.Second)) {
+			continue
+		}
+		if g := groupsFromCommand(c.cmd, acct); len(g) > 0 {
+			return g
+		}
+	}
+	return nil
+}
+
+// groupsFromCommand reads the groups from commands such as
+// "usermod -aG sudo,adm bob", "gpasswd -a bob sudo" or "adduser bob sudo".
+func groupsFromCommand(cmd, acct string) []string {
+	f := strings.Fields(cmd)
+	if len(f) < 2 {
+		return nil
+	}
+	hasAcct := false
+	for _, w := range f[1:] {
+		if w == acct {
+			hasAcct = true
+		}
+	}
+	if !hasAcct {
+		return nil
+	}
+	split := func(v string) []string { return strings.Split(v, ",") }
+	switch base(f[0]) {
+	case "usermod":
+		for i, w := range f[1:] {
+			switch {
+			case strings.HasPrefix(w, "--groups="):
+				return split(strings.TrimPrefix(w, "--groups="))
+			case w == "--groups" || (strings.HasPrefix(w, "-") && !strings.HasPrefix(w, "--") && strings.HasSuffix(w, "G")):
+				if i+2 < len(f) {
+					return split(f[i+2])
+				}
+			}
+		}
+	case "gpasswd":
+		last := f[len(f)-1]
+		if last != acct && !strings.HasPrefix(last, "-") {
+			return []string{last}
+		}
+	case "adduser", "deluser", "addgroup", "delgroup":
+		var pos []string
+		for _, w := range f[1:] {
+			if !strings.HasPrefix(w, "-") {
+				pos = append(pos, w)
+			}
+		}
+		if len(pos) == 2 && pos[0] == acct {
+			return []string{pos[1]}
+		}
+	}
+	return nil
 }
 
 // NewTranslator returns a ready Translator.
@@ -31,7 +114,8 @@ func NewTranslator(host string, users Users) *Translator {
 	if users == nil {
 		users = Users{}
 	}
-	return &Translator{Host: host, Users: users, usb: map[string]*usbDevice{}, scsiHost: map[string]string{}}
+	return &Translator{Host: host, Users: users, usb: map[string]*usbDevice{}, scsiHost: map[string]string{},
+		groupPID: map[string]string{}}
 }
 
 // ---------------------------------------------------------------- auditd
@@ -168,6 +252,13 @@ func (t *Translator) learnUsers(ev *Event) {
 			}
 		}
 	}
+}
+
+func (t *Translator) hostOf(r *Record) string {
+	if r.Node != "" {
+		return r.Node
+	}
+	return t.Host
 }
 
 // actor is the person behind an event: the login (audit) user ID, which
@@ -372,6 +463,7 @@ func (t *Translator) userCmd(r *Record) *event.Event {
 		actor = t.Users.Name(r.Get("uid"))
 	}
 	cmd := r.Get("cmd")
+	t.remember(r.Time, t.hostOf(r), cmd)
 	e := &event.Event{Category: event.CatPrivileged, User: actor, Command: cmd, Process: r.Get("exe"),
 		DedupeKey: "cmd|" + actor + "|" + firstWord(cmd), Priority: 2}
 	switch {
@@ -468,10 +560,18 @@ func (t *Translator) accountMgmt(r *Record) *event.Event {
 	if r.Get("res") == "failed" {
 		e.Outcome = "failure"
 	}
+	pidKey := t.hostOf(r) + "|" + r.Get("pid")
 	switch {
 	case r.Type == "ADD_USER":
 		if strings.Contains(op, "home") || strings.Contains(op, "mail") {
 			return nil // useradd reports each step; the account itself is enough
+		}
+		// Ubuntu 24.04 logs only the new user's ID; useradd has just
+		// created the user's own group with the same name.
+		if strings.HasPrefix(acct, "uid ") {
+			if g := t.groupPID[pidKey]; g != "" {
+				acct, e.Target = g, g
+			}
 		}
 		e.Action, e.Severity = "account_created", event.SevMedium
 		e.Summary = fmt.Sprintf("%s created the user account %s.", by, acct)
@@ -483,12 +583,45 @@ func (t *Translator) accountMgmt(r *Record) *event.Event {
 		e.Summary = fmt.Sprintf("%s deleted the user account %s.", by, acct)
 	case r.Type == "ADD_GROUP":
 		g := firstNonEmpty(grp, acct)
+		if len(t.groupPID) > 256 {
+			t.groupPID = map[string]string{}
+		}
+		t.groupPID[pidKey] = g
 		e.Action, e.Severity, e.Target = "group_created", event.SevLow, g
 		e.Summary = fmt.Sprintf("%s created the group %s.", by, g)
 	case r.Type == "DEL_GROUP":
 		g := firstNonEmpty(grp, acct)
 		e.Action, e.Severity, e.Target = "group_deleted", event.SevMedium, g
 		e.Summary = fmt.Sprintf("%s deleted the group %s.", by, g)
+	case grp == "" && strings.Contains(op, "group") && (strings.Contains(op, "add") || strings.Contains(op, "remov") || strings.Contains(op, "delet")):
+		// Ubuntu 24.04: "adding user to group", with the group left out.
+		groups := t.groupsFor(r.Time, t.hostOf(r), acct)
+		adding := strings.Contains(op, "add")
+		g := strings.Join(groups, ", ")
+		if g == "" {
+			g = "a group (the log does not say which)"
+		} else if len(groups) > 1 {
+			g = "the groups " + g
+		} else {
+			g = "the group " + g
+		}
+		if adding {
+			e.Action, e.Severity = "group_member_added", event.SevMedium
+			e.Summary = fmt.Sprintf("%s added %s to %s.", by, acct, g)
+			for _, x := range groups {
+				if privilegedGroups[x] {
+					e.Severity = event.SevHigh
+					e.Summary = fmt.Sprintf("%s added %s to the privileged %s.", by, acct, strings.TrimPrefix(g, "the "))
+					e.AddDetail("Why it matters", "Members of this group have administrative rights or can read protected logs.")
+					break
+				}
+			}
+			e.DedupeKey = "grp|add|" + acct + "|" + strings.Join(groups, ",")
+		} else {
+			e.Action, e.Severity = "group_member_removed", event.SevMedium
+			e.Summary = fmt.Sprintf("%s removed %s from %s.", by, acct, g)
+			e.DedupeKey = "grp|del|" + acct + "|" + strings.Join(groups, ",")
+		}
 	case grp != "" && (strings.Contains(op, "add") || strings.Contains(op, "adding")):
 		e.Action, e.Severity = "group_member_added", event.SevMedium
 		e.Summary = fmt.Sprintf("%s added %s to the group %s.", by, acct, grp)
@@ -735,6 +868,9 @@ func (t *Translator) syscall(ev *Event, r *Record) *event.Event {
 	exe := r.Get("exe")
 	prog := base(exe)
 	cmd := commandLine(ev)
+	if sc == "execve" || sc == "execveat" {
+		t.remember(r.Time, t.hostOf(r), cmd)
+	}
 	shown := firstNonEmpty(cmd, exe)
 	using := ""
 	if prog != "" {

@@ -159,6 +159,25 @@ func parseFields(s string, out map[string]string, typ string) {
 			}
 			val = s[i : i+end]
 			i += end
+			// Some programs write unquoted values with spaces, e.g.
+			// shadow-utils' "op=adding user to group acct=…": keep the
+			// following words that are not key=value pairs.
+			for i < len(s) && s[i] == ' ' {
+				j := i + 1
+				for j < len(s) && s[j] == ' ' {
+					j++
+				}
+				w := strings.IndexByte(s[j:], ' ')
+				if w < 0 {
+					w = len(s) - j
+				}
+				word := s[j : j+w]
+				if word == "" || strings.ContainsAny(word, "='\"") {
+					break
+				}
+				val += " " + word
+				i = j + w
+			}
 		}
 		if !quoted && hexField(key, typ) {
 			if d, ok := decodeHex(val); ok {
