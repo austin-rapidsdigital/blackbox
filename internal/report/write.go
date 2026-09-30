@@ -82,7 +82,7 @@ func (r *Report) summary() Summary {
 	}
 	s.High = len(r.HighRows)
 	for _, a := range r.Archives {
-		s.Archives = append(s.Archives, ArchiveJSON{Host: a.Host, From: a.From, To: a.To, File: a.Link, Bytes: a.Bytes, SHA256: a.SHA256})
+		s.Archives = append(s.Archives, ArchiveJSON{Host: a.Host, From: a.From, To: a.To, File: a.Name, Bytes: a.Bytes, SHA256: a.SHA256})
 	}
 	for _, f := range r.Findings {
 		s.Detections = append(s.Detections, Detection{Severity: string(f.Severity), Time: f.Time, Host: f.Host, Title: f.Title, Detail: f.Detail})
@@ -112,10 +112,20 @@ func (r *Report) summary() Summary {
 	return s
 }
 
-// Write creates dir and writes the report, exports and manifest into it.
+// Write creates dir and writes the report, exports and manifest into it,
+// moving the original-log zips (r.Archives) in as well.
 func (r *Report) Write(dir string) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
+	}
+	var manifest strings.Builder
+	for _, a := range r.Archives {
+		if a.Path == "" {
+			continue
+		}
+		if err := moveFile(a.Path, filepath.Join(dir, a.Name)); err != nil {
+			return fmt.Errorf("add the original logs %s: %w", a.Name, err)
+		}
 	}
 	var html, csvBuf, jsonl bytes.Buffer
 	if err := r.WriteHTML(&html); err != nil {
@@ -142,19 +152,27 @@ func (r *Report) Write(dir string) error {
 		"summary.json": append(sum, '\n'),
 	}
 
-	names := make([]string, 0, len(contents))
-	for name := range contents {
+	sums := map[string]string{}
+	for _, a := range r.Archives {
+		if a.Path != "" {
+			sums[a.Name] = a.SHA256
+		}
+	}
+	for name, b := range contents {
+		if err := store.WriteFileAtomic(filepath.Join(dir, name), b, 0o640); err != nil {
+			return err
+		}
+		h := sha256.Sum256(b)
+		sums[name] = hex.EncodeToString(h[:])
+	}
+	names := make([]string, 0, len(sums))
+	for name := range sums {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	var manifest strings.Builder
 	for _, name := range names {
-		if err := store.WriteFileAtomic(filepath.Join(dir, name), contents[name], 0o640); err != nil {
-			return err
-		}
-		h := sha256.Sum256(contents[name])
 		// Same format as sha256sum, so `sha256sum -c` also works.
-		fmt.Fprintf(&manifest, "%s  %s\n", hex.EncodeToString(h[:]), name)
+		fmt.Fprintf(&manifest, "%s  %s\n", sums[name], name)
 	}
 	return store.WriteFileAtomic(filepath.Join(dir, "manifest.sha256"), []byte(manifest.String()), 0o440)
 }
@@ -235,13 +253,12 @@ func Verify(dir string) ([]string, error) {
 			problems = append(problems, fmt.Sprintf("%s: unexpected path in manifest", name))
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(dir, name))
+		got, err := fileSHA256(filepath.Join(dir, name))
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("%s: missing (%v)", name, err))
 			continue
 		}
-		h := sha256.Sum256(b)
-		if hex.EncodeToString(h[:]) != strings.ToLower(want) {
+		if got != strings.ToLower(want) {
 			problems = append(problems, fmt.Sprintf("%s: CHANGED since the report was produced", name))
 		}
 	}
@@ -286,10 +303,60 @@ func WriteIndex(reportsDir, site string, loc *time.Location) error {
 		return err
 	}
 	var buf bytes.Buffer
-	_, archErr := os.Stat(filepath.Join(reportsDir, "archives"))
-	err = t.Execute(&buf, map[string]any{"Site": site, "Entries": entries, "Archives": archErr == nil})
+	err = t.Execute(&buf, map[string]any{"Site": site, "Entries": entries})
 	if err != nil {
 		return err
 	}
 	return store.WriteFileAtomic(filepath.Join(reportsDir, "index.html"), buf.Bytes(), 0o640)
+}
+
+// fileSHA256 hashes a file in pieces, so large log zips are not read into
+// memory.
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// moveFile renames src to dst, copying when they are on different drives.
+func moveFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	part := dst + ".partial"
+	out, err := os.OpenFile(part, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(part)
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		out.Close()
+		os.Remove(part)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(part)
+		return err
+	}
+	if err := os.Rename(part, dst); err != nil {
+		return err
+	}
+	in.Close()
+	return os.Remove(src)
 }

@@ -3,10 +3,7 @@
 package app
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -58,21 +55,26 @@ func (a *App) logf(format string, args ...any) {
 // ReportsDir is where reports are written.
 func (a *App) ReportsDir() string { return a.Cfg.ReportsDir() }
 
-// ArchivesDir is where archives of the original logs are kept, one folder
-// per computer, next to the reports.
-func (a *App) ArchivesDir() string { return filepath.Join(a.ReportsDir(), "archives") }
+// pendingLogsDir holds each computer's daily archives of its original
+// logs (this computer's own, and those received from senders) until a
+// report takes them into its folder.
+func (a *App) pendingLogsDir() string { return filepath.Join(a.Cfg.DataDir, "archives") }
 
-// archiveLogs exports the original logs once a day (see package archive):
-// into the outbox on a sender, straight into the archives folder
-// otherwise. If it fails, the same period is tried again next run.
-func (a *App) archiveLogs(st *store.Store) {
-	now := a.now()
-	from, due := archive.Due(st.State.ArchivedUntil, now)
-	if !due {
+// legacyLogsDir is where version 0.4 kept the daily archives; any left
+// there go into the next report too.
+func (a *App) legacyLogsDir() string { return filepath.Join(a.ReportsDir(), "archives") }
+
+// archiveLogs exports the original logs (see package archive) from the end
+// of the last archive until upTo: into the outbox on a sender, otherwise
+// into the pending folder for the next report. Unless force is set it
+// runs only once a day. If it fails, the same period is tried again.
+func (a *App) archiveLogs(st *store.Store, upTo time.Time, force bool) {
+	from, due := archive.Due(st.State.ArchivedUntil, upTo)
+	if !(due || force) || !from.Before(upTo) {
 		return
 	}
 	host := collect.LocalHost()
-	dir := filepath.Join(a.ArchivesDir(), archive.SafeName(host))
+	dir := filepath.Join(a.pendingLogsDir(), archive.SafeName(host))
 	if !a.Cfg.MakesReports() {
 		dir = lan.OutboxDir(st)
 	}
@@ -80,7 +82,7 @@ func (a *App) archiveLogs(st *store.Store) {
 		a.logf("archiving the logs: %v", err)
 		return
 	}
-	info, err := archive.Create(filepath.Join(dir, archive.FileName(host, from, now)), host, runtime.GOOS, from, now, now)
+	info, err := archive.Create(filepath.Join(dir, archive.FileName(host, from, upTo)), host, runtime.GOOS, from, upTo, a.now())
 	if err != nil {
 		a.logf("archiving the logs: %v; will try again next run", err)
 		return
@@ -88,10 +90,58 @@ func (a *App) archiveLogs(st *store.Store) {
 	for _, n := range info.Notes {
 		a.logf("log archive: %s", n)
 	}
-	st.State.ArchivedUntil = now
+	st.State.ArchivedUntil = upTo
 	if err := st.Save(); err != nil {
 		a.logf("saving state: %v", err)
 	}
+}
+
+// bundleLogs combines, for each computer, the pending daily archives that
+// end by end into one zip for the report folder. It returns them and the
+// daily archives used, to remove once the report is written.
+func (a *App) bundleLogs(end time.Time) (refs []report.ArchiveRef, used []string) {
+	var list []archive.Stored
+	for _, dir := range []string{a.pendingLogsDir(), a.legacyLogsDir()} {
+		l, err := archive.List(dir)
+		if err != nil {
+			a.logf("listing log archives in %s: %v", dir, err)
+		}
+		list = append(list, l...)
+	}
+	byHost := map[string][]archive.Stored{}
+	var hosts []string
+	for _, s := range list {
+		if s.To.After(end) {
+			continue // for the next report
+		}
+		k := strings.ToLower(s.Host)
+		if byHost[k] == nil {
+			hosts = append(hosts, k)
+		}
+		byHost[k] = append(byHost[k], s)
+	}
+	sort.Strings(hosts)
+	for _, k := range hosts {
+		days := byHost[k]
+		name := "logs-" + archive.SafeName(days[0].Host) + ".zip"
+		tmp := filepath.Join(a.pendingLogsDir(), "."+name)
+		from, to, sum, err := archive.Bundle(tmp, days)
+		if err != nil {
+			a.logf("original logs of %s: %v; they stay pending", days[0].Host, err)
+			os.Remove(tmp)
+			continue
+		}
+		fi, _ := os.Stat(tmp)
+		var size uint64
+		if fi != nil {
+			size = uint64(fi.Size())
+		}
+		refs = append(refs, report.ArchiveRef{Host: days[0].Host, From: from, To: to, Name: name, Path: tmp, Bytes: size, SHA256: sum})
+		for _, d := range days {
+			used = append(used, d.Path)
+		}
+	}
+	return refs, used
 }
 
 // open opens the data folder and takes the lock.
@@ -157,7 +207,7 @@ func (a *App) receive(st *store.Store) {
 			return
 		}
 	}
-	res, err := lan.Import(st, a.Cfg.Inbox, a.ArchivesDir(), a.now(), a.Logf)
+	res, err := lan.Import(st, a.Cfg.Inbox, a.pendingLogsDir(), a.now(), a.Logf)
 	if err != nil {
 		a.logf("receiving from %s: %v", a.Cfg.Inbox, err)
 	}
@@ -228,13 +278,14 @@ func (a *App) Scheduled() (string, error) {
 	if err := a.gather(st, false); err != nil {
 		return "", err
 	}
-	a.archiveLogs(st)
 	if !a.Cfg.MakesReports() {
+		a.archiveLogs(st, a.now(), false)
 		a.send(st)
 		return "", nil
 	}
 	end, due := DueWindowEnd(a.Cfg.ReportEvery, st.State.LastWindowEnd, a.now(), a.loc())
 	if !due {
+		a.archiveLogs(st, a.now(), false)
 		return "", nil
 	}
 	return a.report(st, end, true)
@@ -305,6 +356,19 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		return "", err
 	}
 	events := SelectWindow(all, prevEnd, prevGen, end, generated)
+	// The report's folder holds the original logs for its period: this
+	// computer's are saved up to the end of the period first.
+	var logs []report.ArchiveRef
+	var usedLogs []string
+	if advance {
+		a.archiveLogs(st, end, true)
+		logs, usedLogs = a.bundleLogs(end)
+		defer func() {
+			for _, l := range logs {
+				os.Remove(l.Path) // left only if the report was not written
+			}
+		}()
+	}
 	context := contextEvents(all, events, prevEnd)
 	runs, err := st.ReadRuns(prevGen)
 	if err != nil {
@@ -334,7 +398,7 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		KnownDevices: st.State.KnownDevices, CheckSets: sets,
 		Context: context, Baseline: st.State.Baseline, BaselineHosts: st.State.BaselineHosts,
 		WorkingHours: a.Cfg.WorkingHours,
-		Archives:     a.archivesFor(prevEnd, end), ArchivesKept: true,
+		Archives:     logs, ArchivesKept: advance,
 		Systems: systemsFor(st, prevEnd), Collector: a.Cfg.Inbox != "",
 		LANWarnings: lanWarnings(st, prevGen, generated, a.loc()),
 	})
@@ -350,6 +414,11 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		return "", err
 	}
 	if advance {
+		for _, p := range usedLogs {
+			if err := os.Remove(p); err != nil {
+				a.logf("removing a daily log archive now in the report: %v", err)
+			}
+		}
 		st.State.LastWindowEnd = end
 		st.State.LastGenerated = generated
 		for k, t := range r.NewDevices {
@@ -365,51 +434,16 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		if err := pruneReports(a.ReportsDir(), a.Cfg.RetentionDays, generated); err != nil {
 			a.logf("pruning old reports: %v", err)
 		}
-		if err := archive.Prune(a.ArchivesDir(), a.Cfg.RetentionDays, generated); err != nil {
-			a.logf("pruning old log archives: %v", err)
+		for _, d := range []string{a.pendingLogsDir(), a.legacyLogsDir()} {
+			if err := archive.Prune(d, a.Cfg.RetentionDays, generated); err != nil {
+				a.logf("pruning old log archives: %v", err)
+			}
 		}
 	}
 	if err := report.WriteIndex(a.ReportsDir(), a.Cfg.SiteName, a.loc()); err != nil {
 		a.logf("updating report index: %v", err)
 	}
 	return dir, nil
-}
-
-// archivesFor lists the log archives that cover part of [start, end), with
-// each zip file's SHA-256 so the report records exactly what was kept.
-func (a *App) archivesFor(start, end time.Time) []report.ArchiveRef {
-	list, err := archive.List(a.ArchivesDir())
-	if err != nil {
-		a.logf("listing log archives: %v", err)
-	}
-	var out []report.ArchiveRef
-	for _, s := range list {
-		if !s.To.After(start) || !s.From.Before(end) {
-			continue
-		}
-		sum, err := fileSHA256(s.Path)
-		if err != nil {
-			a.logf("log archive %s: %v", s.Path, err)
-			continue
-		}
-		rel, _ := filepath.Rel(a.ReportsDir(), s.Path)
-		out = append(out, report.ArchiveRef{Host: s.Host, From: s.From, To: s.To, Bytes: uint64(s.Bytes), SHA256: sum,
-			Link: "../" + filepath.ToSlash(rel)})
-	}
-	return out
-}
-
-func fileSHA256(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // contextSpan is how far before a report's period detections look.

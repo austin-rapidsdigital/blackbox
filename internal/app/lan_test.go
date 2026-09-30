@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/casea1/blackbox/internal/archive"
 	"github.com/casea1/blackbox/internal/check"
 	"github.com/casea1/blackbox/internal/collect"
 	"github.com/casea1/blackbox/internal/config"
@@ -48,6 +49,7 @@ func TestLANEndToEnd(t *testing.T) {
 	col.NoteSystem("WS-07", "windows", "test", "", winRun.Time, time.Time{}, end)
 	// A workstation that sent last month and then went quiet.
 	col.NoteSystem("WS-09", "windows", "test", "", end.AddDate(0, 0, -12), end.AddDate(0, 0, -12), end.AddDate(0, -1, 0))
+	col.State.ArchivedUntil = end // the test places the original logs itself
 	col.Save()
 
 	// The VM collects, but the report is produced before its batch arrives.
@@ -63,6 +65,7 @@ func TestLANEndToEnd(t *testing.T) {
 	a := &App{Cfg: &config.Config{DataDir: col.Dir, ReportDir: filepath.Join(base, "reports"), Inbox: inbox, ReportEvery: "daily", SiteName: "Lab 3"},
 		Version: "test", Loc: time.UTC}
 	a.Now = func() time.Time { return end.Add(5 * time.Minute) }
+	pendingLogs(t, a, "WS-07", end)
 	first, err := a.report(col, end, true)
 	if err != nil {
 		t.Fatal(err)
@@ -85,6 +88,8 @@ func TestLANEndToEnd(t *testing.T) {
 	col.AppendRun(&store.Run{Time: next.Add(-time.Hour), Host: "WS-07", OS: "windows", Version: "test",
 		Channels: []store.ChannelRun{{Channel: "Security", Read: 1200, Kept: 3}}})
 	a.Now = func() time.Time { return next.Add(5 * time.Minute) }
+	pendingLogs(t, a, "ubu-ws12", end.Add(-2*time.Hour)) // delivered with the VM's batch
+	col.State.ArchivedUntil = next
 	dir, err := a.report(col, next, true)
 	if err != nil {
 		t.Fatal(err)
@@ -169,4 +174,65 @@ func readFile(t *testing.T, dir, name string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+func TestReportFolderHoldsTheOriginalLogs(t *testing.T) {
+	winEvents, winRun := windowsSample(t)
+	end := latest(winEvents).Add(time.Hour).Truncate(time.Hour)
+	base := t.TempDir()
+	st, _ := store.Open(filepath.Join(base, "data"))
+	stamp(winEvents, end.Add(-time.Hour))
+	st.AppendEvents(end.Add(-time.Hour), winEvents)
+	winRun.Time = end.Add(-time.Hour)
+	st.AppendRun(winRun)
+	st.State.ArchivedUntil = end // this computer's logs are already saved up to the end
+	st.Save()
+
+	a := &App{Cfg: &config.Config{DataDir: st.Dir, ReportDir: filepath.Join(base, "reports"), ReportEvery: "daily"},
+		Version: "test", Loc: time.UTC}
+	a.Now = func() time.Time { return end.Add(5 * time.Minute) }
+
+	// Two days of this computer's logs, one received from a VM, and one
+	// that ends after the period (it belongs to the next report).
+	day := func(host string, to time.Time) string { return pendingLogs(t, a, host, to) }
+	day("WS-07", end.Add(-24*time.Hour))
+	day("WS-07", end)
+	day("ubu-vm", end.Add(-2*time.Hour))
+	later := day("ubu-vm", end.Add(3*time.Hour))
+
+	dir, err := a.report(st, end, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"logs-WS-07.zip", "logs-ubu-vm.zip"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Errorf("%s not in the report folder", f)
+		}
+	}
+	if problems, err := report.Verify(dir); err != nil || len(problems) != 0 {
+		t.Errorf("verify: %v %v", problems, err)
+	}
+	if !strings.Contains(readFile(t, dir, "manifest.sha256"), "logs-WS-07.zip") {
+		t.Error("the logs are not in the manifest")
+	}
+	left, _ := archive.List(a.pendingLogsDir())
+	if len(left) != 1 || left[0].Path != later {
+		t.Errorf("pending after the report: %+v (want only the one for the next report)", left)
+	}
+}
+
+// pendingLogs places a day of a computer's original logs, ending at to, in
+// the folder where they wait for the next report.
+func pendingLogs(t *testing.T, a *App, host string, to time.Time) string {
+	t.Helper()
+	logFile := filepath.Join(t.TempDir(), "Security.evtx")
+	os.WriteFile(logFile, []byte("pretend evtx"), 0o644)
+	dir := filepath.Join(a.pendingLogsDir(), host)
+	os.MkdirAll(dir, 0o750)
+	p := filepath.Join(dir, archive.FileName(host, to.Add(-24*time.Hour), to))
+	if _, err := archive.Write(p, archive.Info{Host: host, From: to.Add(-24 * time.Hour), To: to, Created: to},
+		[]archive.Source{{Name: "Security.evtx", Source: "Security", Path: logFile}}); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }

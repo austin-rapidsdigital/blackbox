@@ -144,3 +144,38 @@ func tamper(t *testing.T, src, dst string) {
 	zw.Close()
 	f.Close()
 }
+
+func TestBundleCombinesDays(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "Security.evtx")
+	os.WriteFile(logFile, []byte("pretend evtx"), 0o644)
+	day1 := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
+	var list []Stored
+	for i := 0; i < 2; i++ {
+		from, to := day1.AddDate(0, 0, i), day1.AddDate(0, 0, i+1)
+		p := filepath.Join(dir, FileName("WS-07", from, to))
+		if _, err := Write(p, Info{Host: "WS-07", From: from, To: to, Created: to}, []Source{{Name: "Security.evtx", Source: "Security", Path: logFile}}); err != nil {
+			t.Fatal(err)
+		}
+		list = append(list, Stored{Host: "WS-07", From: from, To: to, Path: p})
+	}
+	dst := filepath.Join(dir, "logs-WS-07.zip")
+	from, to, sum, err := Bundle(dst, list)
+	if err != nil || !from.Equal(day1) || !to.Equal(day1.AddDate(0, 0, 2)) || len(sum) != 64 {
+		t.Fatalf("bundle: %v %v %s %v", from, to, sum, err)
+	}
+	got := readZip(t, dst)
+	for _, want := range []string{"20260928-0000Z_20260929-0000Z/Security.evtx", "20260929-0000Z_20260930-0000Z/archive.json"} {
+		if _, ok := got[want]; !ok {
+			t.Errorf("bundle is missing %s (has %v)", want, got)
+		}
+	}
+	if got["20260928-0000Z_20260929-0000Z/Security.evtx"] != "pretend evtx" {
+		t.Error("log content changed in the bundle")
+	}
+	// A damaged daily archive stops the bundle rather than being included.
+	os.WriteFile(list[0].Path, []byte("damaged"), 0o644)
+	if _, _, _, err := Bundle(dst, list); err == nil {
+		t.Error("damaged archive bundled")
+	}
+}

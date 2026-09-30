@@ -118,16 +118,19 @@ jobs:
           if ($sum.systems | Where-Object { $_.status -eq "silent" }) { throw "a system is wrongly reported as silent" }
           if (-not (Select-String -Path "$dir\report.html" -Pattern 'data-view="systems"' -Quiet)) { throw "report has no Systems page" }
           if (Get-ChildItem C:\BlackboxInbox -Filter *.bbx) { throw "batches left in the inbox after import" }
-          # The original logs: this computer's own (.evtx, exported as SYSTEM) and the Linux one's.
-          $zips = Get-ChildItem "$r2\archives" -Recurse -Filter *.zip
-          $zips | Format-Table FullName, Length
-          if ($zips.Count -lt 2) { throw "expected this computer's and the Linux computer's log archives" }
+          # The report folder holds the original logs: this computer's own
+          # (.evtx, exported as SYSTEM) and the Linux one's.
+          $zips = Get-ChildItem $dir -Filter logs-*.zip
+          $zips | Format-Table Name, Length
+          if ($zips.Count -lt 2) { throw "expected this computer's and the Linux computer's original logs in the report folder" }
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $own = $zips | Where-Object { $_.Directory.Name -eq $env:COMPUTERNAME } | Select-Object -First 1
-          if (-not $own) { throw "no archive of this computer's own logs" }
+          $own = $zips | Where-Object { $_.Name -eq "logs-$env:COMPUTERNAME.zip" } | Select-Object -First 1
+          if (-not $own) { throw "no zip of this computer's own logs" }
           $names = [IO.Compression.ZipFile]::OpenRead($own.FullName).Entries.Name
           if (-not ($names -contains "Security.evtx")) { throw "Security.evtx not archived: $names" }
           if ($sum.log_archives.Count -lt 2) { throw "report does not list the log archives" }
+          & $exe verify $dir
+          if ($LASTEXITCODE -ne 0) { throw "report folder does not match its manifest" }
           & $exe status
           & $exe uninstall
           $deadline = (Get-Date).AddSeconds(60)
@@ -199,10 +202,11 @@ jobs:
           sudo systemctl start blackbox.service
           sudo find /srv/bb-reports-2 -name report.html | grep -q report.html || { sudo journalctl -u blackbox.service --no-pager | tail -30; exit 1; }
           echo "Sandboxed service wrote a report to /srv/bb-reports-2"
-          # It also saved the original logs, and the report lists them.
-          sudo sh -c 'ls /srv/bb-reports-2/archives/*/*.zip' || { sudo journalctl -u blackbox.service --no-pager | tail -30; exit 1; }
-          sudo sh -c 'unzip -l /srv/bb-reports-2/archives/*/*.zip' | grep -q audit.log
-          sudo sh -c 'grep -q "Original logs" /srv/bb-reports-2/*/report.html'
+          # The report folder holds the original logs, in its manifest.
+          sudo sh -c 'ls /srv/bb-reports-2/*/logs-*.zip' || { sudo journalctl -u blackbox.service --no-pager | tail -30; exit 1; }
+          sudo sh -c 'unzip -l /srv/bb-reports-2/*/logs-*.zip' | grep -q audit.log
+          sudo sh -c 'grep -q "logs-" /srv/bb-reports-2/*/manifest.sha256'
+          sudo sh -c 'for d in /srv/bb-reports-2/*/; do ./blackbox verify "$d"; done'
           sudo ./blackbox uninstall
           if systemctl is-enabled blackbox.timer 2>/dev/null; then echo "timer not removed"; exit 1; fi
           # Start the sender below from scratch (its first archive is due at once).
@@ -237,7 +241,7 @@ jobs:
           mkdir linux-batches && sudo sh -c 'cp /srv/inbox/*.bbx /srv/inbox/archive_*.zip linux-batches/' && sudo chown -R "$USER" linux-batches
           sudo ./blackbox report --preview --config col.conf
           if sudo sh -c 'ls /srv/inbox/*.bbx /srv/inbox/*.zip' 2>/dev/null; then echo "batches or archives not imported"; exit 1; fi
-          sudo sh -c 'ls /tmp/col/reports/archives/*/*.zip' || { echo "log archive not filed on the collector"; exit 1; }
+          sudo sh -c 'ls /tmp/col/archives/*/*.zip' || { echo "log archive not kept for the collector's next report"; exit 1; }
           sudo ./blackbox status --config col.conf
           sudo ./blackbox uninstall
           sudo test ! -e /etc/systemd/system/var-lib-blackbox-collector.mount

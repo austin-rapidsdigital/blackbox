@@ -76,10 +76,11 @@ The Linux service is also sandboxed with `ProtectSystem=strict`,
   is hidden too. The original logs are not changed.
 - **Original logs are kept unaltered.** The daily log archives are exact
   copies, so they are not redacted: a password typed on a command line is
-  in them as it is in the log itself. They are in the reports folder,
-  which only Administrators and SYSTEM (Windows) or root (Linux) can
-  read. Each file's SHA-256 is recorded in the zip and checked by the
-  collector, and each report records the SHA-256 of every zip it covers.
+  in them as it is in the log itself. They are in each report's folder
+  (and, until a report takes them, in the data folder), which only
+  Administrators and SYSTEM (Windows) or root (Linux) can read. Each file's
+  SHA-256 is recorded in the zip and checked by the collector, and each
+  zip's SHA-256 is in its report's manifest.sha256.
 - **Share mount (Linux).** The share is mounted inside Blackbox's data
   folder only, with root-only file permissions and `nosuid,nodev,noexec`.
 - **Tamper evidence in transit.** Each batch has:

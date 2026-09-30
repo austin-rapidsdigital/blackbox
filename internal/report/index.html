@@ -42,7 +42,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 <header class="topbar"><img class="logo" src="{{logo}}" alt="GE Aerospace"><span class="wordmark">{{brandName}}</span><span class="site">{{if .Site}}{{.Site}} · {{end}}Audit reports</span></header>
 <main>
 <h1>Audit reports</h1>
-<p class="lede">Newest first. Each report starts where the previous one ended, so together they form a continuous audit record.{{if .Archives}} The original logs are kept in <a href="archives/">archives</a>.{{end}}</p>
+<p class="lede">Newest first. Each report starts where the previous one ended, so together they form a continuous audit record. Each report's folder also holds the original logs it was made from.</p>
 {{if .Entries}}
 <table>
 <thead><tr><th>From</th><th></th><th>To</th><th>Systems</th><th class="num">Events</th><th class="num">Detections</th><th class="num">High</th><th class="num">Medium</th><th>Collection</th><th></th></tr></thead>

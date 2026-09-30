@@ -390,12 +390,12 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid var(--ink-200);colo
   {{end}}
 
   {{if .ArchivesKept}}
-  <h2 id="archives">Original logs<span class="ct">{{len .Archives}} archive{{if ne (len .Archives) 1}}s{{end}}</span></h2>
-  <p class="note">Each computer saves its original logs once a day, unaltered: Windows event logs as .evtx files (open them in Event Viewer), Linux audit records as audit.log (read them with <code>ausearch -if audit.log</code>) and system log lines as text. Each archive's files are checked against their SHA-256 hashes when the collector receives it.</p>
-  {{if .NoArchive}}<div class="status warn">No archive for this period from {{join .NoArchive ", "}}. A computer that sends to a collector delivers its archive with its events; one that has been off or cut off catches up when it is back.</div>{{end}}
+  <h2 id="archives">Original logs<span class="ct">{{len .Archives}} file{{if ne (len .Archives) 1}}s{{end}}</span></h2>
+  <p class="note">The logs this report was made from, unaltered, are saved in this report's folder: one zip per computer, holding a folder for each day. Windows event logs are .evtx files (open them in Event Viewer); Linux audit records are audit.log (read it with <code>ausearch -if audit.log</code>) and system log lines are text. Each day's files are listed with their SHA-256 in its archive.json, and each zip's SHA-256 is in this report's manifest.sha256.</p>
+  {{if .NoArchive}}<div class="status warn">No original logs for this period from {{join .NoArchive ", "}}. A computer that sends to a collector delivers its logs with its events; one that has been off or cut off catches up, and its logs go into the next report.</div>{{end}}
   {{if .Archives}}<table>
-    <thead><tr><th>System</th><th>From</th><th>To</th><th class="num">Size</th><th>SHA-256 of the zip file</th></tr></thead>
-    <tbody>{{range .Archives}}<tr><td>{{.Host}}</td><td class="mono">{{stamp .From}}</td><td class="mono">{{stamp .To}}</td><td class="num">{{bytes .Bytes}}</td><td class="mono hash">{{if .Link}}<a href="{{.Link}}">{{.SHA256}}</a>{{else}}{{.SHA256}}{{end}}</td></tr>{{end}}</tbody>
+    <thead><tr><th>System</th><th>From</th><th>To</th><th class="num">Size</th><th>File</th><th>SHA-256</th></tr></thead>
+    <tbody>{{range .Archives}}<tr><td>{{.Host}}</td><td class="mono">{{stamp .From}}</td><td class="mono">{{stamp .To}}</td><td class="num">{{bytes .Bytes}}</td><td><a href="{{.Name}}">{{.Name}}</a></td><td class="mono hash">{{.SHA256}}</td></tr>{{end}}</tbody>
   </table>{{end}}
   {{end}}
 

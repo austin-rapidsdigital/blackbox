@@ -53,9 +53,9 @@ type Options struct {
 	// WorkingHours: administrator activity outside them is detected.
 	WorkingHours config.WorkingHours
 
-	// Archives are the archives of the original logs that cover this
-	// period; ArchivesKept says the archive is on, so a computer without
-	// one is pointed out.
+	// Archives are the original logs for this period, one zip per
+	// computer, stored in the report folder. ArchivesKept says logs are
+	// archived, so a computer without them is pointed out.
 	Archives     []ArchiveRef
 	ArchivesKept bool
 
@@ -69,11 +69,13 @@ type Options struct {
 	LANWarnings []string
 }
 
-// ArchiveRef is one archive of original logs, as the report lists it.
+// ArchiveRef is one computer's original logs for the period: a zip that
+// Write moves from Path into the report folder as Name.
 type ArchiveRef struct {
 	Host     string
 	From, To time.Time
-	Link     string // relative to the report folder
+	Name     string // file name in the report folder, e.g. logs-WS-07.zip
+	Path     string // where the zip is before the report is written
 	Bytes    uint64
 	SHA256   string
 }
