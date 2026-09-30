@@ -226,3 +226,24 @@ func ruleKey(r auditRule) string {
 	sort.Strings(sc)
 	return strings.Join([]string{r.watch, r.perm, r.list, r.arch, strings.Join(sc, ","), strings.Join(r.filters, " ")}, "|")
 }
+
+// NotInRulesD counts the rules in /etc/audit/audit.rules that no file in
+// /etc/audit/rules.d holds. augenrules rebuilds audit.rules from rules.d,
+// so it would drop them: Ubuntu's `usg fix` writes audit.rules directly.
+func NotInRulesD(auditRules string, rulesD []string) int {
+	have := map[string]bool{}
+	for _, f := range rulesD {
+		for _, l := range strings.Split(f, "\n") {
+			if r, ok := parseAuditRule(l); ok {
+				have[ruleKey(r)] = true
+			}
+		}
+	}
+	n := 0
+	for _, l := range strings.Split(auditRules, "\n") {
+		if r, ok := parseAuditRule(l); ok && !have[ruleKey(r)] {
+			n++
+		}
+	}
+	return n
+}

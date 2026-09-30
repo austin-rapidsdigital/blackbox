@@ -107,6 +107,16 @@ ignores key names, and leaves out watches on files that do not exist. If
 the loaded rules are locked (`-e 2`), the new ones take effect at the next
 reboot, and `blackbox check` says so.
 
+> **Ubuntu USG (`usg fix`) writes `/etc/audit/audit.rules` directly.**
+> `augenrules` rebuilds that file from `rules.d`, so adding any file to
+> `rules.d` would drop the STIG rules at the next `augenrules --load` or
+> reboot. `--missing` warns when this applies. Keep the existing rules
+> first:
+>
+> ```sh
+> sudo install -m 0600 /etc/audit/audit.rules /etc/audit/rules.d/50-existing.rules
+> ```
+
 `blackbox check` also looks for:
 
 - `audit=1` on the kernel command line

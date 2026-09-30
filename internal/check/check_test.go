@@ -176,3 +176,14 @@ func TestMissingRulesAddsOnlyGaps(t *testing.T) {
 		t.Errorf("rules missing from themselves: %v", again)
 	}
 }
+
+func TestNotInRulesDFindsRulesAugenrulesWouldDrop(t *testing.T) {
+	auditRules := "-D\n-b 8192\n-w /etc/sudoers -p wa -k actions\n-a always,exit -F arch=b64 -S execve -F euid=0 -k rootcmd\n-e 2\n"
+	if n := NotInRulesD(auditRules, nil); n != 2 {
+		t.Errorf("empty rules.d: %d, want 2", n)
+	}
+	d := []string{"-w /etc/sudoers/ -p aw -k other_key\n", "-a always,exit -F arch=b64 -S execve -F euid=0\n"}
+	if n := NotInRulesD(auditRules, d); n != 0 {
+		t.Errorf("all in rules.d: %d, want 0", n)
+	}
+}

@@ -551,6 +551,12 @@ func cmdCheck(args []string) error {
 			next = "reboot (the loaded rules are locked with -e 2)"
 		}
 		fmt.Fprintf(os.Stderr, "To install: blackbox check --audit-rules --missing | sudo install -m 0600 /dev/stdin %s, then %s.\n", check.RulesFile, next)
+		if n := check.RulesOnlyInAuditRules(); n > 0 {
+			fmt.Fprintf(os.Stderr, "\nCAUTION: /etc/audit/audit.rules has %d rules that are not in /etc/audit/rules.d (Ubuntu's usg fix\n"+
+				"writes audit.rules directly). augenrules rebuilds audit.rules from rules.d, so adding a file there\n"+
+				"would remove them, at the next augenrules --load or reboot. Keep them first:\n"+
+				"  sudo install -m 0600 /etc/audit/audit.rules /etc/audit/rules.d/50-existing.rules\n", n)
+		}
 		return nil
 	}
 	if *rules {

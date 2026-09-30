@@ -15,3 +15,6 @@ func Run() []Result { return nil }
 func MissingRulesLive() (string, bool, error) {
 	return "", false, fmt.Errorf("audit rules are for Linux")
 }
+
+// RulesOnlyInAuditRules is only meaningful on Linux.
+func RulesOnlyInAuditRules() int { return 0 }

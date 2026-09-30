@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -107,4 +108,25 @@ func MissingRulesLive() (text string, locked bool, err error) {
 		b.WriteString("## Lock the rules until reboot (the STIG requires this).\n-e 2\n")
 	}
 	return b.String(), locked, nil
+}
+
+// RulesOnlyInAuditRules counts the rules augenrules would drop if it rebuilt
+// /etc/audit/audit.rules now (see NotInRulesD). Blackbox's own file is left
+// out, since it is being replaced.
+func RulesOnlyInAuditRules() int {
+	b, err := os.ReadFile("/etc/audit/audit.rules")
+	if err != nil {
+		return 0
+	}
+	files, _ := filepath.Glob("/etc/audit/rules.d/*.rules")
+	var d []string
+	for _, f := range files {
+		if f == RulesFile {
+			continue
+		}
+		if c, err := os.ReadFile(f); err == nil {
+			d = append(d, string(c))
+		}
+	}
+	return NotInRulesD(string(b), d)
 }
