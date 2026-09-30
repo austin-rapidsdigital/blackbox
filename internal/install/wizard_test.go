@@ -152,16 +152,17 @@ func TestWizardCancel(t *testing.T) {
 
 // A Linux virtual machine whose host shares the collector's inbox with it.
 func TestWizardSenderFindsVirtualBoxFolder(t *testing.T) {
-	env := fakeEnv{inboxes: []string{"/media/sf_BlackboxInbox"}, reachable: map[string]string{"/media/sf_BlackboxInbox": ""}}
+	sf := abs("/media/sf_BlackboxInbox")
+	env := fakeEnv{inboxes: []string{sf}, reachable: map[string]string{sf: ""}}
 	a, out, err := runWizard(t, lines("2", "", "", ""), Answers{}, env, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Answers{Role: RoleSender, ReportEvery: "weekly", SendTo: "/media/sf_BlackboxInbox", CollectEvery: time.Hour}
+	want := Answers{Role: RoleSender, ReportEvery: "weekly", SendTo: sf, CollectEvery: time.Hour}
 	if !reflect.DeepEqual(a, want) {
 		t.Errorf("got %+v, want %+v", a, want)
 	}
-	for _, s := range []string{"Found a collector inbox at /media/sf_BlackboxInbox", "OK, it is a Blackbox inbox", "Sends to:"} {
+	for _, s := range []string{"Found a collector inbox at " + sf, "OK, it is a Blackbox inbox", "Sends to:"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("output missing %q", s)
 		}
@@ -198,11 +199,12 @@ func TestWizardSenderShareWithRetry(t *testing.T) {
 
 // A collector that is offline during setup can still be chosen.
 func TestWizardSenderKeepsUnreachableCollector(t *testing.T) {
-	a, _, err := runWizard(t, lines("2", "/media/sf_BlackboxInbox", "y", "", ""), Answers{}, fakeEnv{}, false)
+	sf := abs("/media/sf_BlackboxInbox")
+	a, _, err := runWizard(t, lines("2", sf, "y", "", ""), Answers{}, fakeEnv{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.SendTo != "/media/sf_BlackboxInbox" {
+	if a.SendTo != sf {
 		t.Errorf("got %+v", a)
 	}
 }
