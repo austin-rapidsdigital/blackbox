@@ -232,7 +232,41 @@ Type=oneshot
 ExecStart=%s run
 Nice=10
 IOSchedulingClass=idle
-PrivateNetwork=yes
+TimeoutStartSec=2h
+`, deps, exe) + sandbox(writable)
+}
+
+// systemdShutdownService sends collected events to the collector when the
+// system shuts down (for example a virtual machine stopped from its host),
+// so they do not wait for the next boot. Being ordered after the network,
+// remote filesystems, the share mount and the VirtualBox service, it runs
+// before those are stopped.
+func systemdShutdownService(exe, mount string, writable ...string) string {
+	after := "network-online.target remote-fs.target vboxadd-service.service"
+	if mount != "" {
+		after += " " + mount
+	}
+	return fmt.Sprintf(`[Unit]
+Description=Send Blackbox audit events to the collector before shutdown
+Documentation=https://github.com/casea1/blackbox/blob/main/docs/lan.md
+Wants=network-online.target
+After=%s
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=%s send
+TimeoutStopSec=90
+`, after, exe) + sandbox(writable) + `
+[Install]
+WantedBy=multi-user.target
+`
+}
+
+// sandbox is the service hardening shared by Blackbox's units.
+func sandbox(writable []string) string {
+	return fmt.Sprintf(`PrivateNetwork=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
@@ -243,8 +277,7 @@ ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 UMask=0077
-TimeoutStartSec=2h
-`, deps, exe, strings.Join(uniq(writable), " "))
+`, strings.Join(uniq(writable), " "))
 }
 
 func uniq(in []string) []string {

@@ -41,4 +41,17 @@ func TestLinuxLANUnits(t *testing.T) {
 	if !strings.Contains(svc, "-/srv/inbox") || strings.Contains(svc, "Wants=") {
 		t.Errorf("collector service:\n%s", svc)
 	}
+
+	// A sender also sends before shutdown, in the same sandbox.
+	cfg.SendTo, cfg.Inbox = "/media/sf_BlackboxInbox", ""
+	sd := shutdownFor("/usr/local/bin/blackbox", cfg)
+	for _, want := range []string{"ExecStop=/usr/local/bin/blackbox send", "RemainAfterExit=yes", "After=network-online.target remote-fs.target vboxadd-service.service",
+		"PrivateNetwork=yes", "-/media/sf_BlackboxInbox", "WantedBy=multi-user.target"} {
+		if !strings.Contains(sd, want) {
+			t.Errorf("shutdown unit missing %q:\n%s", want, sd)
+		}
+	}
+	if strings.Contains(sd, "TimeoutStartSec") {
+		t.Error("the shutdown unit must not carry the collection run's start timeout")
+	}
 }

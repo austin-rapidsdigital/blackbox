@@ -105,6 +105,20 @@ func ParseRecord(line string) (*Record, error) {
 	return r, nil
 }
 
+// closingQuote finds the double quote that ends a value, skipping ones
+// escaped with a backslash.
+func closingQuote(s string) int {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			i++
+		case '"':
+			return i
+		}
+	}
+	return -1
+}
+
 // parseFields reads key=value pairs. Values may be "quoted", 'quoted'
 // (user-space records nest their own fields in msg='…') or bare, and bare
 // values of string fields are hex-encoded by auditd when they contain
@@ -133,11 +147,16 @@ func parseFields(s string, out map[string]string, typ string) {
 		quoted := false
 		switch {
 		case i < len(s) && s[i] == '"':
-			end := strings.IndexByte(s[i+1:], '"')
+			// A backslash-escaped quote (\") is part of the value, as in
+			// USBGuard's device rules: name \"Cruzer Blade\".
+			end := closingQuote(s[i+1:])
 			if end < 0 {
 				val, i = s[i+1:], len(s)
 			} else {
 				val, i = s[i+1:i+1+end], i+end+2
+			}
+			if strings.Contains(val, `\"`) {
+				val = strings.ReplaceAll(val, `\"`, `"`)
 			}
 			quoted = true
 		case i < len(s) && s[i] == '\'':

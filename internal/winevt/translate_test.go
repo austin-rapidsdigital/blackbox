@@ -1,10 +1,13 @@
 package winevt
 
 import (
+	"encoding/base64"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf16"
 
 	"github.com/casea1/blackbox/internal/event"
 )
@@ -174,4 +177,90 @@ func TestIsServiceAccount(t *testing.T) {
 	if tr.isServiceAccount("S-1-5-21-1-2-3-1001", "jsmith") {
 		t.Error("jsmith treated as a service account")
 	}
+}
+
+// sec builds a Security event for tests.
+func sec(id int, data map[string]string) *Raw {
+	return &Raw{Provider: "Microsoft-Windows-Security-Auditing", Channel: "Security", EventID: id,
+		Computer: "WS-07", Time: time.Date(2026, 9, 29, 9, 0, 0, 0, time.UTC), Data: data}
+}
+
+func TestAdmToolkitCompatibility(t *testing.T) {
+	tr := NewTranslator()
+	user := map[string]string{"TargetUserSid": "S-1-5-21-1-2-3-1001", "TargetUserName": "jdoe.adm", "TargetDomainName": "WS-07"}
+	with := func(extra map[string]string) map[string]string {
+		m := map[string]string{}
+		for k, v := range user {
+			m[k] = v
+		}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+
+	// A session ended by an administrator (logoff.exe) or a time limit
+	// produces 4634 only; a user-chosen logoff also produces 4647, which
+	// wins the merge.
+	ended := tr.Translate(sec(4634, with(map[string]string{"LogonType": "10", "TargetLogonId": "0x3E7A1"})))
+	if ended == nil || !strings.Contains(ended.Summary, "session ended") || ended.DedupeKey != "logoff|0x3e7a1" {
+		t.Errorf("4634: %+v", ended)
+	}
+	chosen := tr.Translate(sec(4647, with(map[string]string{"TargetLogonId": "0x3E7A1"})))
+	if chosen == nil || chosen.DedupeKey != ended.DedupeKey || chosen.Priority <= ended.Priority {
+		t.Errorf("4647 should merge with and win over 4634: %+v", chosen)
+	}
+	if tr.Translate(sec(4634, with(map[string]string{"LogonType": "3", "TargetLogonId": "0x1"}))) != nil {
+		t.Error("network logoffs (type 3) are noise and must be skipped")
+	}
+
+	// A cached unlock (type 13) is an unlock, like type 7.
+	if e := tr.Translate(sec(4624, with(map[string]string{"LogonType": "13", "TargetLogonId": "0x2"}))); e == nil || !e.Interactive {
+		t.Errorf("type 13: %+v", e)
+	}
+
+	// An administrator's UAC logon pair is one logon.
+	a := tr.Translate(sec(4624, with(map[string]string{"LogonType": "2", "TargetLogonId": "0x100", "TargetLinkedLogonId": "0x200", "ElevatedToken": "%%1842"})))
+	b := tr.Translate(sec(4624, with(map[string]string{"LogonType": "2", "TargetLogonId": "0x200", "TargetLinkedLogonId": "0x100", "ElevatedToken": "%%1843"})))
+	if a.DedupeKey == "" || a.DedupeKey != b.DedupeKey || a.Priority <= b.Priority {
+		t.Errorf("linked logons: %q/%d and %q/%d", a.DedupeKey, a.Priority, b.DedupeKey, b.Priority)
+	}
+
+	// OpenSSH logons say SSH, not "clear-text password".
+	ssh := tr.Translate(sec(4624, with(map[string]string{"LogonType": "8", "TargetLogonId": "0x3", "LogonProcessName": "sshd", "IpAddress": "10.1.1.5"})))
+	if ssh == nil || !strings.Contains(ssh.Summary, "via SSH") || strings.Contains(ssh.Summary, "clear-text") {
+		t.Errorf("sshd logon: %+v", ssh)
+	}
+
+	// Actions by the system itself are shown as SYSTEM, not the computer account.
+	grp := tr.Translate(sec(4731, map[string]string{"SubjectUserSid": "S-1-5-18", "SubjectUserName": "WS-07$", "SubjectDomainName": "WORKGROUP",
+		"TargetUserName": "Blackbox Senders", "TargetDomainName": "WS-07", "TargetSid": "S-1-5-21-1-2-3-1010"}))
+	if grp == nil || !strings.HasPrefix(grp.Summary, "SYSTEM ") {
+		t.Errorf("system action: %+v", grp)
+	}
+
+	// PowerShell -EncodedCommand (remote management) is decoded, checked
+	// for tampering, and passwords in it are hidden.
+	enc := base64.StdEncoding.EncodeToString(utf16le("$env:BLACKBOX_SHARE_PASSWORD='Qx7!Harbor-L26'; wevtutil cl Security"))
+	p := tr.Translate(sec(4688, map[string]string{"SubjectUserSid": "S-1-5-21-1-2-3-1001", "SubjectUserName": "jdoe.adm", "SubjectDomainName": "WS-07",
+		"NewProcessName": `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, "TokenElevationType": "%%1937",
+		"CommandLine": "powershell.exe -NoProfile -EncodedCommand " + enc, "ParentProcessName": `C:\Windows\System32\wsmprovhost.exe`}))
+	if p == nil || p.Action != "audit_tamper_command" || !strings.Contains(p.Summary, "wevtutil cl Security") {
+		t.Fatalf("encoded command: %+v", p)
+	}
+	all := p.Summary
+	for _, d := range p.Details {
+		all += " " + d.Value
+	}
+	if strings.Contains(all, "Qx7!Harbor-L26") {
+		t.Errorf("password shown in the report: %s", all)
+	}
+}
+
+func utf16le(s string) []byte {
+	var b []byte
+	for _, r := range utf16.Encode([]rune(s)) {
+		b = append(b, byte(r), byte(r>>8))
+	}
+	return b
 }

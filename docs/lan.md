@@ -93,8 +93,11 @@ VM does not have to be on at a particular time:
 
 - The Blackbox timer runs 5 minutes after boot and catches up any runs it
   missed while the VM was off.
-- To send straight away, before powering the VM off, run
-  `sudo blackbox send` in the VM from your script.
+- A Linux sender also sends when it shuts down cleanly (the
+  `blackbox-shutdown.service` unit), so a VM powered off with an ACPI
+  shutdown delivers its last events on the way down. A VM that is
+  powered off hard does not; to be sure, run `sudo blackbox send` in the
+  VM from your script before stopping it.
 
 ## Scenario 3: a LAN with a Windows collector
 
@@ -143,6 +146,12 @@ Setup stores the account in `/etc/blackbox/share.cred`, readable by root
 only. It also creates a systemd mount unit that mounts the share for
 Blackbox before each run. Files on the share are root-only and cannot be
 run.
+
+**FIPS mode (STIG-hardened Ubuntu Pro, AlmaLinux).** With
+`/proc/sys/crypto/fips_enabled` set to 1, the kernel refuses the NTLM
+sign-in that SMB shares use, so the mount fails. Setup detects this and
+says so. Use an SFTP (sshfs) mount instead, which works in FIPS mode; see
+[Other ways to reach the inbox](#other-ways-to-reach-the-inbox).
 
 If the collector cannot be reached during setup, you can still continue.
 The data waits on the sender until the collector can be reached.

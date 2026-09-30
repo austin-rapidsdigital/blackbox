@@ -91,6 +91,9 @@ func TryInbox(sendTo, user, pw string) error {
 		}
 		return nil
 	}
+	if fipsEnabled() {
+		return errFIPS
+	}
 	if !share.HaveCIFS() {
 		return fmt.Errorf("the SMB client (cifs-utils) is not installed; install it from your installation media (Ubuntu: apt install cifs-utils; AlmaLinux: dnf install cifs-utils), or use a VirtualBox shared folder")
 	}
@@ -147,6 +150,11 @@ func prepareSendTo(opt Options, dataDir string, logf func(string, ...any)) error
 			logf("Sends to:            %s (reachable)", opt.SendTo)
 		}
 		return nil
+	}
+	if fipsEnabled() {
+		logf("WARNING: FIPS mode is on. SMB sign-in with a password (NTLM) does not work in FIPS mode,")
+		logf("         so %s cannot be mounted. Use a folder instead: an SFTP (sshfs) mount or a", opt.SendTo)
+		logf("         VirtualBox shared folder. See docs/lan.md.")
 	}
 	if !share.HaveCIFS() {
 		return fmt.Errorf("sending to %s needs the SMB client: install cifs-utils from your installation media (Ubuntu: apt install cifs-utils; AlmaLinux: dnf install cifs-utils)", opt.SendTo)
@@ -211,3 +219,12 @@ func readPassword(r *bufio.Reader) (string, error) {
 // InboxShared reports whether the inbox is shared on the network (Windows
 // only; Linux collectors receive through folders the senders can reach).
 func InboxShared() bool { return false }
+
+// errFIPS explains why an SMB share cannot be used on a FIPS system.
+var errFIPS = fmt.Errorf("FIPS mode is on: SMB sign-in with a password (NTLM) needs algorithms FIPS mode disables, so the share cannot be mounted. Send to a folder instead: an SFTP (sshfs) mount of the collector's inbox, or a VirtualBox shared folder (see docs/lan.md)")
+
+// fipsEnabled reports whether the kernel is in FIPS mode.
+func fipsEnabled() bool {
+	b, err := os.ReadFile("/proc/sys/crypto/fips_enabled")
+	return err == nil && strings.TrimSpace(string(b)) == "1"
+}

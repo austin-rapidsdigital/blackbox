@@ -1,11 +1,14 @@
 package winevt
 
 import (
+	"encoding/base64"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/casea1/blackbox/internal/event"
 )
@@ -61,6 +64,7 @@ func (t *Translator) Translate(r *Raw) *event.Event {
 	if e.Fields == nil {
 		e.Fields = r.Data
 	}
+	e.RedactSecrets()
 	return e
 }
 
@@ -92,6 +96,8 @@ func (t *Translator) security(r *Raw) *event.Event {
 		return t.logonFailure(r)
 	case 4647:
 		return t.logoff(r)
+	case 4634:
+		return t.sessionEnded(r)
 	case 4778, 4779:
 		return t.rdpSession(r)
 	case 4648:
@@ -161,18 +167,32 @@ func (t *Translator) logonSuccess(r *Raw) *event.Event {
 		return nil
 	}
 	e := &event.Event{Category: event.CatLogon, Action: "logon", User: user, Outcome: "success",
-		SourceIP: cleanIP(r.Get("IpAddress")), Interactive: interactiveLogon(lt) || lt == "7"}
+		SourceIP: cleanIP(r.Get("IpAddress")), Interactive: interactiveLogon(lt) || lt == "7" || lt == "13"}
 	if len(t.logons) > 100000 {
 		t.logons = map[string]logonInfo{}
 	}
 	t.logons[r.Computer+"|"+r.Get("TargetLogonId")] = logonInfo{lt, e.SourceIP}
 	admin := r.Get("ElevatedToken") == "%%1842"
-	e.Summary = fmt.Sprintf("%s logged on %s%s", user, logonTypePhrase(lt), fromWhere(r, e.SourceIP))
+	how, name := logonHow(r, lt)
+	e.Summary = fmt.Sprintf("%s logged on %s%s", user, how, fromWhere(r, e.SourceIP))
 	if admin {
 		e.Summary += " with administrator rights"
 	}
 	e.Summary += "."
-	e.AddDetail("Logon type", logonTypeName(lt))
+	// An administrator's interactive logon is recorded twice (UAC's full
+	// and filtered tokens, linked to each other): report it once, keeping
+	// the one with administrator rights.
+	if linked := r.Get("TargetLinkedLogonId"); linked != "" && linked != "0x0" {
+		a, b := strings.ToLower(r.Get("TargetLogonId")), strings.ToLower(linked)
+		if b < a {
+			a, b = b, a
+		}
+		e.DedupeKey, e.Priority = "linkedlogon|"+a+"|"+b, 1
+		if admin {
+			e.Priority = 2
+		}
+	}
+	e.AddDetail("Logon type", name)
 	e.AddDetail("Source address", e.SourceIP)
 	e.AddDetail("Source workstation", r.Get("WorkstationName"))
 	e.AddDetail("Authentication", r.Get("AuthenticationPackageName"))
@@ -193,9 +213,10 @@ func (t *Translator) logonFailure(r *Raw) *event.Event {
 		Process: r.Get("ProcessName"),
 		// 4776 is logged alongside 4625 for local accounts; keep this one.
 		DedupeKey: "authfail|" + strings.ToLower(user), Priority: 2}
-	e.Summary = fmt.Sprintf("Failed logon for %s %s%s — %s.", user, logonTypePhrase(lt), fromWhere(r, e.SourceIP), reason)
+	how, name := logonHow(r, lt)
+	e.Summary = fmt.Sprintf("Failed logon for %s %s%s — %s.", user, how, fromWhere(r, e.SourceIP), reason)
 	e.AddDetail("Reason", reason)
-	e.AddDetail("Logon type", logonTypeName(lt))
+	e.AddDetail("Logon type", name)
 	e.AddDetail("Source address", e.SourceIP)
 	e.AddDetail("Source workstation", r.Get("WorkstationName"))
 	e.AddDetail("Process", r.Get("ProcessName"))
@@ -210,9 +231,39 @@ func (t *Translator) logoff(r *Raw) *event.Event {
 		return nil
 	}
 	e := &event.Event{Category: event.CatLogon, Action: "logoff", User: user, Outcome: "success",
-		Summary: fmt.Sprintf("%s logged off.", user)}
+		Summary:   fmt.Sprintf("%s logged off.", user),
+		DedupeKey: "logoff|" + strings.ToLower(r.Get("TargetLogonId")), Priority: 2}
 	e.AddDetail("Logon ID", r.Get("TargetLogonId"))
 	return e
+}
+
+// sessionEnded reports the end of a person's session (4634). A logoff the
+// person chose is also recorded as 4647, which is kept instead; 4634 alone
+// means the session was ended for them (logged off by an administrator,
+// or an idle or disconnect time limit).
+func (t *Translator) sessionEnded(r *Raw) *event.Event {
+	if !interactiveLogon(r.Get("LogonType")) || t.isServiceAccount(r.Get("TargetUserSid"), r.Get("TargetUserName")) {
+		return nil
+	}
+	user := t.account(r, "TargetUserSid", "TargetDomainName", "TargetUserName")
+	e := &event.Event{Category: event.CatLogon, Action: "logoff", User: user, Outcome: "success",
+		Summary:   fmt.Sprintf("%s's session ended (logged off by the system or an administrator, or it timed out).", user),
+		DedupeKey: "logoff|" + strings.ToLower(r.Get("TargetLogonId")), Priority: 1}
+	e.AddDetail("Logon type", logonTypeName(r.Get("LogonType")))
+	e.AddDetail("Logon ID", r.Get("TargetLogonId"))
+	return e
+}
+
+// logonHow describes how someone logged on. Logons through the Windows
+// OpenSSH server are shown as SSH rather than by their logon type (often
+// "network with a clear-text password", which would read as an alarm).
+func logonHow(r *Raw, lt string) (phrase, name string) {
+	for _, p := range []string{r.Get("LogonProcessName"), r.Get("ProcessName")} {
+		if strings.Contains(strings.ToLower(p), "sshd") {
+			return "via SSH (OpenSSH)", "SSH (OpenSSH)"
+		}
+	}
+	return logonTypePhrase(lt), logonTypeName(lt)
 }
 
 func (t *Translator) rdpSession(r *Raw) *event.Event {
@@ -324,8 +375,14 @@ func (t *Translator) processCreated(r *Raw) *event.Event {
 	if shown == "" {
 		shown = proc
 	}
+	// PowerShell run with -EncodedCommand (as remote management tools do)
+	// hides the real command in base64: show it, and check it for tampering.
+	decoded := decodePowerShell(cmd)
+	if decoded != "" {
+		shown = proc + " (encoded command): " + decoded
+	}
 	e.Summary = fmt.Sprintf("%s ran with administrator rights: %s", user, shown)
-	lc := strings.Join(strings.Fields(strings.ToLower(cmd)), " ")
+	lc := strings.Join(strings.Fields(strings.ToLower(cmd+" "+decoded)), " ")
 	for _, frag := range auditTamper {
 		if strings.Contains(lc, frag) {
 			e.Severity = event.SevHigh
@@ -336,6 +393,7 @@ func (t *Translator) processCreated(r *Raw) *event.Event {
 	}
 	e.AddDetail("Program", proc)
 	e.AddDetail("Command line", cmd)
+	e.AddDetail("PowerShell command (decoded)", decoded)
 	e.AddDetail("Started by", r.Get("ParentProcessName"))
 	e.AddDetail("Elevation", expandTokens(elev))
 	if cmd == "" {
@@ -887,6 +945,12 @@ func (t *Translator) account(r *Raw, sidF, domF, userF string) string {
 }
 
 func (t *Translator) subject(r *Raw) string {
+	// Windows names the computer account (WORKGROUP\HOST$) for actions
+	// taken by the system itself; say "SYSTEM" as people know it.
+	switch r.Get("SubjectUserSid") {
+	case "S-1-5-18", "S-1-5-19", "S-1-5-20":
+		return wellKnownSIDs[r.Get("SubjectUserSid")]
+	}
 	return t.account(r, "SubjectUserSid", "SubjectDomainName", "SubjectUserName")
 }
 
@@ -1136,4 +1200,41 @@ func (d device) key(fallback string) string {
 		return strings.ToLower(n)
 	}
 	return strings.ToLower(fallback)
+}
+
+// psFlag is a PowerShell parameter and the value after it.
+var psFlag = regexp.MustCompile(`(?:^|\s)[-/]([A-Za-z]+)\s+("?)([A-Za-z0-9+/=]{8,})`)
+
+// decodePowerShell returns the command hidden in a PowerShell
+// -EncodedCommand argument (base64 of UTF-16LE text), or "".
+func decodePowerShell(cmd string) string {
+	l := strings.ToLower(cmd)
+	if !strings.Contains(l, "powershell") && !strings.Contains(l, "pwsh") {
+		return ""
+	}
+	// PowerShell accepts any prefix of -EncodedCommand (-e, -enc, …) and -ec.
+	val := ""
+	for _, m := range psFlag.FindAllStringSubmatch(cmd, -1) {
+		f := strings.ToLower(m[1])
+		if f == "ec" || strings.HasPrefix("encodedcommand", f) {
+			val = m[3]
+			break
+		}
+	}
+	if val == "" {
+		return ""
+	}
+	b, err := base64.StdEncoding.DecodeString(val)
+	if err != nil || len(b) < 2 || len(b)%2 != 0 {
+		return ""
+	}
+	u := make([]uint16, len(b)/2)
+	for i := range u {
+		u[i] = uint16(b[2*i]) | uint16(b[2*i+1])<<8
+	}
+	out := strings.TrimSpace(string(utf16.Decode(u)))
+	if len(out) > 2000 {
+		out = out[:2000] + " …"
+	}
+	return out
 }

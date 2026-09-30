@@ -84,6 +84,7 @@ func (t *Translator) Syslog(l Line, source string) *event.Event {
 	if e.Fields == nil {
 		e.Fields = map[string]string{"message": l.Msg}
 	}
+	e.RedactSecrets()
 	return e
 }
 
@@ -373,6 +374,9 @@ func (t *Translator) auth(l Line) *event.Event {
 }
 
 func consoleSession(service string) (string, string) {
+	if strings.Contains(service, "xrdp") {
+		return "via Remote Desktop (RDP)", "Remote Desktop"
+	}
 	if service == "login" {
 		return "at the text console", "Text console"
 	}

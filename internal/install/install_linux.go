@@ -18,8 +18,9 @@ import (
 func ProgramPath() string { return "/usr/local/bin/blackbox" }
 
 const (
-	serviceFile = "/etc/systemd/system/blackbox.service"
-	timerFile   = "/etc/systemd/system/blackbox.timer"
+	serviceFile  = "/etc/systemd/system/blackbox.service"
+	timerFile    = "/etc/systemd/system/blackbox.timer"
+	shutdownFile = "/etc/systemd/system/blackbox-shutdown.service"
 )
 
 // Install copies the program, creates the data folder and config, and
@@ -77,7 +78,7 @@ func Install(opt Options) error {
 		return err
 	}
 
-	if err := os.WriteFile(serviceFile, []byte(serviceFor(dst, cfg)), 0o644); err != nil {
+	if err := writeUnits(dst, cfg); err != nil {
 		return err
 	}
 	if err := os.WriteFile(timerFile, []byte(timer), 0o644); err != nil {
@@ -99,7 +100,8 @@ func Uninstall(logf func(string, ...any)) error {
 		return errors.New("uninstall must be run as root")
 	}
 	exec.Command("systemctl", "disable", "--now", "blackbox.timer").Run()
-	for _, f := range []string{timerFile, serviceFile} {
+	exec.Command("systemctl", "disable", "blackbox-shutdown.service").Run()
+	for _, f := range []string{timerFile, serviceFile, shutdownFile} {
 		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
 			return err
 		}
@@ -125,7 +127,7 @@ func afterReportDirChange(logf func(string, ...any)) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(serviceFile, []byte(serviceFor(ProgramPath(), cfg)), 0o644); err != nil {
+	if err := writeUnits(ProgramPath(), cfg); err != nil {
 		return err
 	}
 	if out, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
@@ -135,10 +137,46 @@ func afterReportDirChange(logf func(string, ...any)) error {
 	return nil
 }
 
+// writeUnits writes the service unit and, on a computer that sends to a
+// collector, the unit that sends before shutdown (enabled so it runs at
+// the next shutdown; removed on other computers).
+func writeUnits(exe string, cfg *config.Config) error {
+	if err := os.WriteFile(serviceFile, []byte(serviceFor(exe, cfg)), 0o644); err != nil {
+		return err
+	}
+	if cfg.SendTo == "" {
+		if _, err := os.Stat(shutdownFile); err == nil {
+			exec.Command("systemctl", "disable", "--now", "blackbox-shutdown.service").Run()
+			os.Remove(shutdownFile)
+		}
+		return nil
+	}
+	if err := os.WriteFile(shutdownFile, []byte(shutdownFor(exe, cfg)), 0o644); err != nil {
+		return err
+	}
+	exec.Command("systemctl", "daemon-reload").Run()
+	if out, err := exec.Command("systemctl", "enable", "--now", "blackbox-shutdown.service").CombinedOutput(); err != nil {
+		return fmt.Errorf("enable blackbox-shutdown.service: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // serviceFor is the service unit for these settings.
 func serviceFor(exe string, cfg *config.Config) string {
-	writable := []string{cfg.DataDir, cfg.ReportsDir()}
-	mount := ""
+	mount, writable := unitPaths(cfg)
+	return systemdService(exe, mount, writable...)
+}
+
+// shutdownFor is the send-before-shutdown unit for these settings.
+func shutdownFor(exe string, cfg *config.Config) string {
+	mount, writable := unitPaths(cfg)
+	return systemdShutdownService(exe, mount, writable...)
+}
+
+// unitPaths are the share mount unit (if any) and the folders the units
+// may write to.
+func unitPaths(cfg *config.Config) (mount string, writable []string) {
+	writable = []string{cfg.DataDir, cfg.ReportsDir()}
 	switch {
 	case config.IsShare(cfg.SendTo):
 		mount = mountUnitName() // mounted inside the data folder
@@ -148,7 +186,7 @@ func serviceFor(exe string, cfg *config.Config) string {
 	if cfg.Inbox != "" {
 		writable = append(writable, "-"+cfg.Inbox)
 	}
-	return systemdService(exe, mount, writable...)
+	return mount, writable
 }
 
 // restrictDir limits a folder Blackbox created to root.

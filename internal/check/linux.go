@@ -13,7 +13,13 @@ import (
 //go:embed blackbox-audit.rules
 var AuditRules string
 
-const rulesFix = "blackbox check --audit-rules > /etc/audit/rules.d/99-blackbox.rules && augenrules --load"
+// RulesFile is where the recommended rules are meant to be saved.
+const RulesFile = "/etc/audit/rules.d/99-blackbox.rules"
+
+// rulesFix lists only the rules that are not already loaded (see
+// MissingRules), so a STIG baseline's own rules are never duplicated.
+// Blackbox prints them; an administrator installs them.
+const rulesFix = "blackbox check --audit-rules --missing | install -m 0600 /dev/stdin " + RulesFile + ", then augenrules --load"
 
 type ruleReq struct {
 	item, affects string
@@ -37,9 +43,17 @@ func anyRule(rules []string, parts ...string) bool {
 	return false
 }
 
+// watches reports whether exactly path is watched (not a longer path that
+// starts with it), with or without a trailing slash: auditctl lists
+// "-w /etc/audit/" as "-w /etc/audit".
 func watches(path string) func([]string) bool {
 	return func(rules []string) bool {
-		return anyRule(rules, "-w "+path) || anyRule(rules, "path="+path) || anyRule(rules, "dir="+strings.TrimSuffix(path, "/"))
+		for _, f := range ruleTokens(rules) {
+			if watchesPath(f, path) {
+				return true
+			}
+		}
+		return false
 	}
 }
 
@@ -56,8 +70,14 @@ var linuxRuleReqs = []ruleReq{
 		func(r []string) bool { return anyRule(r, "execve", "euid=0", "auid>=") }},
 	{"Kernel module loading", "Other Security Events", true,
 		func(r []string) bool { return anyRule(r, "init_module") || anyRule(r, "finit_module") }},
+	// The DISA STIG for Ubuntu 24.04 audits the mount program (path=
+	// /usr/bin/mount) rather than the mount syscall; either records a disk
+	// mounted from the command line.
 	{"Filesystem mounts", "USB & Removable Media (disks mounted from the command line)", true,
-		func(r []string) bool { return anyRule(r, "-S mount") || anyRule(r, ",mount") || anyRule(r, "mount,") }},
+		func(r []string) bool {
+			return anyRule(r, "-S mount") || anyRule(r, ",mount") || anyRule(r, "mount,") ||
+				watches("/usr/bin/mount")(r) || watches("/bin/mount")(r)
+		}},
 	{"System time changes", "Audit & System Integrity", false,
 		func(r []string) bool { return anyRule(r, "settimeofday") || anyRule(r, "clock_settime") }},
 	{"Audit configuration watched (/etc/audit)", "Audit & System Integrity", false, watches("/etc/audit/")},
@@ -72,6 +92,16 @@ func EvaluateAuditRules(rulesText, statusText string) []Result {
 			rules = append(rules, l)
 		}
 	}
+	status := map[string]string{}
+	for _, l := range strings.Split(statusText, "\n") {
+		if f := strings.Fields(l); len(f) >= 2 {
+			status[f[0]] = f[1]
+		}
+	}
+	fix := rulesFix
+	if status["enabled"] == "2" {
+		fix += " (the rules are locked, so they take effect after a reboot)"
+	}
 	var out []Result
 	for _, q := range linuxRuleReqs {
 		r := Result{Area: "Audit rules", Item: q.item, Want: "Present", Affects: q.affects}
@@ -79,17 +109,11 @@ func EvaluateAuditRules(rulesText, statusText string) []Result {
 		case q.match(rules):
 			r.Status, r.Have = Pass, "Present"
 		case q.required:
-			r.Status, r.Have, r.Fix = Fail, "Missing", rulesFix
+			r.Status, r.Have, r.Fix = Fail, "Missing", fix
 		default:
-			r.Status, r.Have, r.Want, r.Fix = Warn, "Missing", "Recommended", rulesFix
+			r.Status, r.Have, r.Want, r.Fix = Warn, "Missing", "Recommended", fix
 		}
 		out = append(out, r)
-	}
-	status := map[string]string{}
-	for _, l := range strings.Split(statusText, "\n") {
-		if f := strings.Fields(l); len(f) >= 2 {
-			status[f[0]] = f[1]
-		}
 	}
 	lock := Result{Area: "Audit rules", Item: "Rules locked until reboot (-e 2)", Want: "Locked (enabled 2)",
 		Affects: "Audit & System Integrity (without it, rules can be removed without a reboot)"}
@@ -110,7 +134,7 @@ func EvaluateAuditRules(rulesText, statusText string) []Result {
 		if b >= 8192 {
 			r.Status = Pass
 		} else {
-			r.Status, r.Fix = Warn, rulesFix
+			r.Status, r.Fix = Warn, fix
 		}
 		out = append(out, r)
 	}

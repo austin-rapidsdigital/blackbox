@@ -2,9 +2,13 @@
 ## Based on the DISA STIG rules for these systems; they record everything the
 ## Blackbox report needs.
 ##
-## Install (as root):
-##   blackbox check --audit-rules > /etc/audit/rules.d/99-blackbox.rules
-##   augenrules --load
+## Recommended install (as root), on any system, including one already
+## hardened with a STIG baseline such as Canonical USG:
+##   blackbox check --audit-rules --missing | install -m 0600 /dev/stdin /etc/audit/rules.d/99-blackbox.rules
+##   augenrules --load      (or reboot, if the rules are locked with -e 2)
+## --missing prints only the rules below that are not already loaded (under
+## any key name) and skips watches on paths that do not exist, so the
+## baseline's own rules and keys are left as they are.
 ## Review against your site's STIG checklist before use.
 
 ## Larger kernel buffer, so busy systems do not drop audit records.
