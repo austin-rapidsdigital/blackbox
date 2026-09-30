@@ -12,6 +12,7 @@ import (
 
 	"github.com/casea1/blackbox/internal/check"
 	"github.com/casea1/blackbox/internal/event"
+	"github.com/casea1/blackbox/internal/linuxlog"
 	"github.com/casea1/blackbox/internal/store"
 	"github.com/casea1/blackbox/internal/winevt"
 )
@@ -112,10 +113,11 @@ type ChannelHealth struct {
 	MaxSize     uint64
 }
 
-// VolumeRow is one busy event ID.
+// VolumeRow is one busy event ID (Windows) or record type (Linux).
 type VolumeRow struct {
 	Channel string
 	EventID int
+	Type    string
 	Name    string
 	Count   int
 	Percent float64
@@ -127,6 +129,7 @@ type GapItem struct {
 	Lost          uint64
 	From, To      time.Time
 	Reset         bool
+	Note          string // when the number lost is not known
 }
 
 // Health describes whether the report is complete.
@@ -146,6 +149,7 @@ type Health struct {
 	ChecksFail   int
 	ChecksWarn   int
 	LogClears    int
+	AuditOff     []string // periods auditing was switched off
 }
 
 // Report is everything the template needs.
@@ -293,30 +297,70 @@ func (r *Report) dedupe(in []*event.Event) []*event.Event {
 	return out
 }
 
-// attributeDevices names the person most likely using a USB device:
-// device events do not record a user, so use whoever last logged on at
-// the keyboard or by Remote Desktop on that host.
+// attributeDevices names the person most likely using a removable device:
+// device events do not record a user, so use whoever is logged on at the
+// console of that host (not remotely: a remote user cannot plug in a
+// device). When several people are, the most recent is named and the
+// others are listed.
 func attributeDevices(events []*event.Event) {
-	current := map[string]string{} // host → user
+	// Best evidence: the person who mounted the device right after it was
+	// connected (recorded by udisks on Linux).
+	for i, e := range events {
+		if e.Action != "usb_connected" || e.User != "" {
+			continue
+		}
+		for _, m := range events[i+1:] {
+			if m.Time.Sub(e.Time) > 2*time.Minute {
+				break
+			}
+			if m.Host == e.Host && m.Action == "removable_mounted" && m.User != "" {
+				e.User = m.User
+				e.AddDetail("User", m.User+" (opened the device right after it was connected)")
+				break
+			}
+		}
+	}
+	active := map[string][]string{} // host → console users, oldest first
+	remove := func(host, user string) {
+		l := active[host]
+		for i := len(l) - 1; i >= 0; i-- {
+			if l[i] == user {
+				active[host] = append(l[:i:i], l[i+1:]...)
+				return
+			}
+		}
+	}
 	for _, e := range events {
 		switch {
-		case e.Action == "logon" && isInteractive(e):
-			current[e.Host] = e.User
-		case e.Action == "logoff" && current[e.Host] == e.User:
-			delete(current, e.Host)
+		case e.Action == "logon" && consoleLogon(e):
+			remove(e.Host, e.User)
+			active[e.Host] = append(active[e.Host], e.User)
+		case e.Action == "logoff":
+			remove(e.Host, e.User)
 		case e.Category == event.CatRemovable && e.User == "":
-			if u := current[e.Host]; u != "" {
-				e.User = u
-				e.AddDetail("User", u+" (was logged on at the time; device events do not record a user)")
+			l := active[e.Host]
+			if len(l) == 0 {
+				continue
+			}
+			e.User = l[len(l)-1]
+			e.AddDetail("User", e.User+" (logged on at the console at the time; device events do not record a user)")
+			if len(l) > 1 {
+				e.AddDetail("Also logged on at the console", strings.Join(l[:len(l)-1], ", "))
 			}
 		}
 	}
 }
 
-func isInteractive(e *event.Event) bool {
+// consoleLogon reports a logon made at the machine itself.
+func consoleLogon(e *event.Event) bool {
 	switch e.Fields["LogonType"] {
-	case "2", "10", "11", "12", "7":
+	case "2", "7", "11", "13":
 		return true
+	}
+	for _, d := range e.Details {
+		if d.Label == "Logon type" && (d.Value == "Graphical console" || d.Value == "Text console") {
+			return true
+		}
 	}
 	return false
 }
@@ -533,6 +577,31 @@ func (r *Report) findPatterns(rows []*Row) {
 					row.User, row.Host, r.clock(row.Time), n, int(successWindow.Minutes()))})
 		}
 	}
+	// Auditing switched off by a person, until it came back.
+	for i, row := range rows {
+		if row.Action != "audit_stopped" || row.Severity != event.SevHigh {
+			continue
+		}
+		var until *Row
+		for _, next := range rows[i+1:] {
+			if next.Host == row.Host && next.Action == "audit_started" {
+				until = next
+				break
+			}
+		}
+		f := Finding{Severity: event.SevHigh, Category: event.CatIntegrity, Host: row.Host, Time: row.Time, RowID: row.ID,
+			Title: "Auditing was switched off"}
+		if until != nil {
+			f.Detail = fmt.Sprintf("The audit service on %s was off for %s (%s to %s). Nothing done in that time was recorded.",
+				row.Host, roughDuration(until.Time.Sub(row.Time)), r.clock(row.Time), r.clock(until.Time))
+			r.Health.AuditOff = append(r.Health.AuditOff, fmt.Sprintf("%s: auditing was off for %s (%s to %s).",
+				row.Host, roughDuration(until.Time.Sub(row.Time)), r.stamp(row.Time), r.stamp(until.Time)))
+		} else {
+			f.Detail = fmt.Sprintf("The audit service on %s was stopped at %s and had not restarted by the end of this report.", row.Host, r.clock(row.Time))
+			r.Health.AuditOff = append(r.Health.AuditOff, fmt.Sprintf("%s: auditing was stopped at %s and not restarted.", row.Host, r.stamp(row.Time)))
+		}
+		r.Findings = append(r.Findings, f)
+	}
 	sort.SliceStable(r.Findings, func(i, j int) bool {
 		a, b := r.Findings[i], r.Findings[j]
 		if a.Severity.Rank() != b.Severity.Rank() {
@@ -604,6 +673,13 @@ var actionLabels = map[string][2]string{
 	"audit_policy_changed":    {"audit policy change", "audit policy changes"},
 	"malware_action":          {"anti-malware action", "anti-malware actions"},
 	"eventlog_error":          {"event log error", "event log errors"},
+	"sudo_denied":             {"refused sudo command", "refused sudo commands"},
+	"removable_mounted":       {"removable disk opened (mounted)", "removable disks opened (mounted)"},
+	"module_loaded":           {"kernel module loaded", "kernel modules loaded"},
+	"module_unloaded":         {"kernel module unloaded", "kernel modules unloaded"},
+	"promiscuous_mode":        {"network capture (promiscuous mode) started", "network captures (promiscuous mode) started"},
+	"audit_rule_added":        {"audit rule added", "audit rules added"},
+	"audit_config_changed":    {"audit configuration change", "audit configuration changes"},
 }
 
 func (r *Report) buildAttention(rows []*Row) {
@@ -734,7 +810,7 @@ func (r *Report) buildHealth(runs []*store.Run, events []*event.Event) {
 			}
 			if c.Gap != nil {
 				ch.Lost += c.Gap.Lost
-				h.Gaps = append(h.Gaps, GapItem{Host: run.Host, Channel: c.Channel, Lost: c.Gap.Lost, From: c.Gap.From, To: c.Gap.To})
+				h.Gaps = append(h.Gaps, GapItem{Host: run.Host, Channel: c.Channel, Lost: c.Gap.Lost, From: c.Gap.From, To: c.Gap.To, Note: c.Gap.Note})
 			}
 			if c.Reset {
 				ch.Resets++
@@ -748,6 +824,15 @@ func (r *Report) buildHealth(runs []*store.Run, events []*event.Event) {
 					if c.Channel == "Security" || c.Channel == "System" {
 						v.Name = winevt.EventNames[id]
 					}
+					vol[vk] = v
+				}
+				v.Count += n
+			}
+			for typ, n := range c.TypeCounts {
+				vk := c.Channel + "|" + typ
+				v := vol[vk]
+				if v == nil {
+					v = &VolumeRow{Channel: c.Channel, Type: typ, Name: linuxlog.RecordTypeNames[typ]}
 					vol[vk] = v
 				}
 				v.Count += n
@@ -767,7 +852,10 @@ func (r *Report) buildHealth(runs []*store.Run, events []*event.Event) {
 		if h.Volume[i].Count != h.Volume[j].Count {
 			return h.Volume[i].Count > h.Volume[j].Count
 		}
-		return h.Volume[i].EventID < h.Volume[j].EventID
+		if h.Volume[i].EventID != h.Volume[j].EventID {
+			return h.Volume[i].EventID < h.Volume[j].EventID
+		}
+		return h.Volume[i].Type < h.Volume[j].Type
 	})
 	if len(h.Volume) > 12 {
 		h.Volume = h.Volume[:12]
@@ -775,6 +863,10 @@ func (r *Report) buildHealth(runs []*store.Run, events []*event.Event) {
 
 	// Plain-language warnings.
 	for _, g := range h.Gaps {
+		if g.Note != "" {
+			h.Warnings = append(h.Warnings, fmt.Sprintf("%s: %s: %s (since %s).", g.Host, g.Channel, g.Note, r.stamp(g.From)))
+			continue
+		}
 		if g.Reset {
 			h.Warnings = append(h.Warnings, fmt.Sprintf("%s: the %s log was cleared or recreated before %s; events in it that had not yet been collected are gone.", g.Host, g.Channel, r.stamp(g.To)))
 			continue

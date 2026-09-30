@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -28,6 +29,18 @@ type Options struct {
 	Version string
 	Now     func() time.Time
 	Logf    func(format string, args ...any)
+}
+
+// Live collects from this system's logs: the Windows event logs, or the
+// Linux audit and system logs.
+func Live(st *store.Store, opt Options) (*store.Run, error) {
+	switch runtime.GOOS {
+	case "windows":
+		return Windows(st, opt)
+	case "linux":
+		return Linux(st, opt)
+	}
+	return nil, fmt.Errorf("live collection is not supported on %s", runtime.GOOS)
 }
 
 // Windows collects from the live Windows event logs.

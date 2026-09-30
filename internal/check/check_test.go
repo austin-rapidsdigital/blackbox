@@ -61,3 +61,42 @@ func TestRegistryAndLogs(t *testing.T) {
 		t.Errorf("disabled Partition/Diagnostic log should fail: %+v", part)
 	}
 }
+
+func TestLinuxAuditRules(t *testing.T) {
+	// The recommended rules, as auditctl -l would list them, pass every check.
+	var loaded []string
+	for _, l := range strings.Split(AuditRules, "\n") {
+		if strings.HasPrefix(l, "-a") || strings.HasPrefix(l, "-w") {
+			loaded = append(loaded, l)
+		}
+	}
+	for _, r := range EvaluateAuditRules(strings.Join(loaded, "\n"), "enabled 2\nbacklog_limit 8192\nlost 0\n") {
+		if r.Status != Pass {
+			t.Errorf("%s: %s (%s)", r.Item, r.Status, r.Have)
+		}
+	}
+	// No rules at all: required items fail and point at the fix.
+	var fails int
+	for _, r := range EvaluateAuditRules("No rules", "enabled 1\nbacklog_limit 64\n") {
+		if r.Status == Fail {
+			fails++
+			if r.Fix == "" {
+				t.Errorf("%s: no fix given", r.Item)
+			}
+		}
+	}
+	if fails < 8 {
+		t.Errorf("only %d failures with no rules loaded", fails)
+	}
+	if r := EvaluateCmdline("BOOT_IMAGE=/vmlinuz root=/dev/sda1 ro audit=1 quiet"); r.Status != Pass {
+		t.Error("audit=1 not detected")
+	}
+	if r := EvaluateCmdline("BOOT_IMAGE=/vmlinuz audit=0"); r.Status != Fail {
+		t.Error("audit=0 should fail")
+	}
+	conf := ParseAuditdConf("log_format = RAW\nmax_log_file = 8\nnum_logs = 5\nmax_log_file_action = ROTATE\n")
+	rs := EvaluateAuditdConf(conf)
+	if rs[0].Status != Warn || !strings.Contains(rs[1].Have, "40 MB") {
+		t.Errorf("auditd.conf evaluation wrong: %+v", rs)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/casea1/blackbox/internal/collect"
 	"github.com/casea1/blackbox/internal/event"
 	"github.com/casea1/blackbox/internal/store"
 	"github.com/casea1/blackbox/internal/winevt"
@@ -164,5 +165,70 @@ func TestWriteAndVerify(t *testing.T) {
 	idx, _ := os.ReadFile(filepath.Join(filepath.Dir(dir), "index.html"))
 	if !bytes.Contains(idx, []byte("rep/report.html")) {
 		t.Error("list of reports does not link the report")
+	}
+}
+
+func TestLinuxReport(t *testing.T) {
+	// Syslog times are local; the sample was written in New York time.
+	ny, _ := time.LoadLocation("America/New_York")
+	saved := time.Local
+	time.Local = ny
+	defer func() { time.Local = saved }()
+	evs, run, err := collect.LinuxFiles([]string{"../../testdata/linux/ubuntu-audit.log"}, []string{"../../testdata/linux/ubuntu-syslog"}, "", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := Build(evs, []*store.Run{run}, Options{Location: time.UTC, WindowEnd: time.Now()})
+	if len(r.Hosts) != 1 || r.Hosts[0] != "ubu-ws12" {
+		t.Errorf("hosts = %v", r.Hosts)
+	}
+	titles := map[string]bool{}
+	for _, f := range r.Findings {
+		titles[f.Title] = true
+	}
+	for _, want := range []string{"Possible password guessing", "Auditing was switched off", "Successful logon after failures"} {
+		if !titles[want] {
+			t.Errorf("missing finding %q", want)
+		}
+	}
+	if len(r.Health.AuditOff) != 1 || !strings.Contains(r.Health.AuditOff[0], "12 minutes") {
+		t.Errorf("audit-off period = %v", r.Health.AuditOff)
+	}
+	// Duplicates merged: each SSH attempt once, lockout once, sudo+root command once.
+	count := func(action, target string) int {
+		n := 0
+		for _, e := range r.Events {
+			if e.Action == action && (target == "" || e.Target == target) {
+				n++
+			}
+		}
+		return n
+	}
+	if n := count("logon_failed", "root"); n != 7 { // 6 SSH attempts + the failed su
+		t.Errorf("failed logons for root = %d, want 7", n)
+	}
+	if n := count("account_locked", ""); n != 1 {
+		t.Errorf("lockouts = %d, want 1", n)
+	}
+	if n := count("root_command", ""); n != 0 {
+		t.Errorf("root commands left after merging with sudo = %d, want 0", n)
+	}
+	if n := count("group_member_added", ""); n != 1 {
+		t.Errorf("group additions = %d, want 1 (shadow group merged)", n)
+	}
+	// USB attributed to the person who mounted it (udisks), not merely the
+	// latest console logon (mjones) and never the SSH user.
+	want := map[string]string{"SanDisk Cruzer Blade": "jsmith", "Kingston DataTraveler 3.0": "jsmith"}
+	for _, e := range r.Events {
+		if e.Action == "usb_connected" && e.User != want[e.Target] {
+			t.Errorf("%s attributed to %q, want %q", e.Target, e.User, want[e.Target])
+		}
+	}
+	var buf bytes.Buffer
+	if err := r.WriteHTML(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("auditd USER_CMD record, serial")) {
+		t.Error("Linux 'recorded as' text missing")
 	}
 }

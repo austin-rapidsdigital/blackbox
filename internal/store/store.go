@@ -26,8 +26,12 @@ import (
 
 // Bookmark is the last record read from one log.
 type Bookmark struct {
-	RecordID uint64    `json:"record_id"`
-	Time     time.Time `json:"time"`
+	RecordID uint64    `json:"record_id,omitempty"` // Windows: last record number
+	Time     time.Time `json:"time,omitzero"`       // time of the last event read
+	Inode    uint64    `json:"inode,omitempty"`     // Linux log files: file identity…
+	Offset   int64     `json:"offset,omitempty"`    // …and bytes read
+	Head     string    `json:"head,omitempty"`      // hash of the file's first bytes, to spot a replaced file
+	Cursor   string    `json:"cursor,omitempty"`    // systemd journal cursor
 }
 
 // State is persisted between runs.
@@ -45,25 +49,27 @@ type State struct {
 
 // Gap records events lost before they could be collected.
 type Gap struct {
-	Lost uint64    `json:"lost"`          // number of records overwritten
-	From time.Time `json:"from,omitzero"` // last event we had
-	To   time.Time `json:"to,omitzero"`   // oldest event still in the log
+	Lost uint64    `json:"lost"`           // number of records overwritten
+	From time.Time `json:"from,omitzero"`  // last event we had
+	To   time.Time `json:"to,omitzero"`    // oldest event still in the log
+	Note string    `json:"note,omitempty"` // explanation when the count is unknown
 }
 
 // ChannelRun is what happened reading one log in one run.
 type ChannelRun struct {
-	Channel      string      `json:"channel"`
-	Read         int         `json:"read"` // records read
-	Kept         int         `json:"kept"` // translated (security-relevant)
-	FirstRecord  uint64      `json:"first_record,omitempty"`
-	LastRecord   uint64      `json:"last_record,omitempty"`
-	OldestTime   time.Time   `json:"oldest_time,omitzero"` // oldest event still in the log
-	MaxSizeBytes uint64      `json:"max_size_bytes,omitempty"`
-	Gap          *Gap        `json:"gap,omitempty"`
-	Reset        bool        `json:"reset,omitempty"` // record numbers went backwards (log cleared/recreated)
-	Unavailable  string      `json:"unavailable,omitempty"`
-	Error        string      `json:"error,omitempty"`
-	EventCounts  map[int]int `json:"event_counts,omitempty"`
+	Channel      string         `json:"channel"`
+	Read         int            `json:"read"` // records read
+	Kept         int            `json:"kept"` // translated (security-relevant)
+	FirstRecord  uint64         `json:"first_record,omitempty"`
+	LastRecord   uint64         `json:"last_record,omitempty"`
+	OldestTime   time.Time      `json:"oldest_time,omitzero"` // oldest event still in the log
+	MaxSizeBytes uint64         `json:"max_size_bytes,omitempty"`
+	Gap          *Gap           `json:"gap,omitempty"`
+	Reset        bool           `json:"reset,omitempty"` // record numbers went backwards (log cleared/recreated)
+	Unavailable  string         `json:"unavailable,omitempty"`
+	Error        string         `json:"error,omitempty"`
+	EventCounts  map[int]int    `json:"event_counts,omitempty"`
+	TypeCounts   map[string]int `json:"type_counts,omitempty"` // Linux: records by auditd type or syslog program
 }
 
 // Run is one collection run on one host.

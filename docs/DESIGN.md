@@ -377,7 +377,7 @@ exclude_processes =                # e.g. C:\Tools\Scanner\scan.exe
 | Milestone | Scope |
 |---|---|
 | **M1: single Windows host** | evtx collection, normalization, translation for §4.1–4.3, HTML report, bookmark, manifest, `install` / `run` |
-| **M2: Linux** | auditd and journald collection for Ubuntu 22.04/24.04 and Alma 8.10, the same report |
+| **M2: Linux** ✅ | auditd, syslog and journald collection for Ubuntu 22.04/24.04 and Alma 8.10, the same report (see section 15) |
 | **M3: audit health** | `check` against the STIG baselines, gap and rollover detection, audit-integrity section |
 | **M4: LAN (Model A+)** | `merge`, per-host views, index page |
 | **M5: packaging** | MSI, .deb, .rpm, SBOM, reproducible release builds |
@@ -447,4 +447,73 @@ The answers are in section 13. The original questions were:
 - CI runs the tests on Linux and Windows. It also runs `check`, `collect`,
   `report` and `verify` against the Windows runner's real event logs.
 
-**Next:** M2 (Linux: auditd and journald).
+**Next:** M2 (Linux) — done, see section 15.
+
+## 15. M2 implementation status (Linux)
+
+**Done:**
+
+- **auditd reader** (`internal/linuxlog`):
+  - Parses `key=value` records, including hex-encoded values, the nested
+    `msg='…'` part of user-space records, and ENRICHED name fields.
+  - Groups multi-record kernel events by serial number until the EOE
+    record.
+- **Plain-English translation** of logons, failed logons, lockouts
+  (pam_faillock), sudo (commands, refusals, root shells), su, setuid
+  programs, commands inside root shells, account and group changes,
+  password changes, and edits to sudoers and `/etc/passwd` made outside the
+  account tools.
+  - Also: auditd start/stop, audit rule changes, auditing disabled, time
+    changes, kernel modules, promiscuous mode, AppArmor/SELinux denials,
+    and SELinux switched to permissive.
+  - Activity with no logged-in user behind it is left out, except changes
+    to sudoers, the account database and log files, which are reported
+    whoever makes them.
+- **USB from kernel messages:** make, model, serial and capacity; USB
+  network adapters (tethered phones, Wi-Fi dongles); and who mounted each
+  device (udisks).
+- **Syslog formats:** traditional (Ubuntu 22.04, Alma), RFC 3339 (Ubuntu
+  24.04) and journalctl output.
+  - The journal is used when there are no syslog files.
+  - auth.log/secure is used only when auditd is missing, so nothing is
+    reported twice.
+- **Bookmarks for text logs:** inode, byte offset, and a fingerprint of the
+  file's first bytes. Blackbox follows rotation (Ubuntu `.1` and Alma
+  date-suffixed names) and detects truncation. It reports data rotated
+  away before collection, and audit records the kernel dropped (the
+  `auditctl -s` lost counter).
+- **Report additions:**
+  - a finding for how long auditing was off
+  - removable devices attributed to whoever mounted them, otherwise to
+    whoever was logged on at the console (never a remote session)
+  - auditd record types in the busiest-events table
+- **`check` on Linux:**
+  - auditd running
+  - loaded rules against the needed set (accounts, sudoers, setuid
+    programs, root commands, modules, mounts, time, audit configuration)
+  - rules locked (`-e 2`)
+  - backlog size
+  - `log_format`
+  - `audit=1` at boot
+  - a persistent system log
+  - `check --audit-rules` prints a recommended rules file.
+- **`install` on Linux:** a systemd timer plus a sandboxed oneshot service
+  (`PrivateNetwork`, `ProtectSystem=strict`, writes only to
+  `/var/lib/blackbox`).
+
+**Verification:**
+
+- Unit tests with a synthetic Ubuntu day (`testdata/linux`), covering
+  Ubuntu and Alma auth-log lines, syslog timestamp formats, and rotation,
+  truncation and lost-rotation handling.
+- The `linux-live` CI job installs auditd with the recommended rules on a
+  real Ubuntu machine, makes account and sudoers changes, then collects,
+  reports and checks that the report contains them.
+
+**Not yet:**
+
+- A real AlmaLinux run. Unit tests cover its log formats, but it has not
+  been run on a live Alma system.
+- dnf and dpkg software install history.
+- Files copied to USB on Linux. That needs auditd watches on mount points,
+  which the STIG does not require.

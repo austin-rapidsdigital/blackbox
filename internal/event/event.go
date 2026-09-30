@@ -32,7 +32,7 @@ type CategoryInfo struct {
 // Categories in report order (auditor priority first).
 var Categories = []CategoryInfo{
 	{CatPrivileged, "Privileged Activity",
-		"Administrator logons, programs run with elevated (administrator) rights, and use of another account's credentials.",
+		"Administrator logons, commands run with administrator/root rights (including sudo and su), use of another account's credentials, and changes to sudo rules.",
 		[]string{"AC-6(9)", "AU-2", "AU-12"}},
 	{CatRemovable, "USB & Removable Media",
 		"USB storage and other removable devices connected or disconnected, and files read from or written to removable media.",
@@ -44,10 +44,10 @@ var Categories = []CategoryInfo{
 		"User accounts created, deleted, enabled, disabled, renamed or reset, and group membership changes.",
 		[]string{"AC-2(4)", "AU-2"}},
 	{CatIntegrity, "Audit & System Integrity",
-		"Logs cleared, audit policy changes, audit failures, system time changes, and system startup/shutdown.",
+		"Logs cleared, auditing stopped or its rules changed, system time changes, and system startup/shutdown.",
 		[]string{"AU-5", "AU-8", "AU-9", "AU-2"}},
 	{CatOther, "Other Security Events",
-		"New services and scheduled tasks, and anti-malware detections or protection being turned off.",
+		"New services, scheduled tasks and kernel modules, anti-malware detections or protection being turned off, and SELinux/AppArmor denials.",
 		[]string{"CM-7", "SI-3", "SI-4"}},
 	{CatLogon, "Logon Activity",
 		"Successful logons and logoffs by people (service and computer accounts are left out).",
@@ -95,13 +95,14 @@ type Detail struct {
 
 // Event is a single translated, security-relevant event.
 type Event struct {
-	Time      time.Time `json:"time"`
-	Collected time.Time `json:"collected,omitzero"`
-	Host      string    `json:"host"`
-	OS        string    `json:"os"`
-	Source    string    `json:"source"` // log/channel name, e.g. "Security"
-	EventID   int       `json:"event_id"`
-	RecordID  uint64    `json:"record_id,omitempty"`
+	Time       time.Time `json:"time"`
+	Collected  time.Time `json:"collected,omitzero"`
+	Host       string    `json:"host"`
+	OS         string    `json:"os"`
+	Source     string    `json:"source"`                // log/channel name, e.g. "Security"
+	EventID    int       `json:"event_id,omitempty"`    // Windows event ID
+	RecordID   uint64    `json:"record_id,omitempty"`   // Windows record number or auditd serial
+	RecordType string    `json:"record_type,omitempty"` // Linux: auditd record type or syslog program
 
 	Category Category `json:"category"`
 	Severity Severity `json:"severity"`
@@ -114,6 +115,10 @@ type Event struct {
 	Process  string `json:"process,omitempty"`
 	Command  string `json:"command,omitempty"`
 	Outcome  string `json:"outcome,omitempty"` // success | failure
+
+	// Interactive marks a logon by a person at a session (keyboard,
+	// graphical console, Remote Desktop or SSH).
+	Interactive bool `json:"interactive,omitempty"`
 
 	Details []Detail          `json:"details,omitempty"`
 	Fields  map[string]string `json:"fields,omitempty"` // original event data

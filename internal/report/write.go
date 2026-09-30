@@ -35,6 +35,7 @@ type Summary struct {
 	ByCategory  map[string]int `json:"by_category"`
 	Lost        uint64         `json:"events_lost"`
 	LogClears   int            `json:"log_clears"`
+	AuditOff    int            `json:"audit_off_periods,omitempty"`
 	Version     string         `json:"blackbox_version"`
 	Source      string         `json:"source"`
 }
@@ -61,6 +62,7 @@ func (r *Report) summary() Summary {
 	for _, g := range r.Health.Gaps {
 		s.Lost += g.Lost
 	}
+	s.AuditOff = len(r.Health.AuditOff)
 	return s
 }
 
@@ -116,15 +118,18 @@ func (r *Report) writeCSV(w io.Writer) error {
 	w.Write([]byte("\xef\xbb\xbf"))
 	cw := csv.NewWriter(w)
 	cw.Write([]string{"time", "host", "category", "severity", "summary", "user", "target", "source_ip",
-		"process", "command", "outcome", "action", "log", "event_id", "record_id", "late"})
+		"process", "command", "outcome", "action", "log", "event_id", "record_type", "record_id", "late"})
 	for _, e := range r.Events {
-		rec := strconv.FormatUint(e.RecordID, 10)
+		rec, eventID := strconv.FormatUint(e.RecordID, 10), strconv.Itoa(e.EventID)
 		if e.RecordID == 0 {
 			rec = ""
 		}
+		if e.EventID == 0 {
+			eventID = ""
+		}
 		cw.Write([]string{e.Time.In(r.Location).Format("2006-01-02 15:04:05"), e.Host, e.Category.Info().Title,
 			string(e.Severity), e.Summary, e.User, e.Target, e.SourceIP, e.Process, e.Command, e.Outcome,
-			e.Action, e.Source, strconv.Itoa(e.EventID), rec, map[bool]string{true: "yes", false: ""}[e.Late]})
+			e.Action, e.Source, eventID, e.RecordType, rec, map[bool]string{true: "yes", false: ""}[e.Late]})
 	}
 	cw.Flush()
 	return cw.Error()
