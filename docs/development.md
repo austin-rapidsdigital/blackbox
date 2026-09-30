@@ -30,7 +30,8 @@ everything builds offline.
 
 ## Releasing
 
-Push a version tag:
+Run the **Release** workflow from the Actions tab ("Run workflow", then
+enter a version such as `0.2.0`), or push a version tag:
 
 ```sh
 git tag v0.2.0

@@ -1,9 +1,15 @@
 name: Release
-# Tag a version (git tag v0.2.0 && git push origin v0.2.0) to build the
-# Windows and Linux packages and publish them on the Releases page.
+# Publishes the Windows and Linux packages on the Releases page.
+# Either run it from the Actions tab ("Run workflow", enter a version such
+# as 0.2.0), or push a tag: git tag v0.2.0 && git push origin v0.2.0
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 0.2.0"
+        required: true
 permissions:
   contents: write
 jobs:
@@ -14,16 +20,37 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Version
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            v="${{ inputs.version }}"
+          else
+            v="${GITHUB_REF_NAME}"
+          fi
+          v="${v#v}"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
       - name: Test
         run: go test ./...
       - name: Build packages
-        run: VERSION="${GITHUB_REF_NAME}" scripts/build.sh
+        run: VERSION="${{ steps.v.outputs.version }}" scripts/build.sh
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+          VERSION: ${{ steps.v.outputs.version }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.zip dist/*.tar.gz dist/SHA256SUMS \
-            --title "Blackbox ${GITHUB_REF_NAME}" \
-            --notes "**Windows:** download \`blackbox-${GITHUB_REF_NAME#v}-windows-amd64.zip\`, unzip it, and double-click \`Install.cmd\`.
-          **Linux:** download the \`linux-amd64\` (or \`arm64\`) \`.tar.gz\`, extract it, and run \`sudo ./install.sh\`.
-          Verify downloads with \`sha256sum -c SHA256SUMS\`. See the [README](https://github.com/casea1/blackbox#readme) for details."
+          cat > notes.md <<NOTES
+          ## Download
+
+          | System | File | Install |
+          |---|---|---|
+          | Windows 11 / Server 2025 | \`blackbox-${VERSION}-windows-amd64.zip\` | Unzip, then double-click \`Install.cmd\` |
+          | Linux (x86-64) | \`blackbox-${VERSION}-linux-amd64.tar.gz\` | Extract, then \`sudo ./install.sh\` |
+          | Linux (ARM64) | \`blackbox-${VERSION}-linux-arm64.tar.gz\` | Extract, then \`sudo ./install.sh\` |
+
+          Check downloads with \`sha256sum -c SHA256SUMS\`. See the [README](https://github.com/casea1/blackbox#readme) and the [Windows](https://github.com/casea1/blackbox/blob/main/docs/windows.md) and [Linux](https://github.com/casea1/blackbox/blob/main/docs/linux.md) guides.
+          NOTES
+          gh release create "$TAG" dist/*.zip dist/*.tar.gz dist/SHA256SUMS \
+            --target "$GITHUB_SHA" --title "Blackbox $TAG" --notes-file notes.md
