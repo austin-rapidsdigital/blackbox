@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,7 +15,9 @@ import (
 	"github.com/casea1/blackbox/internal/collect"
 	"github.com/casea1/blackbox/internal/config"
 	"github.com/casea1/blackbox/internal/event"
+	"github.com/casea1/blackbox/internal/lan"
 	"github.com/casea1/blackbox/internal/report"
+	"github.com/casea1/blackbox/internal/share"
 	"github.com/casea1/blackbox/internal/store"
 	"github.com/casea1/blackbox/internal/winevt"
 )
@@ -50,20 +54,134 @@ func (a *App) logf(format string, args ...any) {
 // ReportsDir is where reports are written.
 func (a *App) ReportsDir() string { return a.Cfg.ReportsDir() }
 
-// Scheduled is what the scheduled task runs: collect, then produce a
-// report if one is due. It returns the report folder ("" if none).
-func (a *App) Scheduled() (string, error) {
+// open opens the data folder and takes the lock.
+func (a *App) open() (*store.Store, func(), error) {
 	st, err := store.Open(a.Cfg.DataDir)
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
 	unlock, err := st.Lock()
+	if err != nil {
+		return nil, nil, err
+	}
+	return st, unlock, nil
+}
+
+// gather does what every run does before reporting: collect this
+// system's logs, check its audit settings (daily, or now if force), and
+// receive what other systems sent, if this is a collector.
+func (a *App) gather(st *store.Store, forceCheck bool) error {
+	run, err := collect.Live(st, collect.Options{Version: a.Version, Now: a.now, Logf: a.Logf})
+	if err != nil {
+		return err
+	}
+	st.NoteSystem(run.Host, run.OS, a.Version, "", run.Time, time.Time{}, a.now())
+	if err := a.recordChecks(st, run.Host, forceCheck); err != nil {
+		a.logf("audit settings check: %v", err)
+	}
+	a.receive(st)
+	return st.Save()
+}
+
+// checkEvery is how often a system that is not producing a report checks
+// its audit settings (a report always includes a fresh check).
+const checkEvery = 20 * time.Hour
+
+// recordChecks checks this system's audit settings and keeps the result,
+// so it reaches reports here or on the collector.
+func (a *App) recordChecks(st *store.Store, host string, force bool) error {
+	if !check.Supported {
+		return nil
+	}
+	now := a.now()
+	if !force && now.Sub(st.State.LastCheck) < checkEvery {
+		return nil
+	}
+	rec := &store.CheckRecord{Time: now, Host: host, OS: runtime.GOOS, Results: check.Run()}
+	if err := st.AppendChecks(rec); err != nil {
+		return err
+	}
+	st.State.LastCheck = now
+	return nil
+}
+
+// receive imports batches other systems have delivered to this
+// collector's inbox.
+func (a *App) receive(st *store.Store) {
+	if a.Cfg.Inbox == "" {
+		return
+	}
+	if !lan.IsInbox(a.Cfg.Inbox) {
+		if err := lan.PrepareInbox(a.Cfg.Inbox, collect.LocalHost()); err != nil {
+			a.logf("inbox %s is not available: %v", a.Cfg.Inbox, err)
+			return
+		}
+	}
+	res, err := lan.Import(st, a.Cfg.Inbox, a.now(), a.Logf)
+	if err != nil {
+		a.logf("receiving from %s: %v", a.Cfg.Inbox, err)
+	}
+	if res.Batches > 0 {
+		a.logf("received %d batch%s (%d records) from other systems", res.Batches, map[bool]string{true: "es"}[res.Batches != 1], res.Records)
+	}
+}
+
+// SendResult describes one attempt to send to the collector.
+type SendResult struct {
+	Made, Delivered, Waiting int
+	Err                      error
+}
+
+// send batches new data and delivers what is waiting to the collector. A
+// collector that cannot be reached is not an error for the run: the data
+// waits in the outbox and goes next time.
+func (a *App) send(st *store.Store) SendResult {
+	var r SendResult
+	host := collect.LocalHost()
+	r.Made, r.Err = lan.Export(st, host, a.Version, a.now())
+	if r.Err == nil {
+		dest, err := share.Destination(a.Cfg)
+		if err != nil {
+			r.Err = err
+		} else {
+			r.Delivered, r.Err = lan.Deliver(st, dest, host)
+		}
+	}
+	r.Waiting = lan.Queued(st)
+	if s := st.State.Send; s != nil {
+		s.LastAttempt = a.now()
+		s.LastError = ""
+		if r.Err != nil {
+			s.LastError = r.Err.Error()
+		} else if r.Waiting == 0 {
+			s.LastDelivered = a.now()
+		}
+		st.Save()
+	}
+	switch {
+	case r.Err != nil:
+		a.logf("could not send to the collector: %v; %d batch(es) waiting, will retry next run", r.Err, r.Waiting)
+	case r.Delivered > 0:
+		a.logf("sent %d batch(es) to the collector", r.Delivered)
+	}
+	return r
+}
+
+// Scheduled is what the scheduled task runs: collect (and receive, on a
+// collector), then send to the collector or produce a report if one is
+// due. It returns the report folder ("" if none).
+func (a *App) Scheduled() (string, error) {
+	st, unlock, err := a.open()
 	if err != nil {
 		return "", err
 	}
 	defer unlock()
-	if _, err := collect.Live(st, collect.Options{Version: a.Version, Now: a.now, Logf: a.Logf}); err != nil {
+	if err := a.gather(st, false); err != nil {
 		return "", err
+	}
+	if !a.Cfg.MakesReports() {
+		a.send(st)
+		return "", nil
 	}
 	end, due := DueWindowEnd(a.Cfg.ReportEvery, st.State.LastWindowEnd, a.now(), a.loc())
 	if !due {
@@ -75,33 +193,48 @@ func (a *App) Scheduled() (string, error) {
 // ReportNow collects and produces a report up to now. With advance=false
 // the report chain is left untouched (a preview).
 func (a *App) ReportNow(advance bool) (string, error) {
-	st, err := store.Open(a.Cfg.DataDir)
-	if err != nil {
-		return "", err
-	}
-	unlock, err := st.Lock()
+	st, unlock, err := a.open()
 	if err != nil {
 		return "", err
 	}
 	defer unlock()
-	if _, err := collect.Live(st, collect.Options{Version: a.Version, Now: a.now, Logf: a.Logf}); err != nil {
+	if err := a.gather(st, true); err != nil {
 		return "", err
 	}
 	return a.report(st, a.now(), advance)
 }
 
+// SendNow collects and sends to the collector straight away (for example
+// from a script that starts a virtual machine only for a short time).
+func (a *App) SendNow() (SendResult, error) {
+	if a.Cfg.SendTo == "" {
+		return SendResult{}, fmt.Errorf("this computer is not set to send to a collector (send_to is empty)")
+	}
+	st, unlock, err := a.open()
+	if err != nil {
+		return SendResult{}, err
+	}
+	defer unlock()
+	if err := a.gather(st, false); err != nil {
+		return SendResult{}, err
+	}
+	r := a.send(st)
+	return r, r.Err
+}
+
 // Collect only collects.
 func (a *App) Collect() (*store.Run, error) {
-	st, err := store.Open(a.Cfg.DataDir)
-	if err != nil {
-		return nil, err
-	}
-	unlock, err := st.Lock()
+	st, unlock, err := a.open()
 	if err != nil {
 		return nil, err
 	}
 	defer unlock()
-	return collect.Live(st, collect.Options{Version: a.Version, Now: a.now, Logf: a.Logf})
+	run, err := collect.Live(st, collect.Options{Version: a.Version, Now: a.now, Logf: a.Logf})
+	if err == nil {
+		st.NoteSystem(run.Host, run.OS, a.Version, "", run.Time, time.Time{}, a.now())
+		err = st.Save()
+	}
+	return run, err
 }
 
 func (a *App) report(st *store.Store, end time.Time, advance bool) (string, error) {
@@ -120,21 +253,33 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 	if err != nil {
 		return "", err
 	}
-	var checks []check.Result
-	if check.Supported {
-		checks = check.Run()
+	// The latest audit settings check of each computer: a week's look-back
+	// finds one even for a computer that checks only once a day.
+	checkSince := prevEnd
+	if !checkSince.IsZero() {
+		checkSince = checkSince.AddDate(0, 0, -7)
 	}
+	latest, err := st.LatestChecks(checkSince, generated)
+	if err != nil {
+		return "", err
+	}
+	var sets []report.CheckSet
+	for _, c := range latest {
+		sets = append(sets, report.NewCheckSet(c.Host, c.Time, c.Results))
+	}
+	sort.Slice(sets, func(i, j int) bool { return strings.ToLower(sets[i].Host) < strings.ToLower(sets[j].Host) })
+
 	r := report.Build(events, runs, report.Options{
 		Site:        a.Cfg.SiteName,
 		WindowStart: prevEnd, WindowEnd: end, Generated: generated, Version: a.Version,
 		Source: "Live collection", Location: a.loc(), InReportsDir: true,
 		ExcludeUsers: a.Cfg.ExcludeUsers, ExcludeProcesses: a.Cfg.ExcludeProcesses,
-		KnownDevices: st.State.KnownDevices, Checks: checks,
+		KnownDevices: st.State.KnownDevices, CheckSets: sets,
+		Systems: systemsFor(st, prevEnd), Collector: a.Cfg.Inbox != "",
+		LANWarnings: lanWarnings(st, prevGen, generated, a.loc()),
 	})
 	if len(r.Hosts) == 0 {
-		if h, err := os.Hostname(); err == nil {
-			r.Hosts = []string{strings.ToUpper(h)}
-		}
+		r.Hosts = []string{collect.LocalHost()}
 	}
 	name := report.DirName(end, r.Hosts, a.loc())
 	if !advance {
@@ -164,6 +309,49 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		a.logf("updating report index: %v", err)
 	}
 	return dir, nil
+}
+
+// systemsFor lists the computers to show in a report whose period starts
+// at start: all known, except those retired before it.
+func systemsFor(st *store.Store, start time.Time) []report.SystemInfo {
+	var out []report.SystemInfo
+	for _, s := range st.State.Systems {
+		if !s.Removed.IsZero() && !s.Removed.After(start) {
+			continue
+		}
+		out = append(out, report.SystemInfo{Name: s.Name, OS: s.OS, Version: s.Version, Via: s.Via,
+			FirstSeen: s.FirstSeen, LastRun: s.LastRun, LastReceived: s.LastReceived})
+	}
+	return out
+}
+
+// lanWarnings describes problems noticed receiving from other computers
+// since the previous report.
+func lanWarnings(st *store.Store, since, until time.Time, loc *time.Location) []string {
+	var out []string
+	ids := make([]string, 0, len(st.State.Senders))
+	for id := range st.State.Senders {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		s := st.State.Senders[id]
+		for _, g := range s.Missing {
+			if g.Noted.After(since) && !g.Noted.After(until) {
+				what := fmt.Sprintf("batch %d", g.From)
+				if g.To > g.From {
+					what = fmt.Sprintf("batches %d to %d", g.From, g.To)
+				}
+				out = append(out, fmt.Sprintf("%s: %s sent by this computer never arrived (noticed %s). The events in them are missing from the reports; they may have been deleted from the inbox folder.",
+					s.Host, what, g.Noted.In(loc).Format("2006-01-02 15:04")))
+			}
+		}
+		if s.ClockNoted.After(since) && !s.ClockNoted.After(until) {
+			out = append(out, fmt.Sprintf("%s: its clock was %s ahead of this collector's (noticed %s). Event times from it may be wrong; check its time settings.",
+				s.Host, s.ClockAhead, s.ClockNoted.In(loc).Format("2006-01-02 15:04")))
+		}
+	}
+	return out
 }
 
 // SelectWindow picks the events that belong in the report ending at end,

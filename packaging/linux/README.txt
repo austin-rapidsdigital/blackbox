@@ -12,12 +12,22 @@ INSTALL
     sudo blackbox check --audit-rules | sudo tee /etc/audit/rules.d/99-blackbox.rules
     sudo augenrules --load
 
+SEVERAL COMPUTERS (a VM on a Windows PC, or a LAN)
+  The first question asks how this computer's events are reviewed. Choose
+  "Send to a collector" and give the collector's inbox: a VirtualBox shared
+  folder (for example /media/sf_BlackboxInbox) or a Windows share (for
+  example //COLLECTOR/BlackboxInbox; needs cifs-utils). Set up the
+  collector first. See docs/lan.md in the documentation.
+
 CHANGE SETTINGS LATER (for example, the report folder)
   Run sudo ./install.sh again: it shows the current settings as the
   defaults, so change only what you need.
 
 REPORTS
   Default folder: /var/lib/blackbox/reports  (open index.html)
+
+CHECK IT IS WORKING
+  sudo blackbox status
 
 UNINSTALL
   sudo ./uninstall.sh   (reports and settings are kept)

@@ -73,8 +73,11 @@ func Install(opt Options) error {
 	if err != nil {
 		return err
 	}
+	if err := setupLAN(opt, data, logf); err != nil {
+		return err
+	}
 
-	if err := os.WriteFile(serviceFile, []byte(systemdService(dst, data, cfg.ReportsDir())), 0o644); err != nil {
+	if err := os.WriteFile(serviceFile, []byte(serviceFor(dst, cfg)), 0o644); err != nil {
 		return err
 	}
 	if err := os.WriteFile(timerFile, []byte(timer), 0o644); err != nil {
@@ -101,6 +104,7 @@ func Uninstall(logf func(string, ...any)) error {
 			return err
 		}
 	}
+	removeSendTo(logf)
 	exec.Command("systemctl", "daemon-reload").Run()
 	logf("Removed the blackbox.timer schedule.")
 	if cfg, _ := config.Load(config.DefaultPath()); cfg != nil {
@@ -121,7 +125,7 @@ func afterReportDirChange(logf func(string, ...any)) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(serviceFile, []byte(systemdService(ProgramPath(), config.DefaultDataDir(), cfg.ReportsDir())), 0o644); err != nil {
+	if err := os.WriteFile(serviceFile, []byte(serviceFor(ProgramPath(), cfg)), 0o644); err != nil {
 		return err
 	}
 	if out, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
@@ -129,6 +133,22 @@ func afterReportDirChange(logf func(string, ...any)) error {
 	}
 	logf("Updated blackbox.service so it may write to %s.", cfg.ReportsDir())
 	return nil
+}
+
+// serviceFor is the service unit for these settings.
+func serviceFor(exe string, cfg *config.Config) string {
+	writable := []string{cfg.DataDir, cfg.ReportsDir()}
+	mount := ""
+	switch {
+	case config.IsShare(cfg.SendTo):
+		mount = mountUnitName() // mounted inside the data folder
+	case cfg.SendTo != "":
+		writable = append(writable, "-"+cfg.SendTo)
+	}
+	if cfg.Inbox != "" {
+		writable = append(writable, "-"+cfg.Inbox)
+	}
+	return systemdService(exe, mount, writable...)
 }
 
 // restrictDir limits a folder Blackbox created to root.

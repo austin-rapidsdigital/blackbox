@@ -11,14 +11,11 @@ import (
 	"github.com/casea1/blackbox/internal/config"
 )
 
-// Options for install.
+// Options for install: the chosen settings, plus the version installed.
 type Options struct {
-	Site         string
-	ReportEvery  string
-	ReportDir    string // "" = the default reports folder
-	CollectEvery time.Duration
-	Version      string
-	Logf         func(format string, args ...any)
+	Answers
+	Version string
+	Logf    func(format string, args ...any)
 }
 
 // writeConfig creates the config file, or updates these settings in an
@@ -26,6 +23,9 @@ type Options struct {
 func writeConfig(path string, opt Options, crlf bool) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		text := config.Render(opt.Site, opt.ReportEvery, opt.ReportDir, opt.CollectEvery)
+		for _, kv := range [][2]string{{"send_to", opt.SendTo}, {"share_user", opt.ShareUser}, {"inbox", opt.Inbox}} {
+			text = strings.Replace(text, "\n"+kv[0]+" = \n", "\n"+kv[0]+" = "+kv[1]+"\n", 1)
+		}
 		if crlf {
 			text = strings.ReplaceAll(text, "\n", "\r\n") // friendly for Notepad
 		}
@@ -39,7 +39,28 @@ func writeConfig(path string, opt Options, crlf bool) error {
 		{"report_every", opt.ReportEvery},
 		{"report_dir", opt.ReportDir},
 		{"collect_every", config.FormatDuration(opt.CollectEvery)},
+		{"send_to", opt.SendTo},
+		{"share_user", opt.ShareUser},
+		{"inbox", opt.Inbox},
 	})
+}
+
+// setupLAN prepares what the role needs: the inbox for a collector or
+// relay, and delivery (share account, mount) for a sender or relay. What a
+// previous role set up and is no longer needed is removed.
+func setupLAN(opt Options, dataDir string, logf func(string, ...any)) error {
+	if opt.Inbox != "" {
+		if err := prepareInbox(opt, logf); err != nil {
+			return err
+		}
+	} else {
+		removeInbox(logf)
+	}
+	if opt.SendTo != "" {
+		return prepareSendTo(opt, dataDir, logf)
+	}
+	removeSendTo(logf)
+	return nil
 }
 
 // PrepareReportDir makes sure reports can be written to dir. A folder that
@@ -102,6 +123,23 @@ func SetReportDir(cfgPath, dir string, logf func(string, ...any)) error {
 		}
 	}
 	if err := config.SetValue(cfgPath, "report_dir", dir); err != nil {
+		return err
+	}
+	return afterReportDirChange(logf)
+}
+
+// ApplyLAN sets up what the LAN settings in the config file need (after
+// "blackbox config set send_to|inbox|share_user"): the inbox, the share
+// connection or mount, and on Linux the service's writable folders. A new
+// share password is read from BLACKBOX_SHARE_PASSWORD.
+func ApplyLAN(cfgPath string, logf func(string, ...any)) error {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+	opt := Options{Answers: Answers{SendTo: cfg.SendTo, ShareUser: cfg.ShareUser, Inbox: cfg.Inbox,
+		SharePassword: os.Getenv("BLACKBOX_SHARE_PASSWORD"), ShareInbox: InboxShared()}}
+	if err := setupLAN(opt, cfg.DataDir, logf); err != nil {
 		return err
 	}
 	return afterReportDirChange(logf)
@@ -173,12 +211,21 @@ func xmlEscape(s string) string {
 
 // systemdService is the unit that runs one collection (and a report when
 // one is due). It is sandboxed: no network, read-only system, and the only
-// writable places are Blackbox's data folder and the report folder.
-func systemdService(exe string, writable ...string) string {
+// writable places are Blackbox's data folder, the report folder and, on a
+// LAN, the folders it sends to and receives in. Paths starting with "-"
+// may be missing (a shared folder that is not mounted) without stopping
+// the run. mount is the unit that mounts the collector's share, if any: it
+// is started before each run, and a failure to mount does not stop
+// collection (the data waits until the share is back).
+func systemdService(exe, mount string, writable ...string) string {
+	deps := ""
+	if mount != "" {
+		deps = "\nWants=" + mount + "\nAfter=" + mount
+	}
 	return fmt.Sprintf(`[Unit]
 Description=Blackbox audit log collection and reporting
 Documentation=https://github.com/casea1/blackbox
-After=auditd.service local-fs.target
+After=auditd.service local-fs.target%s
 
 [Service]
 Type=oneshot
@@ -197,7 +244,7 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 UMask=0077
 TimeoutStartSec=2h
-`, exe, strings.Join(uniq(writable), " "))
+`, deps, exe, strings.Join(uniq(writable), " "))
 }
 
 func uniq(in []string) []string {

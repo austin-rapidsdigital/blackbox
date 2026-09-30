@@ -31,6 +31,19 @@ type Options struct {
 	Logf    func(format string, args ...any)
 }
 
+// LocalHost is the name this system's events and runs are recorded under:
+// the upper-case computer name on Windows, the short host name on Linux.
+func LocalHost() string {
+	host, _ := os.Hostname()
+	if runtime.GOOS == "windows" {
+		return strings.ToUpper(host)
+	}
+	if i := strings.IndexByte(host, '.'); i > 0 {
+		host = host[:i]
+	}
+	return host
+}
+
 // Live collects from this system's logs: the Windows event logs, or the
 // Linux audit and system logs.
 func Live(st *store.Store, opt Options) (*store.Run, error) {
@@ -55,14 +68,13 @@ func Windows(st *store.Store, opt Options) (*store.Run, error) {
 		opt.Logf = func(string, ...any) {}
 	}
 	start := opt.Now()
-	host, _ := os.Hostname()
-	host = strings.ToUpper(host)
+	host := LocalHost()
 
 	tr := winevt.NewTranslator()
 	tr.ResolveSID = winevt.LookupSID
 	tr.MapDevicePath = winevt.DevicePathMapper()
 
-	run := &store.Run{Time: start, Host: host, Version: opt.Version}
+	run := &store.Run{Time: start, Host: host, OS: runtime.GOOS, Version: opt.Version}
 	for _, ch := range winevt.Channels {
 		cr := collectChannel(st, tr, host, ch, start, opt)
 		run.Channels = append(run.Channels, cr)

@@ -28,7 +28,11 @@ const usage = `Blackbox — audit log review for air-gapped systems
 Usage:
   blackbox install               Set up (or change) scheduled collection and reporting; asks each setting
   blackbox config                Show settings; "blackbox config set report_dir D:\Reports" changes one
-  blackbox run                   Collect new events; produce a report if one is due (what the schedule runs)
+  blackbox status                Show what this computer does, when it last collected, and what is waiting
+  blackbox run                   Collect new events; send them or produce a report if one is due (what the schedule runs)
+  blackbox send                  Collect and send to the collector now (e.g. before shutting down a VM)
+  blackbox systems               List the computers whose events this collector reports on
+  blackbox systems remove NAME   Stop listing a retired computer
   blackbox report [options]      Collect and produce a report now
   blackbox report --xml FILE     Produce a report from exported Windows event logs (any OS)
   blackbox report --audit FILE --syslog FILE
@@ -62,6 +66,12 @@ func main() {
 		err = cmdCheck(args)
 	case "config":
 		err = cmdConfig(args)
+	case "status":
+		err = cmdStatus(args)
+	case "send":
+		err = cmdSend(args)
+	case "systems":
+		err = cmdSystems(args)
 	case "verify":
 		err = cmdVerify(args)
 	case "uninstall":
@@ -91,10 +101,21 @@ type common struct {
 }
 
 func (c *common) register(fs *flag.FlagSet) {
-	fs.StringVar(&c.configPath, "config", config.DefaultPath(), "configuration file")
+	fs.StringVar(&c.configPath, "config", config.DefaultPath(), "settings file (\"none\" for the built-in defaults)")
 }
 
 func (c *common) load() (*config.Config, error) {
+	// Without a settings file the defaults are used, but a file named on
+	// the command line must exist: a typing mistake should not silently
+	// run with different settings.
+	if c.configPath == "none" {
+		return config.Default(), nil
+	}
+	if c.configPath != config.DefaultPath() {
+		if _, err := os.Stat(c.configPath); err != nil {
+			return nil, fmt.Errorf("settings file %s: %w", c.configPath, err)
+		}
+	}
 	return config.Load(c.configPath)
 }
 
@@ -113,13 +134,23 @@ or unattended installs; any setting not given keeps its current value.
 
 `)
 		fs.PrintDefaults()
+		fmt.Fprint(fs.Output(), `
+The share password for --share-user is read from the BLACKBOX_SHARE_PASSWORD
+environment variable (so it is not shown in the process list).
+`)
 	}
 	site := fs.String("site", "", "site or system name shown on reports (\"-\" clears it)")
 	every := fs.String("report-every", "", "how often to produce a report: daily, weekly or monthly")
 	reportDir := fs.String("report-dir", "", "folder for reports (\"default\" for the standard location)")
 	collectEvery := fs.Duration("collect-every", 0, "how often to collect events: 1h, 30m or 15m")
+	sendTo := fs.String("send-to", "", "send events to this collector inbox (a share or folder; \"none\" to stop sending)")
+	shareUser := fs.String("share-user", "", "account on the collector for --send-to (\"-\" for none)")
+	inbox := fs.String("inbox", "", "make this computer a collector that receives in this folder (\"none\" to stop)")
+	shareInbox := fs.Bool("share-inbox", false, "Windows collector: share the inbox on the network as "+install.ShareName)
+	var writers listFlag
+	fs.Var(&writers, "inbox-writer", "Windows collector: an account allowed to deliver to the inbox, e.g. the user who runs VirtualBox (repeatable)")
 	yes := fs.Bool("yes", false, "do not ask questions; use the options given and current or default settings")
-	noReport := fs.Bool("no-first-report", false, "do not produce a report straight away")
+	noReport := fs.Bool("no-first-report", false, "do not produce a report (or send) straight away")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -134,7 +165,8 @@ or unattended installs; any setting not given keeps its current value.
 	}
 	_, statErr := os.Stat(config.DefaultPath())
 	reinstall := statErr == nil
-	ans := install.Answers{Site: cur.SiteName, ReportEvery: cur.ReportEvery, ReportDir: cur.ReportDir, CollectEvery: cur.CollectEvery}
+	ans := install.Answers{Site: cur.SiteName, ReportEvery: cur.ReportEvery, ReportDir: cur.ReportDir, CollectEvery: cur.CollectEvery,
+		SendTo: cur.SendTo, ShareUser: cur.ShareUser, Inbox: cur.Inbox, ShareInbox: install.InboxShared()}
 	defaultReports := filepath.Join(config.DefaultDataDir(), "reports")
 
 	given := 0
@@ -168,14 +200,40 @@ or unattended installs; any setting not given keeps its current value.
 		if *collectEvery != 0 {
 			ans.CollectEvery = *collectEvery
 		}
+		switch *sendTo {
+		case "":
+		case "none":
+			ans.SendTo, ans.ShareUser = "", ""
+		default:
+			ans.SendTo = *sendTo
+		}
+		switch *shareUser {
+		case "":
+		case "-":
+			ans.ShareUser = ""
+		default:
+			ans.ShareUser = *shareUser
+		}
+		ans.SharePassword = os.Getenv("BLACKBOX_SHARE_PASSWORD")
+		switch *inbox {
+		case "":
+		case "none":
+			ans.Inbox, ans.ShareInbox = "", false
+		default:
+			ans.Inbox = *inbox
+		}
+		if *shareInbox {
+			ans.ShareInbox = true
+		}
+		ans.InboxWriters = writers
 	}
+	ans.Role = install.RoleOf(ans.SendTo, ans.Inbox)
 	if err := validateInstall(ans); err != nil {
 		return err
 	}
 
 	fmt.Println("Installing Blackbox", version)
-	err = install.Install(install.Options{Site: ans.Site, ReportEvery: ans.ReportEvery, ReportDir: ans.ReportDir,
-		CollectEvery: ans.CollectEvery, Version: version, Logf: printf})
+	err = install.Install(install.Options{Answers: ans, Version: version, Logf: printf})
 	if err != nil {
 		return err
 	}
@@ -187,19 +245,39 @@ or unattended installs; any setting not given keeps its current value.
 	if err != nil {
 		return err
 	}
-	if *noReport {
+	a := newApp(cfg, printf)
+	switch {
+	case !cfg.MakesReports():
+		if *noReport {
+			fmt.Println("\nDone. Events will be collected and sent at the next scheduled run.")
+			break
+		}
+		fmt.Println("\nCollecting events and sending them to the collector (the first run reads the whole log and can take a few minutes)...")
+		r, err := a.SendNow()
+		if err != nil {
+			fmt.Printf("\nDone, but the collector could not be reached yet: %v\n", err)
+			fmt.Printf("The events are kept safely on this computer (%d batch%s waiting) and are sent at the next scheduled run that can reach it.\n", r.Waiting, map[bool]string{true: "es"}[r.Waiting != 1])
+			fmt.Println("Check with: blackbox status")
+		} else {
+			fmt.Printf("\nDone. Sent %d batch%s to %s.\n", r.Delivered, map[bool]string{true: "es"}[r.Delivered != 1], cfg.SendTo)
+			fmt.Println("This computer's events will appear in the collector's reports.")
+		}
+	case *noReport:
 		fmt.Println("\nDone. The first report will be produced at the next scheduled run.")
 		fmt.Printf("Reports will be saved in %s\n", cfg.ReportsDir())
-		return nil
+	default:
+		fmt.Println("\nCollecting events and producing the first report (the first run reads the whole log and can take a few minutes)...")
+		dir, err := a.ReportNow(true)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("\nDone. First report: %s\n", filepath.Join(dir, "report.html"))
+		fmt.Printf("All reports:        %s\n", filepath.Join(a.ReportsDir(), "index.html"))
 	}
-	fmt.Println("\nCollecting events and producing the first report (the first run reads the whole log and can take a few minutes)...")
-	a := newApp(cfg, printf)
-	dir, err := a.ReportNow(true)
-	if err != nil {
-		return err
+	if cfg.Inbox != "" {
+		fmt.Printf("\nOther computers can now send to this collector's inbox: %s\n", cfg.Inbox)
+		fmt.Println("Their events appear in reports after their first collection. See: blackbox status")
 	}
-	fmt.Printf("\nDone. First report: %s\n", filepath.Join(dir, "report.html"))
-	fmt.Printf("All reports:        %s\n", filepath.Join(a.ReportsDir(), "index.html"))
 	fmt.Println("\nTo change settings later, run the installer again (it shows the current settings),")
 	fmt.Println("or use: blackbox config set <setting> <value>")
 	return nil
@@ -220,6 +298,17 @@ func validateInstall(a install.Answers) error {
 	}
 	if a.ReportDir != "" && !config.IsAbs(a.ReportDir) {
 		return fmt.Errorf("report folder must be a full path (got %q)", a.ReportDir)
+	}
+	if a.SendTo != "" && !config.IsAbs(a.SendTo) && !config.IsShare(a.SendTo) {
+		return fmt.Errorf("--send-to must be a full path or a share (got %q)", a.SendTo)
+	}
+	if a.Inbox != "" && (!config.IsAbs(a.Inbox) || config.IsShare(a.Inbox)) {
+		return fmt.Errorf("--inbox must be a full path to a folder on this computer (got %q)", a.Inbox)
+	}
+	if a.ShareUser != "" && a.SharePassword == "" && runtime.GOOS == "linux" && config.IsShare(a.SendTo) {
+		if _, err := os.Stat("/etc/blackbox/share.cred"); err != nil {
+			return fmt.Errorf("set BLACKBOX_SHARE_PASSWORD to the password for %s", a.ShareUser)
+		}
 	}
 	return nil
 }
@@ -248,6 +337,10 @@ func cmdConfig(args []string) error {
 		fmt.Printf("  retention_days     %d%s\n", cfg.RetentionDays, map[bool]string{true: "   (keep forever)"}[cfg.RetentionDays == 0])
 		fmt.Printf("  exclude_users      %s\n", strings.Join(cfg.ExcludeUsers, ", "))
 		fmt.Printf("  exclude_processes  %s\n", strings.Join(cfg.ExcludeProcesses, ", "))
+		fmt.Printf("\n  role               %s\n", cfg.Role())
+		fmt.Printf("  send_to            %s\n", cfg.SendTo)
+		fmt.Printf("  share_user         %s\n", cfg.ShareUser)
+		fmt.Printf("  inbox              %s\n", cfg.Inbox)
 		fmt.Printf("\nChange a setting:  blackbox config set <setting> <value>\n")
 		return nil
 	}
@@ -269,11 +362,83 @@ func cmdConfig(args []string) error {
 		fmt.Printf("Reports will now be saved in %s (existing reports were not moved).\n", cfg.ReportsDir())
 		return nil
 	}
+	if value == "none" && (key == "send_to" || key == "inbox" || key == "share_user") {
+		value = ""
+	}
 	if err := config.SetValue(path, key, value); err != nil {
 		return err
 	}
+	if key == "send_to" || key == "inbox" || key == "share_user" {
+		if err := install.ApplyLAN(path, printf); err != nil {
+			return err
+		}
+	}
 	fmt.Printf("Saved %s = %s. It takes effect at the next scheduled run.\n", key, value)
 	return nil
+}
+
+func cmdStatus(args []string) error {
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	var c common
+	c.register(fs)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := c.load()
+	if err != nil {
+		return err
+	}
+	return newApp(cfg, nil).Status(os.Stdout)
+}
+
+func cmdSend(args []string) error {
+	fs := flag.NewFlagSet("send", flag.ContinueOnError)
+	var c common
+	c.register(fs)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := c.load()
+	if err != nil {
+		return err
+	}
+	logf, closeLog := openLog(cfg.DataDir)
+	defer closeLog()
+	r, err := newApp(cfg, logf).SendNow()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Sent %d batch%s to %s. Nothing is waiting.\n", r.Delivered, map[bool]string{true: "es"}[r.Delivered != 1], cfg.SendTo)
+	return nil
+}
+
+func cmdSystems(args []string) error {
+	fs := flag.NewFlagSet("systems", flag.ContinueOnError)
+	var c common
+	c.register(fs)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := c.load()
+	if err != nil {
+		return err
+	}
+	a := newApp(cfg, nil)
+	rest := fs.Args()
+	switch {
+	case len(rest) == 0:
+		return a.Systems(os.Stdout)
+	case len(rest) == 2 && (rest[0] == "remove" || rest[0] == "forget"):
+		if err := install.RequireAdmin(); err != nil {
+			return err
+		}
+		if err := a.RemoveSystem(rest[1]); err != nil {
+			return err
+		}
+		fmt.Printf("%s will no longer be listed or reported as silent. Its events stay in earlier reports.\nIf it sends again, it will be listed again.\n", rest[1])
+		return nil
+	}
+	return errors.New("usage: blackbox systems              (list)\n       blackbox systems remove NAME  (stop listing a retired computer)")
 }
 
 // cmdRun is what the scheduled task runs. Output goes to a log file in

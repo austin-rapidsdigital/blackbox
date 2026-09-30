@@ -7,7 +7,13 @@
 //	state.json                 bookmarks and report history
 //	spool/events-YYYY-MM-DD.jsonl  translated events, by collection date
 //	spool/runs-YYYY-MM-DD.jsonl    one record per collection run
+//	spool/checks-YYYY-MM-DD.jsonl  audit settings checks (see lan.go)
+//	outbox/…                   batches waiting to be sent to a collector
 //	reports/…                  generated reports
+//
+// Events received from other systems (see package lan) are appended to the
+// same spool files as local ones, so every system's data is read, reported
+// and forwarded the same way.
 package store
 
 import (
@@ -45,6 +51,16 @@ type State struct {
 
 	// Removable devices seen before, so new ones can be flagged.
 	KnownDevices map[string]time.Time `json:"known_devices"`
+
+	// LastCheck is when the audit settings were last checked.
+	LastCheck time.Time `json:"last_check,omitzero"`
+
+	// LAN: sending to a collector, receiving from other systems, and the
+	// systems seen (see lan.go).
+	Send    *SendState              `json:"send,omitempty"`
+	Senders map[string]*SenderState `json:"senders,omitempty"` // by sender ID
+	Systems map[string]*System      `json:"systems,omitempty"` // by SystemKey(host)
+	Pending *PendingImport          `json:"pending_import,omitempty"`
 }
 
 // Gap records events lost before they could be collected.
@@ -76,8 +92,10 @@ type ChannelRun struct {
 type Run struct {
 	Time     time.Time    `json:"time"`
 	Host     string       `json:"host"`
+	OS       string       `json:"os,omitempty"` // windows | linux
 	Version  string       `json:"version"`
 	Duration float64      `json:"duration_seconds"`
+	Received time.Time    `json:"received,omitzero"` // when it arrived from another system (collector only)
 	Channels []ChannelRun `json:"channels"`
 }
 
@@ -108,6 +126,12 @@ func Open(dir string) (*Store, error) {
 	}
 	if s.State.KnownDevices == nil {
 		s.State.KnownDevices = map[string]time.Time{}
+	}
+	if s.State.Senders == nil {
+		s.State.Senders = map[string]*SenderState{}
+	}
+	if s.State.Systems == nil {
+		s.State.Systems = map[string]*System{}
 	}
 	return s, nil
 }
@@ -216,7 +240,17 @@ func (s *Store) ReadEvents(since time.Time) ([]*event.Event, error) {
 	return out, nil
 }
 
-// ReadRuns returns collection runs on or after since.
+// Available is when a run's record reached this data folder: when it ran,
+// or when it was received from another system.
+func (r *Run) Available() time.Time {
+	if r.Received.After(r.Time) {
+		return r.Received
+	}
+	return r.Time
+}
+
+// ReadRuns returns collection runs that became available on or after since
+// (see Available), so a run received late still reaches the next report.
 func (s *Store) ReadRuns(since time.Time) ([]*Run, error) {
 	files, err := s.spoolFiles("runs", since)
 	if err != nil {
@@ -229,7 +263,7 @@ func (s *Store) ReadRuns(since time.Time) ([]*Run, error) {
 			if err := json.Unmarshal(b, &r); err != nil {
 				return err
 			}
-			if !r.Time.Before(since) {
+			if !r.Available().Before(since) {
 				out = append(out, &r)
 			}
 			return nil
@@ -265,6 +299,9 @@ func readJSONL(path string, fn func([]byte) error) error {
 	return sc.Err()
 }
 
+// spoolKinds are the spool file prefixes.
+var spoolKinds = []string{"events", "runs", "checks"}
+
 // Prune deletes spool files older than days (0 = never).
 func (s *Store) Prune(days int, now time.Time) error {
 	if days <= 0 {
@@ -277,17 +314,21 @@ func (s *Store) Prune(days int, now time.Time) error {
 			cut = lw
 		}
 	}
-	for _, prefix := range []string{"events", "runs"} {
+	for _, prefix := range spoolKinds {
 		files, err := s.spoolFiles(prefix, time.Time{})
 		if err != nil {
 			return err
 		}
 		for _, f := range files {
 			d := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(f), prefix+"-"), ".jsonl")
-			if d < cut {
-				if err := os.Remove(f); err != nil {
-					return err
-				}
+			if d >= cut || !s.fullySent(f) {
+				continue // too recent, or not yet sent to the collector
+			}
+			if err := os.Remove(f); err != nil {
+				return err
+			}
+			if s.State.Send != nil {
+				delete(s.State.Send.Offsets, filepath.Base(f))
 			}
 		}
 	}
@@ -303,6 +344,12 @@ func (s *Store) Lock() (unlock func(), err error) {
 		if err == nil {
 			fmt.Fprintf(f, "%d %s\n", os.Getpid(), time.Now().Format(time.RFC3339))
 			f.Close()
+			// Only the lock holder may undo an interrupted import; a reader
+			// (such as "blackbox status") must never touch the spool.
+			if err := s.recoverImport(); err != nil {
+				os.Remove(p)
+				return nil, err
+			}
 			return func() { os.Remove(p) }, nil
 		}
 		if !errors.Is(err, os.ErrExist) {

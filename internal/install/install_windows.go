@@ -15,6 +15,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/casea1/blackbox/internal/config"
+	"github.com/casea1/blackbox/internal/share"
 )
 
 // ProgramPath is where install copies the executable.
@@ -75,6 +76,11 @@ func Install(opt Options) error {
 		return err
 	}
 	logf("Configuration:       %s", cfgPath)
+
+	// LAN: the inbox (collector) and delivery to a collector (sender).
+	if err := setupLAN(opt, data, logf); err != nil {
+		return err
+	}
 
 	// 4. Scheduled task.
 	start := time.Now().Truncate(time.Hour).Add(5 * time.Minute)
@@ -154,6 +160,8 @@ func Uninstall(logf func(string, ...any)) error {
 		logf("Removed scheduled task \"%s\".", TaskName)
 	}
 	exec.Command("reg.exe", "delete", uninstallKey, "/f").Run()
+	removeInbox(logf)
+	share.SaveSecret(config.DefaultDataDir(), "") // removes the stored share password
 	logf("Removed Blackbox from Programs and Features.")
 
 	// A running program cannot delete itself, so a short-lived cmd.exe

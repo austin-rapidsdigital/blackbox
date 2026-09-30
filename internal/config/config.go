@@ -28,6 +28,14 @@ type Config struct {
 	ReportDir        string   // where reports go ("" = DataDir/reports)
 	CollectEvery     time.Duration
 
+	// LAN. SendTo is the collector's inbox this system sends its data to
+	// (a folder, or a share: \\server\share on Windows, //server/share on
+	// Linux). Inbox is the folder this system, as a collector, receives
+	// other systems' data in. A system can do both (a relay).
+	SendTo    string
+	Inbox     string
+	ShareUser string // account for the SendTo share, when one is needed
+
 	Path string // file the config was loaded from ("" if defaults)
 }
 
@@ -145,6 +153,12 @@ func (c *Config) set(k, v string) error {
 		}
 	case "report_dir":
 		c.ReportDir = v
+	case "send_to":
+		c.SendTo = v
+	case "inbox":
+		c.Inbox = v
+	case "share_user":
+		c.ShareUser = v
 	case "collect_every":
 		if v != "" {
 			d, err := time.ParseDuration(v)
@@ -169,7 +183,54 @@ func (c *Config) Validate() error {
 	if c.ReportDir != "" && !IsAbs(c.ReportDir) {
 		return fmt.Errorf("report_dir must be a full path, e.g. %s (got %q)", exampleDir(), c.ReportDir)
 	}
+	if c.Inbox != "" && !IsAbs(c.Inbox) {
+		return fmt.Errorf("inbox must be a full path, e.g. %s (got %q)", exampleInbox(), c.Inbox)
+	}
+	if c.SendTo != "" && !IsAbs(c.SendTo) && !IsShare(c.SendTo) {
+		return fmt.Errorf("send_to must be a full path or a network share, e.g. %s (got %q)", exampleShare(), c.SendTo)
+	}
+	if c.SendTo != "" && c.Inbox != "" && strings.EqualFold(filepath.Clean(c.SendTo), filepath.Clean(c.Inbox)) {
+		return fmt.Errorf("send_to and inbox are the same folder; a system cannot send to itself")
+	}
 	return nil
+}
+
+// Role describes what this system does with its data.
+func (c *Config) Role() string {
+	switch {
+	case c.SendTo != "" && c.Inbox != "":
+		return "relay"
+	case c.SendTo != "":
+		return "sender"
+	case c.Inbox != "":
+		return "collector"
+	}
+	return "standalone"
+}
+
+// MakesReports reports whether this system produces its own reports. A
+// system that sends to a collector does not: its events appear in the
+// collector's reports instead.
+func (c *Config) MakesReports() bool { return c.SendTo == "" }
+
+// IsShare reports whether p names a network share: \\server\share, or
+// //server/share (the form Linux uses).
+func IsShare(p string) bool {
+	return (strings.HasPrefix(p, `\\`) || strings.HasPrefix(p, "//")) && len(strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' })) >= 2
+}
+
+func exampleInbox() string {
+	if runtime.GOOS == "windows" {
+		return `C:\BlackboxInbox`
+	}
+	return "/srv/blackbox-inbox"
+}
+
+func exampleShare() string {
+	if runtime.GOOS == "windows" {
+		return `\\COLLECTOR\BlackboxInbox`
+	}
+	return "//COLLECTOR/BlackboxInbox or /media/sf_BlackboxInbox"
 }
 
 // IsAbs reports whether p is a full path. On Windows that includes UNC
@@ -186,7 +247,7 @@ func exampleDir() string {
 }
 
 // Settable lists the settings `blackbox config set` may change.
-var Settable = []string{"site_name", "report_every", "report_dir", "retention_days", "exclude_users", "exclude_processes"}
+var Settable = []string{"site_name", "report_every", "report_dir", "retention_days", "exclude_users", "exclude_processes", "send_to", "inbox", "share_user"}
 
 // SetValue changes one user-settable setting in the config file (see
 // Settable), keeping its comments and line endings.
@@ -238,10 +299,14 @@ func SetValues(path string, kv [][2]string) error {
 			}
 		}
 		if !replaced {
+			add := []string{newLine}
+			if intro, ok := keyIntro[key]; ok && !strings.Contains(strings.Join(lines, "\n"), intro[0]) {
+				add = append(append([]string{""}, intro...), newLine)
+			}
 			if n := len(lines); n > 0 && lines[n-1] == "" {
-				lines = append(lines[:n-1], newLine, "")
+				lines = append(append(lines[:n-1], add...), "")
 			} else {
-				lines = append(lines, newLine)
+				lines = append(lines, add...)
 			}
 		}
 	}
@@ -269,6 +334,20 @@ func list(v string) []string {
 	return out
 }
 
+// keyIntro is the explanation added above a setting when it is added to a
+// config file written by an older version.
+var keyIntro = func() map[string][]string {
+	intro := []string{}
+	for _, l := range strings.Split(Template, "\n") {
+		if strings.HasPrefix(l, "# LAN:") || (len(intro) > 0 && strings.HasPrefix(l, "#")) {
+			intro = append(intro, l)
+		} else if len(intro) > 0 {
+			break
+		}
+	}
+	return map[string][]string{"send_to": intro, "inbox": intro, "share_user": intro}
+}()
+
 // Template is the commented config written by `blackbox install`.
 const Template = `# Blackbox configuration
 # Lines starting with # are comments. Lists are comma-separated.
@@ -295,6 +374,25 @@ report_dir = {{REPORT_DIR}}
 # run the installer again; it offers the current settings as defaults.
 collect_every = {{COLLECT_EVERY}}
 
+# LAN: sending to, or collecting from, other computers. See docs/lan.md.
+#
+# send_to: the collector's inbox this computer sends its events to. When
+# set, this computer does not produce its own reports; its events appear
+# in the collector's reports. Examples:
+#   Windows:  \\COLLECTOR\BlackboxInbox
+#   Linux:    //COLLECTOR/BlackboxInbox     (an SMB share)
+#             /media/sf_BlackboxInbox        (a VirtualBox shared folder)
+# share_user: the account used for an SMB share, if one is needed.
+#
+# inbox: makes this computer a collector. Other computers send their events
+# into this folder, and this computer's reports cover all of them.
+#
+# Run the installer again to change these; it sets up the share and checks
+# the folder.
+send_to = {{SEND_TO}}
+share_user = {{SHARE_USER}}
+inbox = {{INBOX}}
+
 # Days to keep reports and collected events. 0 = keep forever.
 retention_days = 0
 
@@ -314,7 +412,8 @@ func Render(site, reportEvery, reportDir string, collectEvery time.Duration) str
 	}
 	return strings.NewReplacer("{{SITE}}", site, "{{REPORT_EVERY}}", reportEvery,
 		"{{REPORT_DIR}}", reportDir, "{{DEFAULT_REPORTS}}", filepath.Join(DefaultDataDir(), "reports"),
-		"{{COLLECT_EVERY}}", FormatDuration(collectEvery)).Replace(Template)
+		"{{COLLECT_EVERY}}", FormatDuration(collectEvery),
+		"{{SEND_TO}}", "", "{{SHARE_USER}}", "", "{{INBOX}}", "").Replace(Template)
 }
 
 // FormatDuration writes 1h, 30m or 2h (not Go's 1h0m0s).

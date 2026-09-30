@@ -13,14 +13,21 @@ cd blackbox-<version>-linux-amd64
 sudo ./install.sh
 ```
 
-Setup asks four questions, each with a default you can accept by pressing
-Enter:
+Setup asks how this computer's events will be reviewed, then only what
+that needs. Each question has a default you can accept by pressing Enter:
 
-- a site name
-- the report schedule (daily, weekly or monthly)
-- the report folder (any full path; an existing folder's permissions are
-  left as they are)
-- how often to collect events
+- **On this computer:**
+  - a site name
+  - the report schedule (daily, weekly or monthly)
+  - the report folder (any full path; an existing folder's permissions
+    are left as they are)
+  - how often to collect events
+- **Send to a collector** (a VM, or a workstation on a LAN):
+  - the collector's inbox. A VirtualBox shared folder is found
+    automatically; for a Windows share, setup asks for an account.
+  - how often to collect events
+
+  See [Several computers](lan.md).
 
 Each answer is checked as you give it. See the
 [Windows guide](windows.md#install) for what the questions look like.
@@ -34,7 +41,8 @@ Setup then:
   up after the system has been off. The service it runs is sandboxed:
   - no network access
   - a read-only view of the system
-  - it can write only to `/var/lib/blackbox`
+  - it can write only to `/var/lib/blackbox`, the report folder and, on a
+    LAN, the folders it sends to and receives in
 - checks the audit configuration and produces the first report
 
 ## Changing settings later

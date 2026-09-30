@@ -12,35 +12,47 @@ there is no .NET, Go or other runtime to install.
    it to the system.
 2. Extract it and double-click **`Install.cmd`**, then approve the
    administrator prompt.
-3. Answer four questions. Press Enter to accept a default:
+3. Answer the questions. Press Enter to accept a default. For a single
+   computer:
 
 ```
-1. Site or system name, shown at the top of each report
+1. How will this computer's audit events be reviewed?
+     1) On this computer            (it produces its own reports)
+     2) Send to a collector         (for a virtual machine, or a workstation on a LAN)
+     3) This is the collector       (its reports cover it and every computer that sends to it)
+     4) Relay                       (receives from virtual machines on this PC and sends everything to a collector)
+   Choose 1-4 [1]:
+
+2. Site or system name, shown at the top of each report
    [none]: Lab 3
 
-2. How often should a report be produced?
+3. How often should a report be produced?
      1) Daily   (each report covers one day, ending at midnight)
      2) Weekly  (Monday 00:00 to Monday 00:00)
      3) Monthly (1st to 1st)
    Choose 1-3 [2]:
 
-3. Where should reports be saved?
+4. Where should reports be saved?
    Use a folder you have locked down if you like; Blackbox only needs to write to it.
    [C:\ProgramData\Blackbox\reports]: D:\AuditReports
 
-4. How often should events be collected from the logs?
+5. How often should events be collected from the logs?
      1) Every hour        (recommended)
      2) Every 30 minutes
      3) Every 15 minutes  (for busy systems whose logs fill up within a few hours)
    Choose 1-3 [1]:
 
 Summary
+   This computer:    standalone: reports on itself
    Site name:        Lab 3
    Reports:          weekly, saved in D:\AuditReports
    Collect events:   every hour
 
 Install these settings? (Y/n):
 ```
+
+For a PC with Linux VMs, or a LAN, see [Several computers](lan.md): the
+other choices ask where the inbox is, or where to send.
 
 Each answer is checked as you give it. A report folder must be a full path
 that Blackbox can write to:

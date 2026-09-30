@@ -13,12 +13,42 @@ import (
 	"github.com/casea1/blackbox/internal/config"
 )
 
+// Roles a computer can have.
+const (
+	RoleStandalone = "standalone" // reports on itself
+	RoleSender     = "sender"     // sends to a collector
+	RoleCollector  = "collector"  // reports on itself and the computers that send to it
+	RoleRelay      = "relay"      // receives from other computers and sends everything on
+)
+
 // Answers are the settings chosen during setup.
 type Answers struct {
+	Role         string
 	Site         string
 	ReportEvery  string        // daily | weekly | monthly
 	ReportDir    string        // "" = the default reports folder
 	CollectEvery time.Duration // how often the schedule runs
+
+	SendTo        string // collector inbox (sender, relay)
+	ShareUser     string // account for the SendTo share
+	SharePassword string // entered during setup; stored encrypted, never in the config file
+
+	Inbox        string   // this collector's inbox (collector, relay)
+	ShareInbox   bool     // Windows: share the inbox on the network
+	InboxWriters []string // Windows: local accounts allowed to deliver (e.g. the user who runs VirtualBox)
+}
+
+// RoleOf infers the role from settings.
+func RoleOf(sendTo, inbox string) string {
+	switch {
+	case sendTo != "" && inbox != "":
+		return RoleRelay
+	case sendTo != "":
+		return RoleSender
+	case inbox != "":
+		return RoleCollector
+	}
+	return RoleStandalone
 }
 
 // ErrCancelled means the person chose not to go ahead.
@@ -28,9 +58,16 @@ var ErrCancelled = errors.New("setup cancelled; nothing was changed")
 type wizard struct {
 	in  *bufio.Reader
 	out io.Writer
-	// dirExists and dirWritable are replaceable for tests.
-	dirExists   func(string) (bool, error)
-	dirWritable func(string) error
+	n   int // question number
+
+	// Replaceable for tests.
+	dirExists    func(string) (bool, error)
+	dirWritable  func(string) error
+	password     func(prompt string) (string, error)
+	findInboxes  func() []string                     // collector inboxes this computer can already see
+	tryInbox     func(sendTo, user, pw string) error // can the collector's inbox be reached?
+	defaultInbox string                              // suggested inbox folder for a collector
+	isWindows    bool
 }
 
 // Wizard asks the setup questions, offering cur as the defaults (the
@@ -38,8 +75,24 @@ type wizard struct {
 // and asks for confirmation. defaultReports is the folder used when
 // ReportDir is empty.
 func Wizard(in io.Reader, out io.Writer, cur Answers, defaultReports string, reinstall bool) (Answers, error) {
-	w := &wizard{in: bufio.NewReader(in), out: out, dirExists: dirExists, dirWritable: CheckWritable}
+	w := newWizard(in, out)
 	return w.run(cur, defaultReports, reinstall)
+}
+
+func newWizard(in io.Reader, out io.Writer) *wizard {
+	br, ok := in.(*bufio.Reader)
+	if !ok {
+		br = bufio.NewReader(in)
+	}
+	w := &wizard{in: br, out: out, dirExists: dirExists, dirWritable: CheckWritable,
+		findInboxes: FindInboxes, tryInbox: TryInbox, defaultInbox: DefaultInbox(), isWindows: isWindows}
+	w.password = func(prompt string) (string, error) {
+		w.printf("%s", prompt)
+		pw, err := readPassword(br)
+		w.printf("\n")
+		return pw, err
+	}
+	return w
 }
 
 func dirExists(p string) (bool, error) {
@@ -57,6 +110,12 @@ func dirExists(p string) (bool, error) {
 
 func (w *wizard) printf(format string, a ...any) { fmt.Fprintf(w.out, format, a...) }
 
+// question prints the next numbered question.
+func (w *wizard) question(text string) {
+	w.n++
+	w.printf("\n%d. %s\n", w.n, text)
+}
+
 // line reads one answer; io.EOF (no more input) cancels setup.
 func (w *wizard) line() (string, error) {
 	s, err := w.in.ReadString('\n')
@@ -69,6 +128,43 @@ func (w *wizard) line() (string, error) {
 	return strings.TrimSpace(s), nil
 }
 
+// ask shows a prompt with a default and returns the answer (or the
+// default for Enter).
+func (w *wizard) ask(def string) (string, error) {
+	w.printf("   [%s]: ", orNone(def))
+	s, err := w.line()
+	if err != nil {
+		return "", err
+	}
+	if s == "" {
+		return def, nil
+	}
+	return strings.Trim(s, `"`), nil
+}
+
+// yes asks a yes/no question.
+func (w *wizard) yes(prompt string, def bool) (bool, error) {
+	hint := "(Y/n)"
+	if !def {
+		hint = "(y/N)"
+	}
+	for {
+		w.printf("   %s %s: ", prompt, hint)
+		s, err := w.line()
+		if err != nil {
+			return false, err
+		}
+		switch strings.ToLower(s) {
+		case "":
+			return def, nil
+		case "y", "yes":
+			return true, nil
+		case "n", "no":
+			return false, nil
+		}
+	}
+}
+
 func (w *wizard) run(cur Answers, defaultReports string, reinstall bool) (Answers, error) {
 	a := cur
 	if a.ReportEvery == "" {
@@ -77,122 +173,320 @@ func (w *wizard) run(cur Answers, defaultReports string, reinstall bool) (Answer
 	if a.CollectEvery == 0 {
 		a.CollectEvery = time.Hour
 	}
+	if a.Role == "" {
+		a.Role = RoleOf(a.SendTo, a.Inbox)
+	}
 	title := "Blackbox setup"
 	if reinstall {
 		title = "Blackbox setup (already installed: your current settings are shown as the defaults)"
 	}
 	w.printf("\n%s\n%s\n", title, strings.Repeat("-", len(title)))
-	w.printf("Press Enter to keep the value in [brackets].\n\n")
+	w.printf("Press Enter to keep the value in [brackets].\n")
 
-	// 1. Site name.
-	w.printf("1. Site or system name, shown at the top of each report\n")
+	var err error
+	if a.Role, err = w.askRole(a.Role); err != nil {
+		return a, err
+	}
+	if a.Role == RoleSender || a.Role == RoleStandalone {
+		a.Inbox, a.ShareInbox, a.InboxWriters = "", false, nil
+	}
+	if a.Role == RoleStandalone || a.Role == RoleCollector {
+		a.SendTo, a.ShareUser, a.SharePassword = "", "", ""
+	}
+
+	if a.Role == RoleStandalone || a.Role == RoleCollector {
+		if err := w.askReports(&a, defaultReports); err != nil {
+			return a, err
+		}
+	}
+	if a.Role == RoleCollector || a.Role == RoleRelay {
+		if err := w.askInbox(&a); err != nil {
+			return a, err
+		}
+	}
+	if a.Role == RoleSender || a.Role == RoleRelay {
+		if err := w.askSendTo(&a); err != nil {
+			return a, err
+		}
+	}
+	if err := w.askInterval(&a); err != nil {
+		return a, err
+	}
+
+	// Summary.
+	w.printf("\nSummary\n")
+	w.printf("   This computer:    %s\n", roleText(a.Role))
+	if a.Role == RoleStandalone || a.Role == RoleCollector {
+		dir := a.ReportDir
+		if dir == "" {
+			dir = defaultReports
+		}
+		w.printf("   Site name:        %s\n", orNone(a.Site))
+		w.printf("   Reports:          %s, saved in %s\n", a.ReportEvery, dir)
+	}
+	if a.Inbox != "" {
+		extra := ""
+		if a.ShareInbox {
+			extra = " (shared on the network as " + ShareName + ")"
+		}
+		w.printf("   Receives in:      %s%s\n", a.Inbox, extra)
+		if len(a.InboxWriters) > 0 {
+			w.printf("   Can deliver:      %s\n", strings.Join(a.InboxWriters, ", "))
+		}
+	}
+	if a.SendTo != "" {
+		w.printf("   Sends to:         %s\n", a.SendTo)
+		if a.ShareUser != "" {
+			w.printf("   Share account:    %s\n", a.ShareUser)
+		}
+	}
+	w.printf("   Collect events:   %s\n", EveryText(a.CollectEvery))
+	verb := "Install"
+	if reinstall {
+		verb = "Apply"
+	}
+	w.printf("\n")
+	ok, err := w.yes(verb+" these settings?", true)
+	if err != nil {
+		return a, err
+	}
+	if !ok {
+		return a, ErrCancelled
+	}
+	return a, nil
+}
+
+func roleText(r string) string {
+	switch r {
+	case RoleSender:
+		return "sends its events to a collector"
+	case RoleCollector:
+		return "collector: reports on itself and the computers that send to it"
+	case RoleRelay:
+		return "relay: receives from other computers and sends everything to a collector"
+	}
+	return "standalone: reports on itself"
+}
+
+func (w *wizard) askRole(cur string) (string, error) {
+	w.question("How will this computer's audit events be reviewed?")
+	roles := []string{RoleStandalone, RoleSender, RoleCollector, RoleRelay}
+	labels := []string{
+		"On this computer            (it produces its own reports)",
+		"Send to a collector         (for a virtual machine, or a workstation on a LAN)",
+		"This is the collector       (its reports cover it and every computer that sends to it)",
+		"Relay                       (receives from virtual machines on this PC and sends everything to a collector)",
+	}
+	i, err := w.choose(labels, indexOf(roles, cur))
+	if err != nil {
+		return "", err
+	}
+	return roles[i], nil
+}
+
+func (w *wizard) askReports(a *Answers, defaultReports string) error {
+	w.question("Site or system name, shown at the top of each report")
 	if a.Site != "" {
 		w.printf("   (type - to clear it)\n")
 	}
-	w.printf("   [%s]: ", orNone(a.Site))
-	s, err := w.line()
+	s, err := w.ask(a.Site)
 	if err != nil {
-		return a, err
+		return err
 	}
-	switch {
-	case s == "-":
-		a.Site = "" // "-" clears it
-	case s != "":
-		a.Site = s
+	if s == "-" {
+		s = ""
 	}
+	a.Site = s
 
-	// 2. Report schedule.
-	w.printf("\n2. How often should a report be produced?\n")
+	w.question("How often should a report be produced?")
 	every := []string{"daily", "weekly", "monthly"}
-	labels := []string{"Daily   (each report covers one day, ending at midnight)",
-		"Weekly  (Monday 00:00 to Monday 00:00)", "Monthly (1st to 1st)"}
-	i, err := w.choose(labels, indexOf(every, a.ReportEvery))
+	i, err := w.choose([]string{"Daily   (each report covers one day, ending at midnight)",
+		"Weekly  (Monday 00:00 to Monday 00:00)", "Monthly (1st to 1st)"}, indexOf(every, a.ReportEvery))
 	if err != nil {
-		return a, err
+		return err
 	}
 	a.ReportEvery = every[i]
 
-	// 3. Report folder.
-	w.printf("\n3. Where should reports be saved?\n")
+	w.question("Where should reports be saved?")
 	w.printf("   Use a folder you have locked down if you like; Blackbox only needs to write to it.\n")
 	for {
 		show := a.ReportDir
 		if show == "" {
 			show = defaultReports
 		}
-		w.printf("   [%s]: ", show)
-		s, err := w.line()
+		s, err := w.ask(show)
 		if err != nil {
-			return a, err
+			return err
 		}
-		if s == "" {
-			s = show
-		}
-		s = strings.Trim(s, `"`)
 		if s == defaultReports {
 			a.ReportDir = ""
-			break
+			return nil
 		}
 		if !config.IsAbs(s) {
 			w.printf("   Please enter a full path, for example %s\n", exampleFolder())
 			continue
 		}
-		ok, err := w.checkFolder(s)
+		ok, err := w.checkFolder(s, "Create it (administrators only)?")
 		if err != nil {
-			return a, err
+			return err
 		}
 		if ok {
 			a.ReportDir = s
-			break
-		}
-	}
-
-	// 4. Collection interval.
-	w.printf("\n4. How often should events be collected from the logs?\n")
-	ints := []time.Duration{time.Hour, 30 * time.Minute, 15 * time.Minute}
-	labels = []string{"Every hour        (recommended)", "Every 30 minutes",
-		"Every 15 minutes  (for busy systems whose logs fill up within a few hours)"}
-	if indexOf(ints, a.CollectEvery) < 0 {
-		ints = append(ints, a.CollectEvery)
-		labels = append(labels, strings.ToUpper(EveryText(a.CollectEvery)[:1])+EveryText(a.CollectEvery)[1:]+"  (current setting)")
-	}
-	i, err = w.choose(labels, indexOf(ints, a.CollectEvery))
-	if err != nil {
-		return a, err
-	}
-	a.CollectEvery = ints[i]
-
-	// Summary.
-	dir := a.ReportDir
-	if dir == "" {
-		dir = defaultReports
-	}
-	w.printf("\nSummary\n")
-	w.printf("   Site name:        %s\n", orNone(a.Site))
-	w.printf("   Reports:          %s, saved in %s\n", a.ReportEvery, dir)
-	w.printf("   Collect events:   %s\n", EveryText(a.CollectEvery))
-	verb := "Install"
-	if reinstall {
-		verb = "Apply"
-	}
-	for {
-		w.printf("\n%s these settings? (Y/n): ", verb)
-		s, err := w.line()
-		if err != nil {
-			return a, err
-		}
-		switch strings.ToLower(s) {
-		case "", "y", "yes":
-			return a, nil
-		case "n", "no":
-			return a, ErrCancelled
+			return nil
 		}
 	}
 }
 
-// checkFolder reports whether a report folder is usable, offering to
-// create it if it does not exist.
-func (w *wizard) checkFolder(dir string) (bool, error) {
+func (w *wizard) askInbox(a *Answers) error {
+	w.question("Which folder should other computers deliver their events to (this computer's inbox)?")
+	w.printf("   Blackbox imports what arrives there every time it collects.\n")
+	for {
+		def := a.Inbox
+		if def == "" {
+			def = w.defaultInbox
+		}
+		s, err := w.ask(def)
+		if err != nil {
+			return err
+		}
+		if !config.IsAbs(s) || config.IsShare(s) {
+			w.printf("   Please enter a full path to a folder on this computer, for example %s\n", w.defaultInbox)
+			continue
+		}
+		ok, err := w.checkFolder(s, "Create it?")
+		if err != nil {
+			return err
+		}
+		if ok {
+			a.Inbox = s
+			break
+		}
+	}
+	if !w.isWindows {
+		return nil
+	}
+
+	w.question("How will the other computers reach this inbox?")
+	w.printf("   A virtual machine on this PC reaches it through a VirtualBox shared folder.\n")
+	w.printf("   Other computers on the network reach it through a Windows share.\n")
+	vm, err := w.yes("Will virtual machines on this PC send to it (VirtualBox shared folder)?", len(a.InboxWriters) > 0 || !a.ShareInbox)
+	if err != nil {
+		return err
+	}
+	a.InboxWriters = nil
+	if vm {
+		w.printf("   VirtualBox writes into the shared folder as the Windows account that runs it.\n")
+		w.printf("   Windows account that runs VirtualBox (several: separate with commas)\n")
+		s, err := w.ask(os.Getenv("USERNAME"))
+		if err != nil {
+			return err
+		}
+		for _, u := range strings.Split(s, ",") {
+			if u = strings.TrimSpace(u); u != "" {
+				a.InboxWriters = append(a.InboxWriters, u)
+			}
+		}
+	}
+	a.ShareInbox, err = w.yes("Share it on the network so other computers can send to it?", a.ShareInbox)
+	return err
+}
+
+func (w *wizard) askSendTo(a *Answers) error {
+	w.question("Where is the collector's inbox?")
+	found := w.findInboxes()
+	if w.isWindows {
+		w.printf("   Enter the collector's shared folder, for example \\\\COLLECTOR\\%s\n", ShareName)
+	} else {
+		w.printf("   A VirtualBox shared folder (for example /media/sf_%s), or\n", ShareName)
+		w.printf("   a Windows share on the network (for example //COLLECTOR/%s).\n", ShareName)
+	}
+	for _, f := range found {
+		w.printf("   Found a collector inbox at %s\n", f)
+	}
+	def := a.SendTo
+	if def == "" && len(found) > 0 {
+		def = found[0]
+	}
+	user, pw := a.ShareUser, a.SharePassword
+	for {
+		s, err := w.ask(def)
+		if err != nil {
+			return err
+		}
+		if s == "" {
+			w.printf("   Please enter the collector's inbox.\n")
+			continue
+		}
+		if !config.IsAbs(s) && !config.IsShare(s) {
+			w.printf("   Please enter a full path or a share name.\n")
+			continue
+		}
+		if !w.isWindows && strings.HasPrefix(s, `\\`) {
+			s = strings.ReplaceAll(s, `\`, "/") // Linux writes shares as //server/share
+		}
+		def = s // offered again if this attempt does not work
+		if config.IsShare(s) {
+			w.printf("   Account on the collector to connect with")
+			if w.isWindows {
+				w.printf(" (leave blank to use this computer's domain account)")
+			}
+			w.printf("\n")
+			newUser, err := w.ask(user)
+			if err != nil {
+				return err
+			}
+			if newUser == "-" {
+				newUser = ""
+			}
+			if newUser != "" && (pw == "" || newUser != user) {
+				if pw, err = w.password("   Password for " + newUser + ": "); err != nil {
+					return err
+				}
+			}
+			user = newUser
+		} else {
+			user, pw = "", ""
+		}
+		w.printf("   Checking %s ... ", s)
+		if err := w.tryInbox(s, user, pw); err != nil {
+			w.printf("not reachable.\n   %v\n", err)
+			keep, err := w.yes("Use it anyway (the data waits here until the collector can be reached)?", false)
+			if err != nil {
+				return err
+			}
+			if !keep {
+				pw = "" // ask for the password again
+				continue
+			}
+		} else {
+			w.printf("OK, it is a Blackbox inbox.\n")
+		}
+		a.SendTo, a.ShareUser, a.SharePassword = s, user, pw
+		return nil
+	}
+}
+
+func (w *wizard) askInterval(a *Answers) error {
+	w.question("How often should events be collected from the logs?")
+	ints := []time.Duration{time.Hour, 30 * time.Minute, 15 * time.Minute}
+	labels := []string{"Every hour        (recommended)", "Every 30 minutes",
+		"Every 15 minutes  (for busy systems whose logs fill up within a few hours)"}
+	if indexOf(ints, a.CollectEvery) < 0 {
+		ints = append(ints, a.CollectEvery)
+		t := EveryText(a.CollectEvery)
+		labels = append(labels, strings.ToUpper(t[:1])+t[1:]+"  (current setting)")
+	}
+	i, err := w.choose(labels, indexOf(ints, a.CollectEvery))
+	if err != nil {
+		return err
+	}
+	a.CollectEvery = ints[i]
+	return nil
+}
+
+// checkFolder reports whether a folder is usable, offering to create it if
+// it does not exist.
+func (w *wizard) checkFolder(dir, create string) (bool, error) {
 	exists, err := w.dirExists(dir)
 	if err != nil {
 		w.printf("   %v\n", err)
@@ -205,19 +499,8 @@ func (w *wizard) checkFolder(dir string) (bool, error) {
 		}
 		return true, nil
 	}
-	for {
-		w.printf("   That folder does not exist yet. Create it (administrators only)? (Y/n): ")
-		s, err := w.line()
-		if err != nil {
-			return false, err
-		}
-		switch strings.ToLower(s) {
-		case "", "y", "yes":
-			return true, nil // created during install
-		case "n", "no":
-			return false, nil
-		}
-	}
+	w.printf("   That folder does not exist yet.\n")
+	return w.yes(create, true)
 }
 
 // choose shows numbered options and returns the index picked.

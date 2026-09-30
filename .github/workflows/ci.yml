@@ -23,6 +23,8 @@ jobs:
         run: scripts/build.sh
   windows:
     runs-on: windows-latest
+    # Receives the Linux runner's batches, so it runs after that job.
+    needs: linux-live
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -35,14 +37,18 @@ jobs:
         run: |
           go build -o blackbox.exe ./cmd/blackbox
           ./blackbox.exe check; if ($LASTEXITCODE -notin 0,3) { exit 1 }
-          ./blackbox.exe collect --config nonexistent.conf
+          ./blackbox.exe collect --config none
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          ./blackbox.exe report --preview --config nonexistent.conf
+          ./blackbox.exe report --preview --config none
           if ($LASTEXITCODE -ne 0) { exit 1 }
           $dir = Get-ChildItem C:\ProgramData\Blackbox\reports -Directory | Select-Object -First 1
           ./blackbox.exe verify $dir.FullName
           if ($LASTEXITCODE -ne 0) { exit 1 }
-      - name: Install, change report folder, run the scheduled job, uninstall
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-batches
+          path: linux-batches
+      - name: Install as a LAN collector, receive from Linux and over SMB, run the scheduled job, uninstall
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -50,8 +56,26 @@ jobs:
           go build -ldflags "-X main.version=0.0.0-ci" -o blackbox.exe ./cmd/blackbox
           $r1 = Join-Path $env:RUNNER_TEMP "bb-reports"
           $r2 = Join-Path $env:RUNNER_TEMP "bb-reports-2"
-          ./blackbox.exe install --yes --site CI --report-dir $r1 --no-first-report
+          # An account other computers send as (a workgroup has no domain accounts).
+          net user bbsend "Bb-Sender-CI-2026!" /add | Out-Null
+          ./blackbox.exe install --yes --site CI --report-dir $r1 --inbox C:\BlackboxInbox --share-inbox --inbox-writer bbsend --no-first-report
           if ($LASTEXITCODE -ne 0) { throw "install failed" }
+          if (-not (Test-Path C:\BlackboxInbox\BLACKBOX-INBOX.txt)) { throw "inbox not prepared" }
+          net share BlackboxInbox | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "inbox not shared" }
+          $members = net localgroup "Blackbox Senders"
+          if (-not ($members -match "bbsend")) { throw "bbsend not allowed to deliver: $members" }
+          # A second Blackbox (its own settings and data) sends over SMB with the account.
+          $s = Join-Path $env:RUNNER_TEMP "sender"
+          "data_dir = $s`r`nsend_to = \\localhost\BlackboxInbox`r`nshare_user = bbsend" | Set-Content "$s.conf"
+          $env:BLACKBOX_SHARE_PASSWORD = "Bb-Sender-CI-2026!"
+          ./blackbox.exe send --config "$s.conf"
+          if ($LASTEXITCODE -ne 0) { throw "send over SMB failed" }
+          Remove-Item Env:BLACKBOX_SHARE_PASSWORD
+          if (-not (Get-ChildItem C:\BlackboxInbox -Filter *.bbx)) { throw "no batch arrived over SMB" }
+          # Batches the Linux runner's sandboxed service delivered.
+          Copy-Item linux-batches\*.bbx C:\BlackboxInbox\
+          Write-Host "Inbox:"; Get-ChildItem C:\BlackboxInbox | Format-Table Name, Length
           $exe = "C:\Program Files\Blackbox\blackbox.exe"
           if (-not (Test-Path $exe)) { throw "program not installed" }
           schtasks /Query /TN "Blackbox Audit Collection" | Out-Null
@@ -73,11 +97,21 @@ jobs:
           # Run the real scheduled task (as SYSTEM) and wait for the report.
           schtasks /Run /TN "Blackbox Audit Collection" | Out-Null
           $deadline = (Get-Date).AddMinutes(4)
-          while (-not (Get-ChildItem $r2 -Recurse -Filter report.html -ErrorAction SilentlyContinue)) {
+          while (-not (Get-ChildItem $r2 -Recurse -Filter summary.json -ErrorAction SilentlyContinue)) {
             if ((Get-Date) -gt $deadline) { Get-Content C:\ProgramData\Blackbox\blackbox.log -ErrorAction SilentlyContinue; throw "no report written by the scheduled task" }
             Start-Sleep 5
           }
+          Start-Sleep 3
+          Get-Content C:\ProgramData\Blackbox\blackbox.log | Select-Object -Last 15
           Write-Host "Scheduled task wrote a report to $r2"
+          $dir = (Get-ChildItem $r2 -Recurse -Filter summary.json | Select-Object -First 1).DirectoryName
+          $sum = Get-Content "$dir\summary.json" | ConvertFrom-Json
+          $sum.systems | Format-Table name, status, events, high, audit_settings_failing
+          $linux = $sum.systems | Where-Object { $_.name -ne $env:COMPUTERNAME }
+          if (-not $linux) { throw "the Linux computer's events are not in the collector's report" }
+          if (-not (Select-String -Path "$dir\report.html" -Pattern 'data-view="systems"' -Quiet)) { throw "report has no Systems page" }
+          if (Get-ChildItem C:\BlackboxInbox -Filter *.bbx) { throw "batches left in the inbox after import" }
+          & $exe status
           & $exe uninstall
           $deadline = (Get-Date).AddSeconds(60)
           while (Test-Path "C:\Program Files\Blackbox") {
@@ -87,6 +121,8 @@ jobs:
           if (Test-Path $key) { throw "Programs and Features entry not removed" }
           schtasks /Query /TN "Blackbox Audit Collection" 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) { throw "scheduled task not removed" }
+          net share BlackboxInbox 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw "inbox share not removed" }
           $global:LASTEXITCODE = 0
   linux-live:
     # End-to-end on a real Ubuntu machine: install auditd with Blackbox's
@@ -145,3 +181,37 @@ jobs:
           echo "Sandboxed service wrote a report to /srv/bb-reports-2"
           sudo ./blackbox uninstall
           if systemctl is-enabled blackbox.timer 2>/dev/null; then echo "timer not removed"; exit 1; fi
+      - name: "LAN: send to a collector's SMB share from the sandboxed service"
+        run: |
+          sudo apt-get install -y -qq samba cifs-utils
+          # A Linux collector on this machine; its first run prepares the inbox.
+          printf 'data_dir = /tmp/col\nreport_dir = /tmp/col/reports\ninbox = /srv/inbox\n' > col.conf
+          sudo ./blackbox run --config col.conf
+          test -f /srv/inbox/BLACKBOX-INBOX.txt
+          # Share the inbox with an account, as a Windows collector would.
+          sudo useradd -M -s /usr/sbin/nologin bbsend
+          printf 'Bb-Sender-CI-2026!\nBb-Sender-CI-2026!\n' | sudo smbpasswd -a -s bbsend
+          sudo chown bbsend /srv/inbox
+          printf '[inbox]\n  path = /srv/inbox\n  valid users = bbsend\n  writable = yes\n' | sudo tee -a /etc/samba/smb.conf > /dev/null
+          sudo systemctl restart smbd
+          # Install as a sender to the share; the password is stored root-only.
+          sudo BLACKBOX_SHARE_PASSWORD='Bb-Sender-CI-2026!' ./blackbox install --yes --send-to //127.0.0.1/inbox --share-user bbsend --no-first-report
+          sudo test "$(sudo stat -c %a /etc/blackbox/share.cred)" = 600
+          grep -q "Wants=var-lib-blackbox-collector.mount" /etc/systemd/system/blackbox.service
+          # The sandboxed service (no network of its own) mounts the share and delivers.
+          sudo systemctl start blackbox.service
+          sudo /usr/local/bin/blackbox status
+          ls /srv/inbox/*.bbx || { sudo journalctl -u blackbox.service -u var-lib-blackbox-collector.mount --no-pager | tail -40; exit 1; }
+          # Hand these batches to the Windows job, then import them here too.
+          mkdir linux-batches && sudo cp /srv/inbox/*.bbx linux-batches/ && sudo chown -R "$USER" linux-batches
+          sudo ./blackbox report --preview --config col.conf
+          if ls /srv/inbox/*.bbx 2>/dev/null; then echo "batches not imported"; exit 1; fi
+          sudo ./blackbox status --config col.conf
+          sudo ./blackbox uninstall
+          test ! -e /etc/systemd/system/var-lib-blackbox-collector.mount
+          test ! -e /etc/blackbox/share.cred
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-batches
+          path: linux-batches
+          retention-days: 1

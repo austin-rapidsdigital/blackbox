@@ -44,7 +44,7 @@ func TestSystemdUnits(t *testing.T) {
 		}
 	}
 	timer, _ := systemdTimer(time.Hour)
-	svc := systemdService("/usr/local/bin/blackbox", "/var/lib/blackbox", "/srv/audit-reports", "/var/lib/blackbox")
+	svc := systemdService("/usr/local/bin/blackbox", "", "/var/lib/blackbox", "/srv/audit-reports", "/var/lib/blackbox")
 	for _, want := range []string{"Persistent=true", "WantedBy=timers.target"} {
 		if !strings.Contains(timer, want) {
 			t.Errorf("timer missing %s", want)
@@ -53,6 +53,14 @@ func TestSystemdUnits(t *testing.T) {
 	for _, want := range []string{"ExecStart=/usr/local/bin/blackbox run", "PrivateNetwork=yes", "ProtectSystem=strict", "ReadWritePaths=/var/lib/blackbox /srv/audit-reports\n"} {
 		if !strings.Contains(svc, want) {
 			t.Errorf("service missing %s", want)
+		}
+	}
+	// A sender to an SMB share asks for the share before each run, and a
+	// shared folder that is not mounted does not stop the run.
+	lanSvc := systemdService("/usr/local/bin/blackbox", "var-lib-blackbox-collector.mount", "/var/lib/blackbox", "/var/lib/blackbox/reports", "-/media/sf_BlackboxInbox")
+	for _, want := range []string{"Wants=var-lib-blackbox-collector.mount\nAfter=var-lib-blackbox-collector.mount", "ReadWritePaths=/var/lib/blackbox /var/lib/blackbox/reports -/media/sf_BlackboxInbox\n"} {
+		if !strings.Contains(lanSvc, want) {
+			t.Errorf("LAN service missing %q:\n%s", want, lanSvc)
 		}
 	}
 }

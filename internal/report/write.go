@@ -38,6 +38,18 @@ type Summary struct {
 	AuditOff    int            `json:"audit_off_periods,omitempty"`
 	Version     string         `json:"blackbox_version"`
 	Source      string         `json:"source"`
+	Systems     []SystemStatus `json:"systems,omitempty"`
+}
+
+// SystemStatus is one computer's line in summary.json.
+type SystemStatus struct {
+	Name        string    `json:"name"`
+	Status      string    `json:"status"` // ok | warn | silent
+	LastRun     time.Time `json:"last_collection,omitzero"`
+	Events      int       `json:"events"`
+	High        int       `json:"high"`
+	ChecksFail  int       `json:"audit_settings_failing"`
+	Explanation string    `json:"note,omitempty"`
 }
 
 func (r *Report) summary() Summary {
@@ -63,6 +75,15 @@ func (r *Report) summary() Summary {
 		s.Lost += g.Lost
 	}
 	s.AuditOff = len(r.Health.AuditOff)
+	if r.ShowSystems() {
+		for _, sys := range r.SystemRows {
+			st := SystemStatus{Name: sys.Name, Status: sys.Status, LastRun: sys.LastRun, Events: sys.Events, High: sys.High, Explanation: sys.StatusMsg}
+			if sys.Checks != nil {
+				st.ChecksFail = sys.Checks.Fail
+			}
+			s.Systems = append(s.Systems, st)
+		}
+	}
 	return s
 }
 

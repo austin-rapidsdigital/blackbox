@@ -3,8 +3,10 @@
 package install
 
 import (
+	"bufio"
 	"errors"
 	"os"
+	"strings"
 )
 
 var errLinux = errors.New("install is supported on Windows and Linux; on this system use `blackbox report` with exported log files")
@@ -24,3 +26,30 @@ func restrictDir(dir string) error { return os.Chmod(dir, 0o700) }
 
 // RequireAdmin is not needed where Blackbox cannot be installed.
 func RequireAdmin() error { return errLinux }
+
+const isWindows = false
+
+// ShareName is the conventional name of a collector's inbox share.
+const ShareName = "BlackboxInbox"
+
+// DefaultInbox is the suggested inbox folder for a collector.
+func DefaultInbox() string { return "/var/lib/blackbox/inbox" }
+
+// FindInboxes lists collector inboxes this computer can already see.
+func FindInboxes() []string { return nil }
+
+// TryInbox is only available on Windows and Linux.
+func TryInbox(sendTo, user, pw string) error { return errLinux }
+
+func readPassword(r *bufio.Reader) (string, error) {
+	s, err := r.ReadString('\n')
+	return strings.TrimRight(s, "\r\n"), err
+}
+
+func prepareInbox(Options, func(string, ...any)) error          { return errLinux }
+func removeInbox(func(string, ...any))                          {}
+func prepareSendTo(Options, string, func(string, ...any)) error { return errLinux }
+func removeSendTo(func(string, ...any))                         {}
+
+// InboxShared is always false here.
+func InboxShared() bool { return false }

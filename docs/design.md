@@ -249,33 +249,51 @@ dashboard is needed. Splunk may make that unnecessary.
 
 ## 7. Deployment models
 
-### Phase 1: now (standalone hosts and workgroup LAN)
+### Phase 1: now (standalone hosts, VMs and workgroup LANs) ✅
 
 **Model A: standalone.** Each host runs Blackbox on a schedule and writes its
 own reports locally. This covers standalone air-gapped systems.
 
-**Model A+: gather.** Each host writes its `events.jsonl` to a shared folder,
-or an admin copies them to one place. `blackbox merge` then combines them
-into a single LAN report with a section for each host. No forwarding setup is
-needed, so this works before the domain exists.
+**Model A+: collector inbox** (built; see [lan.md](lan.md)).
+
+- **Senders.** Each host keeps collecting locally and copies numbered,
+  checksummed batches of its kept events into a collector's inbox folder
+  after every collection. The inbox can be a VirtualBox shared folder (a VM
+  on the collector PC) or a Windows share (the LAN).
+- **Collector.** It imports the batches and produces one report covering
+  every host, with a Systems page, per-system filtering and per-system
+  audit settings.
+- **Relay.** A relay host receives from its own VMs and sends everything
+  on.
+- **Guarantees.**
+  - Nothing listens on the network.
+  - Hosts that are off catch up later.
+  - Missing batches, damaged batches, silent hosts and clock skew are
+    reported.
+  - Delivery is exactly-once: an outbox, an atomic rename into the inbox,
+    and import that is idempotent by sequence number, with write-ahead
+    recovery.
+
+This replaces the `blackbox merge` idea. Merging report folders by hand
+could not detect a host that stopped sending, and it put the work on the
+administrator.
 
 ### Phase 2: after the domain move (recommended target)
 
 **Model B: central collector** on Windows Server 2025.
 
-- **Windows hosts.** Windows Event Forwarding (WEF), where the hosts push
-  their events to the collector (source-initiated subscriptions), configured
-  by **Group Policy**. With a domain, WEF needs no certificates and no
-  software on each host. This is why the domain move helps so much.
-- **Linux hosts.**
-  - Standard options: auditd's `audisp-remote` or rsyslog forwarding.
-  - Or simply Model A+ for the Linux machines.
-- **Blackbox** runs once on the collector and produces one LAN-wide report.
+- **Windows hosts.** Two options:
+  - Keep Model A+ as it is. In a domain, senders can use their computer
+    accounts (`Domain Computers` in the Blackbox Senders group), so no
+    password is stored anywhere.
+  - Or use Windows Event Forwarding (WEF), where hosts push their raw
+    events to the collector by **Group Policy**.
+- **Linux hosts.** Model A+ over the share.
+- **Blackbox** runs on the collector and produces one LAN-wide report.
 
 Later, Splunk can read from the same collector: add a Splunk forwarder or
 point it at the `events.jsonl` output.
 
-We will provide step-by-step guides and GPO / rsyslog templates for Phase 2.
 
 ---
 
@@ -325,7 +343,9 @@ prefer package installs. Neither package has any dependencies.
 ```
 blackbox run                  # generate a report now (the scheduler runs this)
 blackbox check                # check the audit configuration against the STIG baseline
-blackbox merge <dirs...>      # combine several hosts into one LAN report
+blackbox status               # role, last collection, what is waiting to be sent or imported
+blackbox send                 # collect and send to the collector now (e.g. before a VM shuts down)
+blackbox systems              # the computers a collector reports on (remove NAME to retire one)
 blackbox verify <report-dir>  # check the SHA-256 manifest
 blackbox uninstall            # remove the task/timer; reports are kept
 ```
@@ -379,7 +399,7 @@ exclude_processes =                # e.g. C:\Tools\Scanner\scan.exe
 | **M1: single Windows host** | evtx collection, normalization, translation for §4.1–4.3, HTML report, bookmark, manifest, `install` / `run` |
 | **M2: Linux** ✅ | auditd, syslog and journald collection for Ubuntu 22.04/24.04 and Alma 8.10, the same report (see section 15) |
 | **M3: audit health** | `check` against the STIG baselines, gap and rollover detection, audit-integrity section |
-| **M4: LAN (Model A+)** | `merge`, per-host views, index page |
+| **M4: LAN (Model A+)** ✅ | Collector inbox over VirtualBox shared folders and Windows shares, relays, Systems page, per-system filters and checks, gap and silence detection |
 | **M5: packaging** | MSI, .deb, .rpm, SBOM, reproducible release builds |
 | **M6: domain / collector (Model B)** | WEF and forwarding guides, GPO templates, collector mode |
 | Later | Optional `serve` viewer, report signing, Splunk ingestion notes |
