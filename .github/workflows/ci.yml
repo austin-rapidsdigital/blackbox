@@ -187,7 +187,8 @@ jobs:
           # A Linux collector on this machine; its first run prepares the inbox.
           printf 'data_dir = /tmp/col\nreport_dir = /tmp/col/reports\ninbox = /srv/inbox\n' > col.conf
           sudo ./blackbox run --config col.conf
-          test -f /srv/inbox/BLACKBOX-INBOX.txt
+          # The inbox is root-only, so these checks run as root.
+          sudo test -f /srv/inbox/BLACKBOX-INBOX.txt
           # Share the inbox with an account, as a Windows collector would.
           sudo useradd -M -s /usr/sbin/nologin bbsend
           printf 'Bb-Sender-CI-2026!\nBb-Sender-CI-2026!\n' | sudo smbpasswd -a -s bbsend
@@ -201,15 +202,15 @@ jobs:
           # The sandboxed service (no network of its own) mounts the share and delivers.
           sudo systemctl start blackbox.service
           sudo /usr/local/bin/blackbox status
-          ls /srv/inbox/*.bbx || { sudo journalctl -u blackbox.service -u var-lib-blackbox-collector.mount --no-pager | tail -40; exit 1; }
+          sudo sh -c 'ls /srv/inbox/*.bbx' || { sudo journalctl -u blackbox.service -u var-lib-blackbox-collector.mount --no-pager | tail -40; exit 1; }
           # Hand these batches to the Windows job, then import them here too.
-          mkdir linux-batches && sudo cp /srv/inbox/*.bbx linux-batches/ && sudo chown -R "$USER" linux-batches
+          mkdir linux-batches && sudo sh -c 'cp /srv/inbox/*.bbx linux-batches/' && sudo chown -R "$USER" linux-batches
           sudo ./blackbox report --preview --config col.conf
-          if ls /srv/inbox/*.bbx 2>/dev/null; then echo "batches not imported"; exit 1; fi
+          if sudo sh -c 'ls /srv/inbox/*.bbx' 2>/dev/null; then echo "batches not imported"; exit 1; fi
           sudo ./blackbox status --config col.conf
           sudo ./blackbox uninstall
-          test ! -e /etc/systemd/system/var-lib-blackbox-collector.mount
-          test ! -e /etc/blackbox/share.cred
+          sudo test ! -e /etc/systemd/system/var-lib-blackbox-collector.mount
+          sudo test ! -e /etc/blackbox/share.cred
       - uses: actions/upload-artifact@v4
         with:
           name: linux-batches
