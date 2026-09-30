@@ -29,21 +29,44 @@ the schedule alone.
 | **Low** | Routine but relevant | Single failed logon, sudo command, admin logon |
 | **Info** | Context | Logons, logoffs, startup and shutdown |
 
-The Overview lists every high-severity event and finding, then counts the
-medium ones by type under **Also review**.
+The Overview starts with **Detections**, then lists every high-severity
+event under **Needs attention**, then counts the medium ones by type under
+**Also review**.
 
-## Findings
+## Detections
 
-Findings are patterns that span several events:
+Detections are patterns across several events: steps that are ordinary on
+their own but worth a look together, and things done for the first time.
+They are worked out from events Blackbox already collects, so they add
+nothing to what computers collect, store or send. They are also listed in
+each report's `summary.json`.
 
-- **Possible password guessing:** 5 or more failed logons for one account
-  within 15 minutes.
-- **One source tried several accounts:** failures for 3 or more accounts
-  from one address within 15 minutes.
-- **Successful logon after failures:** 3 or more failures, then a success,
-  within 30 minutes.
-- **Auditing was switched off:** the audit service was stopped by a
-  person, with how long it stayed off.
+| Detection | Severity | When |
+|---|---|---|
+| Possible password guessing | High | 5 or more failed logons for one account on one computer within 15 minutes |
+| One source tried several accounts | High | Failures for 3 or more accounts from one address within 15 minutes |
+| Same account failing on several computers | High | Failed logons for one account on 3 or more computers within 30 minutes (a collector sees every computer) |
+| Possible covering of tracks | High | An account created, someone added to a privileged group, or sudo rules changed, then within 24 hours on the same computer a log cleared or altered, auditing stopped, an audit rule added or removed, or anti-malware turned off, by a person |
+| Account created and deleted within a day | High | The same account created and deleted on one computer within 24 hours |
+| Auditing was switched off | High | The audit service stopped by a person, with how long it stayed off |
+| Successful logon after failures | Medium | 3 or more failures, then a success, within 30 minutes |
+| New USB device, then administrator activity | Medium | Administrator rights used within 30 minutes of a USB device never seen before |
+| Administrator activity outside working hours | Medium | Needs `working_hours` in the [settings](configuration.md); one detection per person, computer and day |
+| First logon to this computer | Medium | A person logs on (at the computer, by Remote Desktop or SSH) to a computer they have not logged on to before |
+| First use of administrator rights | Medium | A person uses administrator rights on a computer for the first time |
+| First logon from this address | Medium | A logon to a computer from a network address not seen before |
+
+**Across reports.** Each report also looks at the day before its period,
+so a pattern that starts at the end of one report and finishes in the
+next is still detected. It is reported once, in the report where it
+finishes.
+
+**First times.** Blackbox remembers who has logged on to each computer,
+who has used administrator rights on it, and the addresses logons came
+from. A computer's first report only learns this, and says so, so that
+installing Blackbox does not flag everyone. Something not seen for a year
+counts as new again. Service and computer accounts, and SYSTEM, are left
+out.
 
 ## Is the audit trail complete?
 

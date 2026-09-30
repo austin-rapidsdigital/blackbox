@@ -1,0 +1,373 @@
+package report
+
+import (
+	"fmt"
+	"net"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/casea1/blackbox/internal/event"
+)
+
+// Detections look for patterns across events: several steps that are
+// ordinary on their own but suspicious together, and things done for the
+// first time. They run on events already collected, so they add nothing
+// to what computers collect or send.
+//
+// Rows from before the report period (Options.Context, ID "") let a
+// pattern that started in the previous period be completed in this one;
+// a detection is only reported when its last step is in this period.
+
+const (
+	sprayWindow     = 30 * time.Minute
+	sprayHosts      = 3
+	coverWindow     = 24 * time.Hour
+	shortLivedLimit = 24 * time.Hour
+	afterUSBWindow  = 30 * time.Minute
+
+	// baselineExpiry is how long something unseen is remembered: after a
+	// year it counts as new again.
+	baselineExpiry = 365 * 24 * time.Hour
+)
+
+// setupActions prepare access: a new account, a privileged group or new
+// sudo rules.
+func setupAction(r *Row) bool {
+	switch r.Action {
+	case "account_created", "sudoers_changed":
+		return true
+	case "group_member_added":
+		return r.Severity == event.SevHigh // privileged groups only
+	}
+	return false
+}
+
+// tamperAction hides activity: logs cleared or altered, auditing or
+// anti-malware stopped or changed, by a person. Changes the system makes
+// itself (Group Policy refreshes, rules loaded at boot) do not count.
+func tamperAction(r *Row) bool {
+	switch r.Action {
+	case "log_cleared", "log_tampered":
+		return r.User == "" || person(r.User)
+	case "audit_disabled", "audit_policy_changed", "audit_rule_added", "audit_rule_removed", "audit_config_changed", "av_disabled":
+		return person(r.User)
+	case "audit_stopped":
+		return r.Severity == event.SevHigh // stopped by a person, not at shutdown
+	}
+	return false
+}
+
+var systemAccounts = map[string]bool{"system": true, "local service": true, "network service": true,
+	"-": true, "unknown": true, "unset": true, "(unset)": true, "": true}
+
+// person reports whether an account is a person's rather than the system's
+// or a computer's.
+func person(u string) bool {
+	l := strings.ToLower(u)
+	if i := strings.LastIndex(l, `\`); i >= 0 {
+		l = l[i+1:]
+	}
+	return !systemAccounts[l] && !strings.HasSuffix(l, "$")
+}
+
+// adminActivity is something done with administrator rights by a person.
+func adminActivity(r *Row) bool {
+	return r.Category == event.CatPrivileged && person(r.User)
+}
+
+func inPeriod(r *Row) bool { return r.ID != "" }
+
+func (r *Report) addFinding(sev event.Severity, cat event.Category, at *Row, link *Row, title, detail string) {
+	r.Findings = append(r.Findings, Finding{Severity: sev, Category: cat, Host: at.Host, Time: at.Time,
+		RowID: link.ID, Title: title, Detail: detail})
+}
+
+// detect runs every detection over the rows of this period (rows) and
+// all rows including the context before it (all), both sorted by time.
+func (r *Report) detect(rows, all []*Row) {
+	r.detectSprayAcrossComputers(all)
+	r.detectCoverTracks(all)
+	r.detectShortLivedAccounts(all)
+	r.detectAdminAfterNewDevice(rows)
+	r.detectOffHours(rows)
+	r.detectFirstTime(rows)
+	sort.SliceStable(r.Findings, func(i, j int) bool {
+		a, b := r.Findings[i], r.Findings[j]
+		if a.Severity.Rank() != b.Severity.Rank() {
+			return a.Severity.Rank() > b.Severity.Rank()
+		}
+		return a.Time.Before(b.Time)
+	})
+}
+
+// firstInPeriod returns the first row of the list that is in this period.
+func firstInPeriod(list []*Row) *Row {
+	for _, x := range list {
+		if inPeriod(x) {
+			return x
+		}
+	}
+	return nil
+}
+
+// One account failing on several computers: someone trying a password
+// across the network. Only a collector sees this.
+func (r *Report) detectSprayAcrossComputers(all []*Row) {
+	byAcct := map[string][]*Row{}
+	var order []string
+	for _, x := range all {
+		if x.Action != "logon_failed" || x.Target == "" {
+			continue
+		}
+		k := strings.ToLower(x.Target)
+		if byAcct[k] == nil {
+			order = append(order, k)
+		}
+		byAcct[k] = append(byAcct[k], x)
+	}
+	for _, k := range order {
+		for _, c := range clusters(byAcct[k], sprayWindow) {
+			hosts := distinctList(c, func(x *Row) string { return x.Host })
+			last := c[len(c)-1]
+			if len(hosts) < sprayHosts || !inPeriod(last) {
+				continue
+			}
+			r.addFinding(event.SevHigh, event.CatFailedLogon, c[0], firstInPeriod(c),
+				"Same account failing on several computers",
+				fmt.Sprintf("%d failed logons for %s on %d computers (%s) between %s and %s. Someone may be trying a password across the network.",
+					len(c), c[0].Target, len(hosts), strings.Join(hosts, ", "), r.stamp(c[0].Time), r.clock(last.Time)))
+		}
+	}
+}
+
+// Access set up (an account, a privileged group, sudo rules), then the
+// logs cleared or auditing changed on the same computer.
+func (r *Report) detectCoverTracks(all []*Row) {
+	used := map[*Row]bool{}
+	for i, t := range all {
+		if !inPeriod(t) || !tamperAction(t) {
+			continue
+		}
+		for j := i - 1; j >= 0; j-- {
+			s := all[j]
+			if t.Time.Sub(s.Time) > coverWindow {
+				break
+			}
+			if s.Host != t.Host || !setupAction(s) || used[s] {
+				continue
+			}
+			used[s] = true
+			link := s
+			if !inPeriod(s) {
+				link = t
+			}
+			r.addFinding(event.SevHigh, event.CatIntegrity, t, link, "Possible covering of tracks",
+				fmt.Sprintf("On %s at %s: %s %s later: %s The second step can hide what was done with the first.",
+					t.Host, r.stamp(s.Time), s.Summary, capitalize(roughDuration(t.Time.Sub(s.Time))), t.Summary))
+			break
+		}
+	}
+}
+
+// An account created and deleted within a day: used for something, then
+// removed.
+func (r *Report) detectShortLivedAccounts(all []*Row) {
+	for i, d := range all {
+		if !inPeriod(d) || d.Action != "account_deleted" || d.Target == "" {
+			continue
+		}
+		for j := i - 1; j >= 0; j-- {
+			c := all[j]
+			if d.Time.Sub(c.Time) > shortLivedLimit {
+				break
+			}
+			if c.Host != d.Host || c.Action != "account_created" || !strings.EqualFold(c.Target, d.Target) {
+				continue
+			}
+			link := c
+			if !inPeriod(c) {
+				link = d
+			}
+			r.addFinding(event.SevHigh, event.CatAccount, d, link, "Account created and deleted within a day",
+				fmt.Sprintf("The account %s on %s was created by %s at %s and deleted by %s %s later. A short-lived account can be used and then removed to hide who did something.",
+					c.Target, d.Host, orUnknown(c.User), r.stamp(c.Time), orUnknown(d.User), roughDuration(d.Time.Sub(c.Time))))
+			break
+		}
+	}
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+func orUnknown(s string) string {
+	if s == "" {
+		return "an unknown account"
+	}
+	return s
+}
+
+// A USB device never seen before, then administrator activity on the same
+// computer soon after.
+func (r *Report) detectAdminAfterNewDevice(rows []*Row) {
+	for i, d := range rows {
+		if !hasFlag(d, "New device") {
+			continue
+		}
+		var acts []*Row
+		for _, x := range rows[i+1:] {
+			if x.Time.Sub(d.Time) > afterUSBWindow {
+				break
+			}
+			if x.Host == d.Host && adminActivity(x) {
+				acts = append(acts, x)
+			}
+		}
+		if len(acts) == 0 {
+			continue
+		}
+		r.addFinding(event.SevMedium, event.CatRemovable, d, d, "New USB device, then administrator activity",
+			fmt.Sprintf("A USB device not seen before was connected to %s at %s (%s), and %s used administrator rights %d times in the next %d minutes, starting with: %s",
+				d.Host, r.clock(d.Time), d.Target, distinct(acts, func(x *Row) string { return x.User }), len(acts),
+				int(afterUSBWindow.Minutes()), acts[0].Summary))
+	}
+}
+
+func hasFlag(r *Row, f string) bool {
+	for _, x := range r.Flags {
+		if x == f {
+			return true
+		}
+	}
+	return false
+}
+
+// Administrator activity outside the configured working hours, one
+// detection per person, computer and day.
+func (r *Report) detectOffHours(rows []*Row) {
+	if !r.WorkingHours.Set() {
+		return
+	}
+	groups := map[string][]*Row{}
+	var order []string
+	for _, x := range rows {
+		if !adminActivity(x) || r.WorkingHours.Contains(x.Time.In(r.Location)) {
+			continue
+		}
+		k := x.Host + "|" + strings.ToLower(x.User) + "|" + x.Time.In(r.Location).Format("2006-01-02")
+		if groups[k] == nil {
+			order = append(order, k)
+		}
+		groups[k] = append(groups[k], x)
+		x.Flags = append(x.Flags, "Outside working hours")
+	}
+	for _, k := range order {
+		g := groups[k]
+		first, last := g[0], g[len(g)-1]
+		when := r.clock(first.Time)
+		if len(g) > 1 {
+			when = "between " + when + " and " + r.clock(last.Time)
+		} else {
+			when = "at " + when
+		}
+		r.addFinding(event.SevMedium, event.CatPrivileged, first, first, "Administrator activity outside working hours",
+			fmt.Sprintf("%s used administrator rights on %s %s on %s (%s; working hours are %s).",
+				first.User, first.Host, when, first.Time.In(r.Location).Format("Mon 2 Jan"),
+				plural(len(g), "action"), r.WorkingHours.Text))
+	}
+}
+
+// localAddress reports addresses that are not another computer.
+func localAddress(s string) bool {
+	ip := net.ParseIP(s)
+	return ip == nil || ip.IsLoopback() || ip.IsUnspecified()
+}
+
+// firstTimeKeys lists what a row does for the first time, if it is:
+// a person logging on to a computer, a person using administrator rights
+// on it, or a logon from another computer's address.
+func firstTimeKeys(x *Row) (keys []string, labels []string) {
+	host := strings.ToLower(x.Host)
+	switch {
+	case x.Action == "logon" && x.Interactive && person(x.User):
+		keys = append(keys, "logon|"+host+"|"+strings.ToLower(x.User))
+		labels = append(labels, "logon")
+		if !localAddress(x.SourceIP) {
+			keys = append(keys, "src|"+host+"|"+x.SourceIP)
+			labels = append(labels, "source")
+		}
+	case adminActivity(x):
+		keys = append(keys, "admin|"+host+"|"+strings.ToLower(x.User))
+		labels = append(labels, "admin")
+	}
+	return keys, labels
+}
+
+// detectFirstTime points out the first logon by a person to a computer,
+// their first use of administrator rights on it, and the first logon from
+// a new address. A computer's first report only learns what is normal for
+// it, so installing Blackbox does not flag everyone.
+func (r *Report) detectFirstTime(rows []*Row) {
+	if r.Baseline == nil {
+		return
+	}
+	learning := map[string]bool{}
+	for _, x := range rows {
+		keys, labels := firstTimeKeys(x)
+		if len(keys) == 0 {
+			continue
+		}
+		_, known := r.BaselineHosts[strings.ToLower(x.Host)]
+		if !known && !learning[x.Host] {
+			learning[x.Host] = true
+			r.Learning = append(r.Learning, x.Host)
+		}
+		for i, k := range keys {
+			_, before := r.Baseline[k]
+			_, thisPeriod := r.Learned[k]
+			r.Learned[k] = x.Time
+			if before || thisPeriod || !known {
+				continue
+			}
+			x.Flags = append(x.Flags, "First time")
+			switch labels[i] {
+			case "logon":
+				r.addFinding(event.SevMedium, event.CatLogon, x, x, "First logon to this computer",
+					fmt.Sprintf("%s logged on to %s for the first time (as far as Blackbox has seen): %s", x.User, x.Host, x.Summary))
+			case "source":
+				r.addFinding(event.SevMedium, event.CatLogon, x, x, "First logon from this address",
+					fmt.Sprintf("%s had not been logged on to from %s before. %s", x.Host, x.SourceIP, x.Summary))
+			case "admin":
+				r.addFinding(event.SevMedium, event.CatPrivileged, x, x, "First use of administrator rights",
+					fmt.Sprintf("%s used administrator rights on %s for the first time (as far as Blackbox has seen): %s", x.User, x.Host, x.Summary))
+			}
+		}
+	}
+	sort.Strings(r.Learning)
+}
+
+// UpdateBaseline merges what a report saw into the remembered baseline,
+// marks its computers as learned, and forgets what has not been seen for
+// a year.
+func UpdateBaseline(baseline, hosts map[string]time.Time, r *Report, now time.Time) {
+	for k, t := range r.Learned {
+		if t.After(baseline[k]) {
+			baseline[k] = t
+		}
+	}
+	for _, h := range r.Hosts {
+		h = strings.ToLower(h)
+		if _, ok := hosts[h]; !ok {
+			hosts[h] = now
+		}
+	}
+	for k, t := range baseline {
+		if now.Sub(t) > baselineExpiry {
+			delete(baseline, k)
+		}
+	}
+}

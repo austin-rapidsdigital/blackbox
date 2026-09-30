@@ -103,7 +103,7 @@ these views:
 
 | View | Shows |
 |---|---|
-| **Overview** | Reporting period, whether the audit trail is complete, and what needs attention |
+| **Overview** | Reporting period, whether the audit trail is complete, detections, and what needs attention |
 | **Privileged Activity** | Admin logons, sudo/su, elevated programs, commands that tamper with auditing |
 | **USB & Removable Media** | Devices with make, model and serial number, who used them, files copied |
 | **Failed Logons & Lockouts** | Every failure with the reason decoded, plus password-guessing patterns |
@@ -114,6 +114,15 @@ these views:
 | **Systems** | On a collector: every computer, its last collection, and whether any stopped sending |
 | **Audit health** | Collection completeness, STIG audit-setting check, busiest event types |
 | **People** | Everything above, counted per account |
+
+**Detections** point out patterns across events, the kind a SIEM
+correlates: password guessing and spraying across computers, access set up
+and then the logs cleared, accounts created and deleted within a day,
+administrator activity outside working hours, a new USB device followed by
+admin activity, and the first time a person logs on to a computer, uses
+administrator rights on it, or logs on from a new address. They use only
+the events already collected, so they add no storage or network traffic.
+[All detections →](docs/reports.md#detections)
 
 Each report also comes with `events.csv` for Excel, `events.jsonl` for
 Splunk, and a `manifest.sha256`. [More about reports →](docs/reports.md)
@@ -136,7 +145,7 @@ blackbox report --audit testdata/linux/ubuntu-audit.log \
 - [Several computers (VMs and LANs)](docs/lan.md): collector, senders, day-to-day use
 - [Windows guide](docs/windows.md): install, audit settings, what is read
 - [Linux guide](docs/linux.md): install, auditd setup, what is read
-- [Reports](docs/reports.md): report periods, severities, findings, output files
+- [Reports](docs/reports.md): report periods, severities, detections, output files
 - [Configuration](docs/configuration.md): `blackbox.conf` settings
 - [Security review notes](docs/security.md): what Blackbox does and doesn't do
 - [Development](docs/development.md): building, testing, releasing

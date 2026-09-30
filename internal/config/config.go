@@ -27,6 +27,7 @@ type Config struct {
 	DataDir          string   // state and collected events
 	ReportDir        string   // where reports go ("" = DataDir/reports)
 	CollectEvery     time.Duration
+	WorkingHours     WorkingHours // when administrator activity is expected
 
 	// LAN. SendTo is the collector's inbox this system sends its data to
 	// (a folder, or a share: \\server\share on Windows, //server/share on
@@ -147,6 +148,12 @@ func (c *Config) set(k, v string) error {
 		c.ExcludeUsers = list(v)
 	case "exclude_processes":
 		c.ExcludeProcesses = list(v)
+	case "working_hours":
+		w, err := ParseWorkingHours(v)
+		if err != nil {
+			return err
+		}
+		c.WorkingHours = w
 	case "data_dir":
 		if v != "" {
 			c.DataDir = v
@@ -245,7 +252,7 @@ func exampleDir() string {
 }
 
 // Settable lists the settings `blackbox config set` may change.
-var Settable = []string{"site_name", "report_every", "report_dir", "retention_days", "exclude_users", "exclude_processes", "send_to", "inbox", "share_user"}
+var Settable = []string{"site_name", "report_every", "report_dir", "retention_days", "exclude_users", "exclude_processes", "working_hours", "send_to", "inbox", "share_user"}
 
 // SetValue changes one user-settable setting in the config file (see
 // Settable), keeping its comments and line endings.
@@ -400,6 +407,12 @@ retention_days = 0
 #   exclude_processes = C:\Tools\Scanner\scan.exe
 exclude_users =
 exclude_processes =
+
+# Working hours: administrator activity outside them is pointed out in the
+# report's Detections. Leave empty to turn this off. Examples:
+#   working_hours = Mon-Fri 06:00-18:00
+#   working_hours = Daily 07:00-19:00
+working_hours =
 
 `
 

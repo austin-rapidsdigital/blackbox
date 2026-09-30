@@ -262,6 +262,20 @@ footer{margin-top:56px;padding-top:12px;border-top:1px solid var(--rule);color:v
   {{with .Excluded}}<p class="note">{{commas .}} events left out by the exclusion list in the configuration.</p>{{end}}
   {{with .Late}}<p class="note">{{commas .}} events happened before this period but arrived after the previous report; they are marked <span class="tag">Late</span>.</p>{{end}}
 
+  <h2 id="detections">Detections<span class="ct">{{len .Findings}}</span></h2>
+  {{if .Findings}}
+  <table>
+    <thead><tr><th>Severity</th><th>Time</th>{{if gt (len .Hosts) 1}}<th>System</th>{{end}}<th>What was detected</th><th>Category</th></tr></thead>
+    <tbody>
+    {{range .Findings}}<tr><td class="sevc"><span class="sev {{.Severity}}">{{.Severity}}</span></td><td class="mono">{{stampSec .Time}}</td>{{if gt (len $.Hosts) 1}}<td>{{.Host}}</td>{{end}}
+      <td><strong>{{.Title}}.</strong> {{.Detail}} <a href="{{href $ .Category .RowID}}">View</a></td><td><a href="{{href $ .Category ""}}">{{catTitle .Category}}</a></td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="empty">No detections in this period.</p>{{end}}
+  {{if .Learning}}<p class="note">Learning what is normal for {{join .Learning ", "}}: first logons, first use of administrator rights and new logon addresses are pointed out from {{if eq (len .Learning) 1}}its{{else}}their{{end}} next report.</p>{{end}}
+  {{if not .WorkingHours.Set}}<p class="note">Administrator activity outside working hours is not checked: set <code>working_hours</code> in the settings, e.g. <code>Mon-Fri 06:00-18:00</code>.</p>{{end}}
+
   <h2>Events by category</h2>
   <div class="figs">
   {{range .Sections}}<a href="{{href $ .Info.ID ""}}"><div class="k">{{.Info.Title}}</div><div class="v">{{commas .Total}}</div>
@@ -269,14 +283,11 @@ footer{margin-top:56px;padding-top:12px;border-top:1px solid var(--rule);color:v
   {{end}}
   </div>
 
-  <h2>Needs attention<span class="ct">{{add (len .Findings) (len .HighRows)}}</span></h2>
-  {{if and (not .Findings) (not .HighRows)}}<p class="empty">Nothing in this period was rated high severity.</p>{{else}}
+  <h2>Needs attention<span class="ct">{{len .HighRows}}</span></h2>
+  {{if not .HighRows}}<p class="empty">No single event in this period was rated high severity.</p>{{else}}
   <table>
     <thead><tr><th>Severity</th><th>Time</th>{{if gt (len .Hosts) 1}}<th>System</th>{{end}}<th>What happened</th><th>Category</th></tr></thead>
     <tbody>
-    {{range .Findings}}<tr><td class="sevc"><span class="sev {{.Severity}}">{{.Severity}}</span></td><td class="mono">{{stampSec .Time}}</td>{{if gt (len $.Hosts) 1}}<td>{{.Host}}</td>{{end}}
-      <td><strong>{{.Title}}.</strong> {{.Detail}} <a href="{{href $ .Category .RowID}}">View</a></td><td><a href="{{href $ .Category ""}}">{{catTitle .Category}}</a></td></tr>
-    {{end}}
     {{range .HighRows}}<tr><td class="sevc"><span class="sev high">high</span></td><td class="mono">{{stampSec .Time}}</td>{{if gt (len $.Hosts) 1}}<td>{{.Host}}</td>{{end}}
       <td>{{.Summary}}{{range .Flags}}<span class="tag">{{.}}</span>{{end}} <a href="{{href $ .Category .ID}}">View</a></td><td><a href="{{href $ .Category ""}}">{{catTitle .Category}}</a></td></tr>
     {{end}}
