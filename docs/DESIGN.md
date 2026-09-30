@@ -7,7 +7,8 @@ Blackbox reads Windows event logs and Linux audit logs, **translates events into
 plain English**, groups them into the categories auditors actually review, and
 produces a self-contained HTML report on a recurring schedule.
 
-Status: **draft for discussion.** Nothing here is final.
+Status: **M1 (Windows single host) implemented.** Section 13 records the
+decisions made so far.
 
 ---
 
@@ -77,9 +78,13 @@ with no runtime to install: no Python, .NET, Java or Node.
     actor (user and SID/UID), target, action, outcome, source IP, process,
     command line, raw event.
 - **Classify and translate**
-  - YAML rule files map raw events to a category and a plain-English
-    template. Rules are data, not code, so we can add or adjust them without
-    rebuilding the binary.
+  - A built-in catalog (`internal/winevt/translate.go`) maps each raw event
+    to a category and a plain-English sentence. Many events need logic, not
+    just a template: decoding failure codes, telling a real person from a
+    service account, working out elevation. So the catalog is Go code with
+    tests, which also makes it easier for a security reviewer to read.
+    Site-specific tuning (excluded users and programs) goes in the config
+    file.
 - **Report**
   - One self-contained HTML file per run, plus `events.jsonl` and CSV files.
 - **Seal**
@@ -208,7 +213,6 @@ Why:
 ### Layout
 
 1. **Header**
-   - Classification banner (configurable text and color)
    - Hosts covered, time window, Blackbox version and rule-set version
 2. **Summary**
    - Counts by category
@@ -225,30 +229,18 @@ Why:
    week."
 5. **Raw event detail.** Collapsed under each translated row, so the original
    is always available.
-6. **Review record** (see below).
 
-### Review and sign-off (optional, configurable)
+### Review and sign-off
 
-This follows the current workflow: the ISSO or auditor reviews first, then the
-ISSM.
-
-- **Printable signature block.** The report ends with review lines for the
-  ISSO/Auditor and the ISSM (name, date, signature, comments). This works when
-  printed or signed on paper.
-- **Recorded review (optional).** `blackbox review <report> --role isso` asks
-  for the reviewer's name and notes. It stores them in a review log alongside
-  the report and adds them to the manifest, so the report itself is never
-  modified. The report index then shows each report as *Awaiting ISSO* →
-  *Awaiting ISSM* → *Reviewed*. This gives an AU-6 review trail without a web
-  server.
+Not part of the report: ISSOs and ISSMs record their reviews on a separate
+platform (see section 13).
 
 ### Other outputs, written on every run
 
 - `events.jsonl`: all normalized events, in a format Splunk can ingest
 - CSV exports for each category
 - `manifest.sha256`
-- `index.html`: links to every report, with its coverage window and review
-  status
+- `index.html`: links to every report, with its coverage window
 
 An optional read-only viewer (`blackbox serve`) could come later if a live
 dashboard is needed. Splunk may make that unnecessary.
@@ -333,7 +325,6 @@ prefer package installs. Neither package has any dependencies.
 ```
 blackbox run                  # generate a report now (the scheduler runs this)
 blackbox check                # check the audit configuration against the STIG baseline
-blackbox review <report>      # record ISSO/ISSM review
 blackbox merge <dirs...>      # combine several hosts into one LAN report
 blackbox verify <report-dir>  # check the SHA-256 manifest
 blackbox uninstall            # remove the task/timer; reports are kept
@@ -362,33 +353,21 @@ blackbox uninstall            # remove the task/timer; reports are kept
   - An SBOM (CycloneDX) and SHA-256 checksums published with every release.
 - **FIPS.** Build with Go's FIPS 140-3 module (`GOFIPS140`) so hashing uses
   validated cryptography.
-- **Classification banner.** Configurable, and shown on every report.
 
 ---
 
 ## 10. Configuration (default shown)
 
-```yaml
-site_name: "Example Site"
-banner:
-  text: "UNCLASSIFIED"
-  color: "green"
-schedule: weekly            # daily | weekly | monthly (used by install)
-output_dir: default         # platform default path
-retention_days: 0           # 0 = keep forever
-categories:                 # everything on by default
-  privileged: true
-  usb: true
-  failed_logons: true
-  account_changes: true
-  audit_integrity: true
-  logon_summary: true
-  other: true
-exclude:                    # noise filters, e.g. service accounts
-  users: []
-review:
-  signature_block: true
-  roles: [ "ISSO/Auditor", "ISSM" ]
+The config is a plain `key = value` file (`blackbox.conf`), not YAML, so no
+third-party parser is needed. Lines starting with `#` are comments, and
+lists are comma-separated.
+
+```
+site_name =
+report_every = weekly              # daily | weekly | monthly
+retention_days = 0                 # 0 = keep forever
+exclude_users =                    # e.g. svc_backup, svc_scanner
+exclude_processes =                # e.g. C:\Tools\Scanner\scan.exe
 ```
 
 ---
@@ -400,14 +379,16 @@ review:
 | **M1: single Windows host** | evtx collection, normalization, translation for §4.1–4.3, HTML report, bookmark, manifest, `install` / `run` |
 | **M2: Linux** | auditd and journald collection for Ubuntu 22.04/24.04 and Alma 8.10, the same report |
 | **M3: audit health** | `check` against the STIG baselines, gap and rollover detection, audit-integrity section |
-| **M4: LAN (Model A+)** | `merge`, per-host views, index page, review records |
+| **M4: LAN (Model A+)** | `merge`, per-host views, index page |
 | **M5: packaging** | MSI, .deb, .rpm, SBOM, reproducible release builds |
 | **M6: domain / collector (Model B)** | WEF and forwarding guides, GPO templates, collector mode |
 | Later | Optional `serve` viewer, report signing, Splunk ingestion notes |
 
 ---
 
-## 12. Open questions
+## 12. Open questions (answered)
+
+The answers are in section 13. The original questions were:
 
 1. Report schedule: weekly for everyone, or does it vary by system?
 2. Does anyone other than the ISSO and ISSM review reports, for example
@@ -418,3 +399,52 @@ review:
 4. What classification banner text and colors should the defaults use?
 5. Are there existing site templates or formats that the reports should match
    for ISSM or DCSA review?
+
+---
+
+## 13. Decisions
+
+| Topic | Decision |
+|---|---|
+| Report schedule | Windows LAN hosts currently run PowerStrux daily because a noisy tool overwrites logs within a week. Blackbox separates **collection (hourly by default, `--collect-every`)** from **reporting (`report_every`: daily/weekly/monthly, default weekly)**. Hourly collection captures events before rollover, so weekly reports lose nothing. Linux reports are weekly. |
+| Reviewers | ISSO/Auditor, then ISSM. Reviews are recorded on a separate platform and reports are not printed, so the report has **no signature or review section**, and `blackbox review` is dropped from the roadmap. |
+| Audit baseline | **Report only.** `check` and the report's health panel show what is missing and the command that fixes it. Blackbox never changes settings. |
+| Classification banner | Not needed, and removed. |
+| Report layout | **One self-contained `report.html`** designed for a 2560×1440 desktop. A sidebar switches between views inside the file: an overview with a clear From / To / Length period block, one view per category, Audit health, and People. The look is plain and dense: square edges, thin rules, and severity shown as colored text with a small square marker. |
+| Report template | No existing template needs to be matched. |
+| Config format | Plain `key = value`, not YAML. This keeps the module at zero third-party dependencies. |
+| Report chain | Each report covers the time up to its period end and includes every event not already reported. Events collected late, for example from before a system was powered off, go into the next report marked *Late*. Every event appears in exactly one report (`app.SelectWindow`). |
+| Log volume | Every report lists the busiest event IDs with their share of all events read. This identifies noisy tools and over-broad audit settings, the cause of fast rollover. |
+
+## 14. M1 implementation status
+
+**Done:**
+
+- Live collection from the Windows Event Log API
+  - Logs read: Security, System, Partition/Diagnostic,
+    Kernel-PnP/Configuration, DriverFrameworks-UserMode, Defender.
+  - Collection is resumed from bookmarks.
+  - Reports detect events lost to rollover and cleared logs.
+- Translation of all events listed in section 4 for Windows.
+  - Routine service and computer account noise is filtered out.
+  - Duplicate records of the same activity from different logs are
+    merged; one USB stick appears in up to four logs.
+  - USB activity is attributed to the logged-on user.
+  - Devices seen for the first time are flagged.
+- Pattern findings: password guessing, one source trying several accounts,
+  and a successful logon after failures.
+- The HTML report (section 6), CSV, JSONL, `summary.json`, a SHA-256
+  manifest, `verify`, and an index page listing all reports.
+- `check`, which compares the audit policy, command-line auditing, forced
+  subcategories, log sizes and USB logs against the Windows 11 STIG.
+- `install` / `uninstall` (scheduled task as SYSTEM, restricted data
+  folder), and `report --xml` for exported logs on any OS.
+
+**Verification:**
+
+- Unit tests cover translation, patterns, the report chain, the store,
+  config, checks and the task definition.
+- CI runs the tests on Linux and Windows. It also runs `check`, `collect`,
+  `report` and `verify` against the Windows runner's real event logs.
+
+**Next:** M2 (Linux: auditd and journald).

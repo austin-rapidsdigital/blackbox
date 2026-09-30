@@ -1,0 +1,44 @@
+name: CI
+on:
+  push:
+    branches: [master]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Format
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: Vet (Linux and Windows)
+        run: go vet ./... && GOOS=windows go vet ./...
+      - name: Test
+        run: go test -race ./...
+      - name: Build release binaries
+        run: scripts/build.sh
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: go test ./...
+      - name: Smoke test against this runner's live event logs
+        shell: pwsh
+        run: |
+          go build -o blackbox.exe ./cmd/blackbox
+          ./blackbox.exe check; if ($LASTEXITCODE -notin 0,3) { exit 1 }
+          ./blackbox.exe collect --config nonexistent.conf
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          ./blackbox.exe report --preview --config nonexistent.conf
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $dir = Get-ChildItem C:\ProgramData\Blackbox\reports -Directory | Select-Object -First 1
+          ./blackbox.exe verify $dir.FullName
+          if ($LASTEXITCODE -ne 0) { exit 1 }

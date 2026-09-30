@@ -1,0 +1,375 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="Blackbox {{.Version}}">
+<title>Audit Report · {{if .Site}}{{.Site}} · {{end}}{{dateShort .PeriodStart}} – {{dateShort .WindowEnd}}</title>
+<style>
+:root{
+  --ink:#15181c;--ink2:#353b43;--muted:#666d76;--rule:#dcdfe3;--rule2:#eceef0;
+  --bg:#ffffff;--panel:#f6f7f8;--side:#f1f2f4;--accent:#1d4b73;--hover:#f3f6f9;
+  --high:#b3261e;--med:#9c5700;--low:#28598c;--info:#6f757d;--ok:#1e6b3a;
+  --mono:Consolas,"Cascadia Mono","SF Mono",Menlo,monospace;
+}
+*{box-sizing:border-box;border-radius:0}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* frame */
+.topbar{position:fixed;top:0;left:0;right:0;height:48px;background:var(--ink);color:#fff;display:flex;align-items:center;gap:24px;padding:0 24px;z-index:10}
+.wordmark{font-weight:700;letter-spacing:.22em;font-size:13px}
+.topbar .site{color:#c9ced4;font-size:13px;border-left:1px solid #3b4148;padding-left:24px}
+.topbar .span{margin-left:auto;font-family:var(--mono);font-size:13px;color:#e6e9ec}
+.topbar .span b{color:#fff;font-weight:600}
+.side{position:fixed;top:48px;bottom:0;left:0;width:330px;background:var(--side);border-right:1px solid var(--rule);overflow-y:auto;padding:20px 0 24px}
+.side h4{margin:18px 24px 6px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.side h4:first-child{margin-top:0}
+.side a{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:7px 24px 7px 21px;color:var(--ink2);border-left:3px solid transparent;font-size:14.5px}
+.side a:hover{background:#e7e9ec;text-decoration:none}
+.side a.on{border-left-color:var(--accent);background:#fff;color:var(--ink);font-weight:600}
+.side .n{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap}
+.side a>span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.side .n .h{color:var(--high);font-weight:700;font-family:inherit}
+.side .n .w{color:var(--med);font-weight:700;font-family:inherit}
+.side .n .h::after{content:" · ";color:#a3a9b0;font-weight:400}
+.side .foot{border-top:1px solid var(--rule);margin-top:18px;padding-top:12px}
+main{margin:48px 0 0 330px;padding:36px 56px 72px;max-width:2260px}
+
+/* type */
+h1{font-size:24px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
+h2{font-size:17px;font-weight:600;margin:40px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--ink)}
+h2 .ct{font-weight:400;color:var(--muted);font-family:var(--mono);font-size:14px;margin-left:8px}
+h3{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--ink2);margin:28px 0 8px}
+.lede{color:var(--ink2);margin:0 0 6px;max-width:980px}
+.meta{color:var(--muted);font-size:12.5px}
+.meta span+span::before{content:"·";margin:0 8px;color:#b0b5bb}
+.note{color:var(--muted);font-size:12.5px;max-width:1100px}
+code{font-family:var(--mono);font-size:12.5px;background:var(--panel);border:1px solid var(--rule2);padding:0 4px}
+
+/* reporting period */
+.period{display:grid;grid-template-columns:auto auto auto 1fr;border:1px solid var(--rule);border-left:4px solid var(--ink);margin:18px 0 8px;background:var(--panel)}
+.period>div{padding:14px 28px;border-right:1px solid var(--rule)}
+.period>div:last-child{border-right:0}
+.period .lbl{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:2px}
+.period .d{font-size:20px;font-weight:600;white-space:nowrap}
+.period .t{font-family:var(--mono);font-size:17px;color:var(--ink2);white-space:nowrap}
+.period .t small{font-size:13px;color:var(--muted);margin-left:4px}
+.period .v{font-size:15px;font-weight:600}
+.period .sub{font-size:12.5px;color:var(--muted)}
+
+/* status line */
+.status{border:1px solid var(--rule);border-left:4px solid var(--ok);padding:10px 16px;margin:18px 0;background:#fff}
+.status.bad{border-left-color:var(--high);background:#fdf6f5}
+.status.warn{border-left-color:var(--med);background:#fdf9f2}
+.status strong{margin-right:6px}
+.status ul{margin:6px 0 0;padding-left:18px}
+
+/* figures */
+.figs{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid var(--ink);border-bottom:1px solid var(--rule);margin:8px 0}
+.figs a{display:block;padding:14px 18px;border-right:1px solid var(--rule);color:inherit}
+.figs a:last-child{border-right:0}
+.figs a:hover{background:var(--hover);text-decoration:none}
+.figs .k{font-size:12.5px;color:var(--ink2);font-weight:600;min-height:38px}
+.figs .v{font-size:30px;font-weight:300;font-family:var(--mono);line-height:1.2}
+.figs .s{font-size:12px;color:var(--muted);min-height:18px}
+
+/* severity: colored text with a square marker, no bubbles */
+.sev{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;white-space:nowrap}
+.sev::before{content:"";display:inline-block;width:8px;height:8px;background:currentColor;margin-right:6px;vertical-align:0}
+.sev.high{color:var(--high)}.sev.medium{color:var(--med)}.sev.low{color:var(--low)}
+.sev.info{color:var(--info)}.sev.info::before{background:transparent;box-shadow:inset 0 0 0 1.5px currentColor}
+.c-high{color:var(--high);font-weight:600}.c-med{color:var(--med);font-weight:600}
+.st{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
+.st.pass{color:var(--ok)}.st.fail,.st.error{color:var(--high)}.st.warn{color:var(--med)}.st.info{color:var(--info)}
+.tag{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#5b2a9b;border:1px solid #cdb8ea;padding:0 4px;margin-left:8px;white-space:nowrap}
+
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:14px}
+thead th{text-align:left;font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--ink);padding:8px 12px;white-space:nowrap;background:#fff}
+tbody td{border-bottom:1px solid var(--rule2);padding:7px 12px;vertical-align:top}
+th.num{text-align:right}
+td.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+td.mono{font-family:var(--mono);font-size:13px;white-space:nowrap;color:var(--ink2);width:1%;padding-right:28px}
+td.sevc{width:1%;white-space:nowrap}
+tr.row{cursor:pointer}
+tr.row:hover td{background:var(--hover)}
+tr.row.s3 td:first-child{box-shadow:inset 3px 0 0 var(--high)}
+tr.row.open td{background:#eef3f8;border-bottom-color:transparent}
+tr.detail{display:none}
+tr.detail.open{display:table-row}
+tr.detail td{background:#f7f9fb;padding:12px 24px 16px 40px;border-bottom:1px solid var(--rule)}
+dl.kv{display:grid;grid-template-columns:200px 1fr;gap:3px 20px;margin:0;max-width:1300px}
+dl.kv dt{color:var(--muted)}
+dl.kv dd{margin:0;font-family:var(--mono);font-size:12.5px;overflow-wrap:anywhere}
+details.raw{margin-top:10px}
+details.raw summary{cursor:pointer;color:var(--muted);font-size:12px}
+details.raw dl{margin-top:6px}
+.empty{color:var(--muted);padding:14px 0}
+
+/* filter bar */
+.filter{display:flex;gap:12px;align-items:center;margin:14px 0 0;padding:10px 12px;background:var(--panel);border:1px solid var(--rule);border-bottom:0}
+.filter input,.filter select{font:inherit;font-size:13.5px;padding:5px 9px;border:1px solid #c3c8ce;background:#fff;color:var(--ink)}
+.filter input{width:420px}
+.filter input:focus,.filter select:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.filter .count{color:var(--muted);font-size:12.5px;margin-left:auto;font-family:var(--mono)}
+
+footer{margin-top:56px;padding-top:12px;border-top:1px solid var(--rule);color:var(--muted);font-size:12px}
+.view{display:none}
+.view.on{display:block}
+
+@media (max-width:1100px){
+  .side{display:none}main{margin-left:0;padding:24px}
+  .figs{grid-template-columns:repeat(2,1fr)}
+  .period{grid-template-columns:1fr 1fr}
+  .filter input{width:auto;flex:1}
+}
+@media print{
+  .topbar,.side,.filter,details.raw{display:none}
+  .view{display:block!important}
+  .view+.view{break-before:page}
+  main{margin:0;padding:0;max-width:none}
+  body{font-size:10.5px}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  tr.row{break-inside:avoid}
+  a{color:inherit}
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span class="wordmark">BLACKBOX</span>
+  <span class="site">{{if .Site}}{{.Site}} · {{end}}Audit Report</span>
+  <span class="span"><b>{{stamp .PeriodStart}}</b> → <b>{{stamp .WindowEnd}}</b> {{zone .WindowEnd}}</span>
+</header>
+
+<nav class="side" aria-label="Report sections">
+  <h4>Report</h4>
+  <a href="#overview" data-view="overview">Overview</a>
+  <h4>Events</h4>
+  {{range .Sections}}<a href="#{{.Info.ID}}" data-view="{{.Info.ID}}"><span>{{.Info.Title}}</span><span class="n">{{with index .BySev "high"}}<span class="h">{{.}} high</span>{{end}}{{commas .Total}}</span></a>
+  {{end}}
+  <h4>Audit</h4>
+  <a href="#health" data-view="health"><span>Audit health</span>{{if .Health.Warnings}}<span class="n"><span class="w">{{len .Health.Warnings}} warning{{if gt (len .Health.Warnings) 1}}s{{end}}</span></span>{{end}}</a>
+  <a href="#people" data-view="people"><span>People</span><span class="n">{{len .Users}}</span></a>
+  {{if .InReportsDir}}<div class="foot"><a href="../index.html">All reports</a></div>{{end}}
+</nav>
+
+<main>
+<noscript><style>.view{display:block}</style></noscript>
+<div class="view" data-view="overview">{{template "overview" .}}</div>
+{{range .Sections}}<div class="view" data-view="{{.Info.ID}}">{{template "section" (withSection $ .)}}</div>
+{{end}}<div class="view" data-view="health">{{template "health" .}}</div>
+<div class="view" data-view="people">{{template "people" .}}</div>
+<footer>
+  Blackbox {{.Version}} · generated {{stamp .Generated}} {{zone .Generated}} · source: {{.Source}}.
+  SHA-256 hashes of every file in this report are in <code>manifest.sha256</code>; run <code>blackbox verify &lt;folder&gt;</code> to confirm nothing has been altered.
+</footer>
+</main>
+<script>
+(function(){
+  var views=document.querySelectorAll('.view'), links=document.querySelectorAll('.side a[data-view]');
+  function pair(tr){return tr.nextElementSibling;}
+  function show(v){
+    views.forEach(function(x){x.classList.toggle('on',x.getAttribute('data-view')===v);});
+    links.forEach(function(a){a.classList.toggle('on',a.getAttribute('data-view')===v);});
+  }
+  function openRow(r){
+    r.style.display=''; r.classList.add('open'); var d=pair(r); if(d) d.classList.add('open');
+    r.scrollIntoView({block:'center'});
+  }
+  function route(){
+    var h=decodeURIComponent(location.hash.slice(1));
+    var r=/^r\d+$/.test(h)&&document.getElementById(h);
+    if(r){show(r.closest('.view').getAttribute('data-view'));openRow(r);return;}
+    if(h&&document.querySelector('.view[data-view="'+h+'"]')){show(h);window.scrollTo(0,0);return;}
+    show('overview');
+  }
+  function apply(f){
+    var t=document.getElementById(f.getAttribute('data-for')); if(!t) return;
+    var q=f.querySelector('input').value.trim().toLowerCase();
+    var min={high:3,medium:2,low:1}[f.querySelector('select').value]||0, shown=0;
+    var rows=t.querySelectorAll('tr.row');
+    rows.forEach(function(r){
+      var d=pair(r), text=r.textContent+' '+(d?d.textContent:'');
+      var ok=(!q||text.toLowerCase().indexOf(q)>=0)&&(+r.getAttribute('data-sev')>=min);
+      r.style.display=ok?'':'none'; if(!ok&&d){d.classList.remove('open');r.classList.remove('open');}
+      if(ok) shown++;
+    });
+    f.querySelector('.count').textContent=(q||min)?shown+' of '+rows.length+' shown':rows.length+' events';
+  }
+  document.querySelectorAll('.filter').forEach(function(f){
+    f.querySelector('input').addEventListener('input',function(){apply(f);});
+    f.querySelector('select').addEventListener('change',function(){apply(f);});
+    apply(f);
+  });
+  document.addEventListener('click',function(ev){
+    var tr=ev.target.closest('tr.row');
+    if(tr&&!ev.target.closest('a')){tr.classList.toggle('open');var d=pair(tr);if(d)d.classList.toggle('open');}
+    var u=ev.target.closest('a[data-user]');
+    if(u){document.querySelectorAll('.filter').forEach(function(f){f.querySelector('input').value=u.getAttribute('data-user');apply(f);});}
+  });
+  window.addEventListener('hashchange',route);
+  route();
+})();
+</script>
+</body>
+</html>
+{{end}}
+
+{{define "overview"}}
+<section>
+  <h1>{{if .Site}}{{.Site}} — {{end}}Audit Report</h1>
+  <div class="meta"><span>System{{if gt (len .Hosts) 1}}s{{end}}: {{if .Hosts}}{{join .Hosts ", "}}{{else}}—{{end}}</span><span>{{commas (len .Events)}} security-relevant events</span><span>Generated {{stamp .Generated}} {{zone .Generated}}</span></div>
+
+  <div class="period">
+    <div><div class="lbl">From</div><div class="d">{{dateLong .PeriodStart}}</div><div class="t">{{clock .PeriodStart}}<small>{{zone .PeriodStart}}</small></div></div>
+    <div><div class="lbl">To</div><div class="d">{{dateLong .WindowEnd}}</div><div class="t">{{clock .WindowEnd}}<small>{{zone .WindowEnd}}</small></div></div>
+    <div><div class="lbl">Length</div><div class="v">{{length .PeriodStart .WindowEnd}}</div><div class="sub">{{if .WindowStart.IsZero}}first report: from the oldest event collected{{else}}continues from the previous report{{end}}</div></div>
+    <div><div class="lbl">Source</div><div class="v">{{.Source}}</div><div class="sub">{{if .Health.Runs}}{{.Health.Runs}} collection run{{if gt .Health.Runs 1}}s{{end}}{{end}}</div></div>
+  </div>
+
+  {{if or .Health.Gaps .Health.LogClears}}
+  <div class="status bad"><strong>The audit trail is not complete for this period.</strong>
+    <ul>
+    {{if .Health.LogClears}}<li>{{.Health.LogClears}} log clear{{if gt .Health.LogClears 1}}s{{end}} recorded — see <a href="{{href $ "audit_integrity" ""}}">Audit &amp; System Integrity</a>.</li>{{end}}
+    {{range .Health.Gaps}}<li>{{if .Reset}}{{.Host}}: the {{.Channel}} log was cleared or recreated.{{else}}{{.Host}}: {{commas .Lost}} {{.Channel}} events were overwritten before collection ({{stamp .From}} to {{stamp .To}}).{{end}}</li>{{end}}
+    </ul></div>
+  {{else if .Health.Warnings}}
+  <div class="status warn"><strong>Collection warnings.</strong> {{len .Health.Warnings}} item{{if gt (len .Health.Warnings) 1}}s{{end}} on the <a href="{{href $ "health" ""}}">Audit health</a> page.</div>
+  {{else if .Health.Runs}}
+  <div class="status"><strong>Collection complete.</strong> {{.Health.Runs}} collection run{{if gt .Health.Runs 1}}s{{end}} in this period; no events were lost.</div>
+  {{end}}
+  {{with .Excluded}}<p class="note">{{commas .}} events left out by the exclusion list in the configuration.</p>{{end}}
+  {{with .Late}}<p class="note">{{commas .}} events happened before this period but were collected after the previous report; they are marked <span class="tag">Late</span>.</p>{{end}}
+
+  <h2>Events by category</h2>
+  <div class="figs">
+  {{range .Sections}}<a href="{{href $ .Info.ID ""}}"><div class="k">{{.Info.Title}}</div><div class="v">{{commas .Total}}</div>
+    <div class="s">{{with index .BySev "high"}}<span class="c-high">{{.}} high</span>{{end}}{{if and (index .BySev "high") (index .BySev "medium")}} · {{end}}{{with index .BySev "medium"}}<span class="c-med">{{.}} medium</span>{{end}}</div></a>
+  {{end}}
+  </div>
+
+  <h2>Needs attention<span class="ct">{{add (len .Findings) (len .HighRows)}}</span></h2>
+  {{if and (not .Findings) (not .HighRows)}}<p class="empty">Nothing in this period was rated high severity.</p>{{else}}
+  <table>
+    <thead><tr><th>Severity</th><th>Time</th>{{if gt (len .Hosts) 1}}<th>System</th>{{end}}<th>What happened</th><th>Category</th></tr></thead>
+    <tbody>
+    {{range .Findings}}<tr><td class="sevc"><span class="sev {{.Severity}}">{{.Severity}}</span></td><td class="mono">{{stampSec .Time}}</td>{{if gt (len $.Hosts) 1}}<td>{{.Host}}</td>{{end}}
+      <td><strong>{{.Title}}.</strong> {{.Detail}} <a href="{{href $ .Category .RowID}}">View</a></td><td><a href="{{href $ .Category ""}}">{{catTitle .Category}}</a></td></tr>
+    {{end}}
+    {{range .HighRows}}<tr><td class="sevc"><span class="sev high">high</span></td><td class="mono">{{stampSec .Time}}</td>{{if gt (len $.Hosts) 1}}<td>{{.Host}}</td>{{end}}
+      <td>{{.Summary}}{{range .Flags}}<span class="tag">{{.}}</span>{{end}} <a href="{{href $ .Category .ID}}">View</a></td><td><a href="{{href $ .Category ""}}">{{catTitle .Category}}</a></td></tr>
+    {{end}}
+    </tbody>
+  </table>{{end}}
+
+  {{if .Medium}}
+  <h2>Also review<span class="ct">{{mediumTotal .Medium}}</span></h2>
+  <table>
+    <thead><tr><th>Severity</th><th class="num">Count</th><th>What</th><th>Category</th></tr></thead>
+    <tbody>{{range .Medium}}<tr><td class="sevc"><span class="sev medium">medium</span></td><td class="num">{{commas .Count}}</td>
+      <td>{{.Label}} — <a href="{{href $ .Category .RowID}}">first occurrence</a></td><td><a href="{{href $ .Category ""}}">{{catTitle .Category}}</a></td></tr>{{end}}</tbody>
+  </table>
+  {{end}}
+</section>
+{{end}}
+
+{{define "section"}}{{with .Section}}
+<section>
+  <h1>{{.Info.Title}}</h1>
+  <p class="lede">{{.Info.Description}}</p>
+  <div class="meta"><span>{{commas .Total}} event{{if ne .Total 1}}s{{end}}</span>{{with index .BySev "high"}}<span class="c-high">{{.}} high</span>{{end}}{{with index .BySev "medium"}}<span class="c-med">{{.}} medium</span>{{end}}<span>NIST SP 800-53: {{join .Info.Controls ", "}}</span></div>
+
+  {{if .Logons}}
+  <h2>Who logged on<span class="ct">{{len .Logons}}</span></h2>
+  <table>
+    <thead><tr><th>Account</th>{{if gt (len $.Hosts) 1}}<th>System</th>{{end}}<th class="num">Logons</th><th>How</th><th>From</th><th>First</th><th>Last</th></tr></thead>
+    <tbody>{{range .Logons}}<tr><td>{{.User}}</td>{{if gt (len $.Hosts) 1}}<td>{{.Host}}</td>{{end}}<td class="num">{{.Count}}</td><td>{{.Types}}</td><td>{{or .Sources "this computer"}}</td><td class="mono">{{stamp .First}}</td><td class="mono">{{stamp .Last}}</td></tr>{{end}}</tbody>
+  </table>
+  <h2>All logon and logoff events<span class="ct">{{commas .Total}}</span></h2>
+  {{end}}
+
+  {{if .Rows}}
+  <div class="filter" data-for="t-{{.Info.ID}}">
+    <input type="search" placeholder="Filter by account, computer, file, address…" aria-label="Filter {{.Info.Title}}">
+    <select aria-label="Minimum severity"><option value="">All severities</option><option value="high">High only</option><option value="medium">Medium and higher</option><option value="low">Low and higher</option></select>
+    <span class="count"></span>
+  </div>
+  <table id="t-{{.Info.ID}}">
+    <thead><tr><th>Severity</th><th>Time</th>{{if gt (len $.Hosts) 1}}<th>System</th>{{end}}<th>Account</th><th>What happened</th></tr></thead>
+    <tbody>
+    {{range .Rows}}<tr class="row s{{sevRank .Severity}}" id="{{.ID}}" data-sev="{{sevRank .Severity}}"><td class="sevc"><span class="sev {{.Severity}}">{{.Severity}}</span></td><td class="mono">{{stampSec .Time}}</td>{{if gt (len $.Hosts) 1}}<td>{{.Host}}</td>{{end}}<td>{{.User}}</td><td>{{.Summary}}{{range .Flags}}<span class="tag">{{.}}</span>{{end}}</td></tr>
+    <tr class="detail"><td colspan="{{if gt (len $.Hosts) 1}}5{{else}}4{{end}}"><dl class="kv">
+      {{range .Details}}<dt>{{.Label}}</dt><dd>{{.Value}}</dd>{{end}}
+      <dt>Recorded as</dt><dd>{{.Source}} event {{.EventID}}{{if .RecordID}}, record {{.RecordID}}{{end}}, on {{.Host}} at {{stampSec .Time}} {{zone .Time}}</dd>
+    </dl>{{if and .Fields (ne .Category "logon_activity")}}<details class="raw"><summary>Original event data</summary><dl class="kv">{{range $k, $v := .Fields}}{{if $v}}<dt>{{$k}}</dt><dd>{{$v}}</dd>{{end}}{{end}}</dl></details>{{end}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{if .Truncated}}<p class="note">{{commas .Truncated}} more events are not shown to keep this page a manageable size. All of them are in <code>events.csv</code> in this report's folder.</p>{{end}}
+  {{else}}
+  <p class="empty">No events in this period.</p>
+  {{end}}
+</section>
+{{end}}{{end}}
+
+{{define "health"}}
+<section>
+  <h1>Audit health</h1>
+  <p class="lede">Whether the logs were collected completely, and whether auditing on the system is configured to record what this report needs.</p>
+  {{if .Health.Runs}}<div class="meta"><span>{{.Health.Runs}} collection run{{if gt .Health.Runs 1}}s{{end}}, {{stamp .Health.FirstRun}} to {{stamp .Health.LastRun}}</span>{{if gt .Health.Runs 1}}<span>longest gap between runs {{dur .Health.LongestPause}}</span>{{end}}<span>{{commas .Health.TotalRead}} events read, {{commas .Health.TotalKept}} kept</span></div>{{end}}
+
+  {{if .Health.Warnings}}<div class="status warn"><strong>Warnings</strong><ul>{{range .Health.Warnings}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
+
+  {{if .Health.Channels}}
+  <h2>Logs read</h2>
+  <table>
+    <thead><tr><th>System</th><th>Log</th><th class="num">Read</th><th class="num">Kept</th><th class="num">Lost</th><th>History in log</th><th>Maximum size</th><th>Status</th></tr></thead>
+    <tbody>{{range .Health.Channels}}<tr><td>{{.Host}}</td><td>{{.Channel}}</td><td class="num">{{commas .Read}}</td><td class="num">{{commas .Kept}}</td>
+      <td class="num">{{if .Lost}}<span class="c-high">{{commas .Lost}}</span>{{else}}0{{end}}</td>
+      <td>{{if .History}}{{dur .History}}{{else}}—{{end}}</td><td>{{if .MaxSize}}{{bytes .MaxSize}}{{else}}—{{end}}</td>
+      <td>{{if .Unavailable}}<span class="st info">not enabled</span>{{else if .LastError}}<span class="st fail">error</span>{{else if .Resets}}<span class="st fail">cleared</span>{{else}}<span class="st pass">OK</span>{{end}}</td></tr>
+    {{end}}</tbody></table>
+  {{end}}
+
+  {{if .Health.Checks}}
+  <h2>Audit configuration compared with the DISA STIG<span class="ct">{{.Health.ChecksPass}} pass · {{.Health.ChecksFail}} need attention</span></h2>
+  <p class="note">Blackbox only reports these settings and never changes them. A FAIL means part of this report may be incomplete.</p>
+  <table>
+    <thead><tr><th>Status</th><th>Setting</th><th>Current</th><th>Required</th><th>Effect on this report · how to fix</th></tr></thead>
+    <tbody>{{range .Health.Checks}}{{if ne .Status "pass"}}<tr><td class="sevc"><span class="st {{.Status}}">{{.Status}}</span></td><td>{{.Area}}: <strong>{{.Item}}</strong></td><td>{{.Have}}</td><td>{{.Want}}</td>
+      <td>{{.Affects}}{{if .Fix}}<br><code>{{.Fix}}</code>{{end}}</td></tr>{{end}}{{end}}
+    {{range .Health.Checks}}{{if eq .Status "pass"}}<tr><td class="sevc"><span class="st pass">pass</span></td><td>{{.Area}}: {{.Item}}</td><td>{{.Have}}</td><td>{{.Want}}</td><td></td></tr>{{end}}{{end}}
+    </tbody></table>
+  {{end}}
+
+  {{if .Health.Volume}}
+  <h2>Busiest event types</h2>
+  <p class="note">Every event read, including routine ones Blackbox does not report. One event type taking up most of the log usually means an audit setting is broader than it needs to be, or a tool is very noisy. That is what makes logs roll over quickly.</p>
+  <table>
+    <thead><tr><th>Log</th><th class="num">Event ID</th><th>Meaning</th><th class="num">Count</th><th class="num">Share</th></tr></thead>
+    <tbody>{{range .Health.Volume}}<tr><td>{{.Channel}}</td><td class="num">{{.EventID}}</td><td>{{or .Name "—"}}</td><td class="num">{{commas .Count}}</td><td class="num">{{pct .Percent}}</td></tr>{{end}}</tbody>
+  </table>
+  {{end}}
+</section>
+{{end}}
+
+{{define "people"}}
+<section>
+  <h1>People</h1>
+  <p class="lede">Everything in this report, counted by the account that did it. Select a number to see those events.</p>
+  {{if .Users}}
+  <table>
+    <thead><tr><th>Account</th>{{range $.Sections}}<th class="num">{{.Info.Title}}</th>{{end}}<th class="num">High</th></tr></thead>
+    <tbody>{{range .Users}}{{$u := .}}<tr><td><strong>{{.User}}</strong></td>
+      {{range $.Sections}}{{$cat := .Info.ID}}<td class="num">{{with index $u.Counts $cat}}<a href="#{{$cat}}" data-user="{{$u.User}}">{{.}}</a>{{else}}<span class="meta">·</span>{{end}}</td>{{end}}
+      <td class="num">{{if .High}}<span class="c-high">{{.High}}</span>{{else}}0{{end}}</td></tr>{{end}}</tbody>
+  </table>
+  {{else}}<p class="empty">No account activity in this period.</p>{{end}}
+</section>
+{{end}}
+
+
