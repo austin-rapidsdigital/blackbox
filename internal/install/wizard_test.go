@@ -4,10 +4,21 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+// abs turns a slash path into an absolute path for this OS
+// (/srv/x stays /srv/x on Linux and becomes D:\srv\x on Windows).
+func abs(p string) string {
+	if runtime.GOOS == "windows" {
+		return "D:" + filepath.FromSlash(p)
+	}
+	return p
+}
 
 // runWizard feeds scripted answers (one per line) to the wizard.
 func runWizard(t *testing.T, input string, cur Answers, existing map[string]bool, reinstall bool) (Answers, string, error) {
@@ -21,7 +32,7 @@ func runWizard(t *testing.T, input string, cur Answers, existing map[string]bool
 			}
 			return nil
 		}}
-	a, err := w.run(cur, "/var/lib/blackbox/reports", reinstall)
+	a, err := w.run(cur, abs("/var/lib/blackbox/reports"), reinstall)
 	return a, out.String(), err
 }
 
@@ -47,18 +58,18 @@ func TestWizardAnswersAndRetries(t *testing.T) {
 	input := strings.Join([]string{
 		"Lab 3",  // site
 		"9", "1", // invalid choice is asked again, then daily
-		"reports",          // relative path: asked again
-		"/srv/readonly",    // exists but not writable: asked again
-		"/srv/new-reports", // does not exist…
-		"y",                // …create it
-		"3",                // every 15 minutes
-		"",                 // confirm
+		"reports",               // relative path: asked again
+		abs("/srv/readonly"),    // exists but not writable: asked again
+		abs("/srv/new-reports"), // does not exist…
+		"y",                     // …create it
+		"3",                     // every 15 minutes
+		"",                      // confirm
 	}, "\n") + "\n"
-	a, out, err := runWizard(t, input, Answers{}, map[string]bool{"/srv/readonly": true}, false)
+	a, out, err := runWizard(t, input, Answers{}, map[string]bool{abs("/srv/readonly"): true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Answers{Site: "Lab 3", ReportEvery: "daily", ReportDir: "/srv/new-reports", CollectEvery: 15 * time.Minute}
+	want := Answers{Site: "Lab 3", ReportEvery: "daily", ReportDir: abs("/srv/new-reports"), CollectEvery: 15 * time.Minute}
 	if a != want {
 		t.Errorf("got %+v, want %+v", a, want)
 	}
@@ -70,8 +81,8 @@ func TestWizardAnswersAndRetries(t *testing.T) {
 }
 
 func TestWizardReinstallKeepsCurrentSettings(t *testing.T) {
-	cur := Answers{Site: "Lab 3", ReportEvery: "monthly", ReportDir: "/srv/locked", CollectEvery: 2 * time.Hour}
-	a, out, err := runWizard(t, "\n\n\n\n\n", cur, map[string]bool{"/srv/locked": true}, true)
+	cur := Answers{Site: "Lab 3", ReportEvery: "monthly", ReportDir: abs("/srv/locked"), CollectEvery: 2 * time.Hour}
+	a, out, err := runWizard(t, "\n\n\n\n\n", cur, map[string]bool{abs("/srv/locked"): true}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,8 +95,8 @@ func TestWizardReinstallKeepsCurrentSettings(t *testing.T) {
 }
 
 func TestWizardDefaultFolderAndClearSite(t *testing.T) {
-	cur := Answers{Site: "Old", ReportEvery: "weekly", ReportDir: "/srv/locked", CollectEvery: time.Hour}
-	a, _, err := runWizard(t, "-\n\n/var/lib/blackbox/reports\n\n\n", cur, map[string]bool{"/srv/locked": true}, true)
+	cur := Answers{Site: "Old", ReportEvery: "weekly", ReportDir: abs("/srv/locked"), CollectEvery: time.Hour}
+	a, _, err := runWizard(t, "-\n\n"+abs("/var/lib/blackbox/reports")+"\n\n\n", cur, map[string]bool{abs("/srv/locked"): true}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
