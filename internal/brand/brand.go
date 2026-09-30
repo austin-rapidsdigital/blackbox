@@ -58,3 +58,24 @@ func Logo(size int) *image.NRGBA {
 	}
 	return dst
 }
+
+// The report fonts, embedded so every computer shows the same type without
+// installing anything or reaching the internet: Inter for text and
+// JetBrains Mono for times, numbers and hashes. Both are variable fonts
+// (every weight in one file), cut to Latin characters, and licensed under
+// the SIL Open Font License (fonts/*-OFL.txt).
+//
+//go:embed fonts/Inter.woff2
+var interWOFF2 []byte
+
+//go:embed fonts/JetBrainsMono.woff2
+var monoWOFF2 []byte
+
+// FontCSS returns @font-face rules for the embedded fonts.
+func FontCSS() string {
+	face := func(family string, data []byte) string {
+		return "@font-face{font-family:'" + family + "';font-style:normal;font-weight:100 900;font-display:block;" +
+			"src:url(data:font/woff2;base64," + base64.StdEncoding.EncodeToString(data) + ") format('woff2')}\n"
+	}
+	return face("Inter", interWOFF2) + face("JetBrains Mono", monoWOFF2)
+}

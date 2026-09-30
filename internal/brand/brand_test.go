@@ -1,6 +1,9 @@
 package brand
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestLogoScales(t *testing.T) {
 	for _, n := range []int{16, 32, 48, 256} {
@@ -11,6 +14,15 @@ func TestLogoScales(t *testing.T) {
 		// The monogram is a filled circle: the centre is opaque, the corners clear.
 		if img.NRGBAAt(n/2, n/2).A < 200 || img.NRGBAAt(0, 0).A > 40 {
 			t.Errorf("size %d: centre %v corner %v", n, img.NRGBAAt(n/2, n/2), img.NRGBAAt(0, 0))
+		}
+	}
+}
+
+func TestFontCSS(t *testing.T) {
+	css := FontCSS()
+	for _, want := range []string{"font-family:'Inter'", "font-family:'JetBrains Mono'", "data:font/woff2;base64,d09GMg"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("FontCSS is missing %q", want)
 		}
 	}
 }

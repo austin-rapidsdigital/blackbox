@@ -7,7 +7,7 @@
 <link rel="icon" href="{{logo}}">
 <title>{{brandName}} · Audit Report · {{if .Site}}{{.Site}} · {{end}}{{dateShort .PeriodStart}} – {{dateShort .WindowEnd}}</title>
 <style>
-/* GE Aerospace navy theme, shared with ADM-Toolkit. */
+{{fontCSS}}/* GE Aerospace navy theme, shared with ADM-Toolkit. */
 :root{
   --navy-950:#000D2E;--navy-900:#001E62;--navy-800:#002A80;--navy-600:#0047BB;--navy-100:#E8EEFF;--navy-50:#F3F6FE;
   --ink-950:#0B1020;--ink-800:#1E253A;--ink-700:#384055;--ink-600:#545C72;--ink-500:#7A8299;--ink-400:#A7AEC2;
@@ -26,7 +26,7 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0}
-body{background:var(--ink-50);color:var(--ink-950);font:14px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
+body{background:var(--ink-50);color:var(--ink-950);font:14px/1.55 var(--sans);font-feature-settings:"cv11";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 a{color:var(--navy-600);text-decoration:none}
 a:hover{text-decoration:underline}
 

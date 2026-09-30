@@ -171,3 +171,10 @@ VERSION=0.2.0 scripts/build.sh    # packages in dist/
 ## License
 
 Copyright 2026 Austin Case. Licensed under the [Apache License, Version 2.0](LICENSE).
+
+Reports embed the [Inter](https://github.com/rsms/inter) and
+[JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) fonts, so they
+look the same on every computer without installing anything. Both are
+licensed under the SIL Open Font License 1.1
+([Inter](internal/brand/fonts/Inter-OFL.txt),
+[JetBrains Mono](internal/brand/fonts/JetBrainsMono-OFL.txt)).

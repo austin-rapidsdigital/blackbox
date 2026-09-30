@@ -49,6 +49,7 @@ func funcs(loc *time.Location) template.FuncMap {
 	return template.FuncMap{
 		"logo":      func() template.URL { return template.URL(brand.LogoDataURI()) },
 		"brandName": func() string { return brand.Name },
+		"fontCSS":   func() template.CSS { return template.CSS(brand.FontCSS()) },
 		"stamp":     format("02 Jan 2006 15:04"),
 		"stampSec":  format("02 Jan 2006 15:04:05"),
 		"dateLong":  format("Mon 02 Jan 2006"),
