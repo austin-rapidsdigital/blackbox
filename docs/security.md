@@ -79,10 +79,10 @@ The Linux service is also sandboxed with `ProtectSystem=strict`,
   - It only delivers to a folder that has the collector's marker file, so
     an unmounted share (an empty local folder) is never written to by
     mistake.
-- **What a sender can claim.** A sender, or a relay, supplies the host
-  names in its events. The report shows which computer delivered each
-  system's data ("via"), and the Systems page lists every system seen, so
-  an unexpected one stands out.
+- **What a sender can claim.** A sender supplies the host names in its
+  data. The Systems page lists every computer seen, so an unexpected one
+  stands out. If one computer delivers collection records for another,
+  the report marks that system "via" the computer that delivered them.
 
 ## Integrity
 

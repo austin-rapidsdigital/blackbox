@@ -263,8 +263,6 @@ own reports locally. This covers standalone air-gapped systems.
 - **Collector.** It imports the batches and produces one report covering
   every host, with a Systems page, per-system filtering and per-system
   audit settings.
-- **Relay.** A relay host receives from its own VMs and sends everything
-  on.
 - **Guarantees.**
   - Nothing listens on the network.
   - Hosts that are off catch up later.
@@ -399,7 +397,7 @@ exclude_processes =                # e.g. C:\Tools\Scanner\scan.exe
 | **M1: single Windows host** | evtx collection, normalization, translation for §4.1–4.3, HTML report, bookmark, manifest, `install` / `run` |
 | **M2: Linux** ✅ | auditd, syslog and journald collection for Ubuntu 22.04/24.04 and Alma 8.10, the same report (see section 15) |
 | **M3: audit health** | `check` against the STIG baselines, gap and rollover detection, audit-integrity section |
-| **M4: LAN (Model A+)** ✅ | Collector inbox over VirtualBox shared folders and Windows shares, relays, Systems page, per-system filters and checks, gap and silence detection |
+| **M4: LAN (Model A+)** ✅ | Collector inbox over VirtualBox shared folders and Windows shares, Systems page, per-system filters and checks, gap and silence detection |
 | **M5: packaging** | MSI, .deb, .rpm, SBOM, reproducible release builds |
 | **M6: domain / collector (Model B)** | WEF and forwarding guides, GPO templates, collector mode |
 | Later | Optional `serve` viewer, report signing, Splunk ingestion notes |

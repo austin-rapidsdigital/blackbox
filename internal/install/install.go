@@ -45,8 +45,8 @@ func writeConfig(path string, opt Options, crlf bool) error {
 	})
 }
 
-// setupLAN prepares what the role needs: the inbox for a collector or
-// relay, and delivery (share account, mount) for a sender or relay. What a
+// setupLAN prepares what the role needs: the inbox for a collector, and
+// delivery (share account, mount) for a sender. What a
 // previous role set up and is no longer needed is removed.
 func setupLAN(opt Options, dataDir string, logf func(string, ...any)) error {
 	if opt.Inbox != "" {

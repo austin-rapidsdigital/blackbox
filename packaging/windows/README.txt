@@ -13,8 +13,8 @@ SEVERAL COMPUTERS (a Linux VM on this PC, or a LAN)
   - On the PC that should produce the reports, choose "This is the
     collector". Setup creates an inbox folder (C:\BlackboxInbox) and can
     share it with VirtualBox VMs on this PC and with the network.
-  - On each other computer, choose "Send to a collector".
-  - On a LAN PC that hosts a Linux VM, choose "Relay".
+  - On each other computer, including Linux VMs, choose "Send to a
+    collector".
   Set up the collector first. See docs/lan.md in the documentation.
 
 CHANGE SETTINGS LATER (for example, the report folder)

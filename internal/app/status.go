@@ -36,8 +36,6 @@ func (a *App) Status(w io.Writer) error {
 		p("Role:", "collector (reports on this computer and the computers that send to it)")
 	case "sender":
 		p("Role:", "sends to a collector (reports are produced on the collector)")
-	case "relay":
-		p("Role:", "relay (receives from other computers and sends everything on to a collector)")
 	}
 	if s.LastCollect.IsZero() {
 		p("Last collection:", "never (the scheduled task has not run yet)")

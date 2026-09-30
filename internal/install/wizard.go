@@ -18,7 +18,6 @@ const (
 	RoleStandalone = "standalone" // reports on itself
 	RoleSender     = "sender"     // sends to a collector
 	RoleCollector  = "collector"  // reports on itself and the computers that send to it
-	RoleRelay      = "relay"      // receives from other computers and sends everything on
 )
 
 // Answers are the settings chosen during setup.
@@ -29,11 +28,11 @@ type Answers struct {
 	ReportDir    string        // "" = the default reports folder
 	CollectEvery time.Duration // how often the schedule runs
 
-	SendTo        string // collector inbox (sender, relay)
+	SendTo        string // collector inbox (sender)
 	ShareUser     string // account for the SendTo share
 	SharePassword string // entered during setup; stored encrypted, never in the config file
 
-	Inbox        string   // this collector's inbox (collector, relay)
+	Inbox        string   // this collector's inbox (collector)
 	ShareInbox   bool     // Windows: share the inbox on the network
 	InboxWriters []string // Windows: local accounts allowed to deliver (e.g. the user who runs VirtualBox)
 }
@@ -41,8 +40,6 @@ type Answers struct {
 // RoleOf infers the role from settings.
 func RoleOf(sendTo, inbox string) string {
 	switch {
-	case sendTo != "" && inbox != "":
-		return RoleRelay
 	case sendTo != "":
 		return RoleSender
 	case inbox != "":
@@ -199,12 +196,12 @@ func (w *wizard) run(cur Answers, defaultReports string, reinstall bool) (Answer
 			return a, err
 		}
 	}
-	if a.Role == RoleCollector || a.Role == RoleRelay {
+	if a.Role == RoleCollector {
 		if err := w.askInbox(&a); err != nil {
 			return a, err
 		}
 	}
-	if a.Role == RoleSender || a.Role == RoleRelay {
+	if a.Role == RoleSender {
 		if err := w.askSendTo(&a); err != nil {
 			return a, err
 		}
@@ -262,20 +259,17 @@ func roleText(r string) string {
 		return "sends its events to a collector"
 	case RoleCollector:
 		return "collector: reports on itself and the computers that send to it"
-	case RoleRelay:
-		return "relay: receives from other computers and sends everything to a collector"
 	}
 	return "standalone: reports on itself"
 }
 
 func (w *wizard) askRole(cur string) (string, error) {
 	w.question("How will this computer's audit events be reviewed?")
-	roles := []string{RoleStandalone, RoleSender, RoleCollector, RoleRelay}
+	roles := []string{RoleStandalone, RoleSender, RoleCollector}
 	labels := []string{
 		"On this computer            (it produces its own reports)",
 		"Send to a collector         (for a virtual machine, or a workstation on a LAN)",
 		"This is the collector       (its reports cover it and every computer that sends to it)",
-		"Relay                       (receives from virtual machines on this PC and sends everything to a collector)",
 	}
 	i, err := w.choose(labels, indexOf(roles, cur))
 	if err != nil {
