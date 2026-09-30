@@ -28,6 +28,12 @@ TZ=America/New_York scripts/screenshots.sh   # regenerate docs/images
 Go 1.24 or later is required. There are no other dependencies, and
 everything builds offline.
 
+`scripts/build.sh` embeds the program icon and version details (publisher,
+version, description) in `blackbox.exe`, using `scripts/winres`, a small
+standard-library generator. A plain `go build` for Windows works but
+produces an exe without them; run
+`go run ./scripts/winres -version <version>` first to include them.
+
 ## Releasing
 
 Run the **Release** workflow from the Actions tab ("Run workflow", then

@@ -109,7 +109,7 @@ func registerUninstall(exe, version string) error {
 	values := [][3]string{
 		{"DisplayName", "REG_SZ", "Blackbox"},
 		{"DisplayVersion", "REG_SZ", version},
-		{"Publisher", "REG_SZ", "Blackbox project"},
+		{"Publisher", "REG_SZ", "Austin Case"},
 		{"InstallLocation", "REG_SZ", filepath.Dir(exe)},
 		{"DisplayIcon", "REG_SZ", exe},
 		{"UninstallString", "REG_SZ", `"` + exe + `" uninstall`},
