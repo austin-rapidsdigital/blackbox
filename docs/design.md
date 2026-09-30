@@ -1,4 +1,4 @@
-# Blackbox — Design
+# Design
 
 Open source audit log review tool for air-gapped Windows and Linux systems and
 small air-gapped LANs (10–30 hosts, designed to scale further).
