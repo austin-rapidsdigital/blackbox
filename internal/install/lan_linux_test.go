@@ -29,10 +29,16 @@ func TestLinuxLANUnits(t *testing.T) {
 		t.Errorf("credentials: %q", c)
 	}
 
+	// A VM sending through a VirtualBox shared folder.
 	cfg.SendTo = "/media/sf_BlackboxInbox"
-	cfg.Inbox = "/srv/inbox"
 	svc = serviceFor("/usr/local/bin/blackbox", cfg)
-	if !strings.Contains(svc, "-/media/sf_BlackboxInbox") || !strings.Contains(svc, "-/srv/inbox") || strings.Contains(svc, "Wants=") {
-		t.Errorf("shared-folder relay service:\n%s", svc)
+	if !strings.Contains(svc, "-/media/sf_BlackboxInbox") || strings.Contains(svc, "Wants=") {
+		t.Errorf("shared-folder sender service:\n%s", svc)
+	}
+	// A Linux collector receiving in a folder.
+	cfg.SendTo, cfg.Inbox = "", "/srv/inbox"
+	svc = serviceFor("/usr/local/bin/blackbox", cfg)
+	if !strings.Contains(svc, "-/srv/inbox") || strings.Contains(svc, "Wants=") {
+		t.Errorf("collector service:\n%s", svc)
 	}
 }

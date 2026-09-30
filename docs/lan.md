@@ -34,7 +34,8 @@ The installer's first question sets the role:
 | **On this computer** | A standalone computer | Yes, about itself |
 | **Send to a collector** | A Linux VM, or a LAN workstation | No, its events appear in the collector's reports |
 | **This is the collector** | The PC or server the ISSO reviews reports on | Yes, about itself and every sender |
-| **Relay** | A LAN PC that hosts a Linux VM | No: it receives from its VM and sends everything on |
+
+A computer is one or the other: it sends to a collector, or it is one.
 
 **Set up the collector first.** Senders check that the collector's inbox is
 there before they use it.
@@ -77,18 +78,15 @@ Systems page lists both computers.
 
 ## Scenario 2: LAN workstations that host Linux VMs
 
-Each Windows workstation is a **relay**: its VM delivers to the
-workstation through a shared folder, as in scenario 1. The workstation
-then sends its own events and the VM's to the LAN collector (scenario 3).
+Every computer sends straight to the LAN collector (scenario 3), VMs
+included:
 
-On the workstation, run `Install.cmd` and choose **Relay**:
-
-- **Inbox:** accept `C:\BlackboxInbox`, and give the account that runs
-  VirtualBox.
-- **Collector's inbox:** `\\COLLECTOR\BlackboxInbox`, with the account
-  from scenario 3.
-
-Then set up the VM exactly as in scenario 1.
+- **The workstation** is a sender, like any other LAN computer.
+- **Its VM** is a sender too. It reaches the collector's inbox over the
+  network: the Windows share, or an SFTP mount (see
+  [Other ways to reach the inbox](#other-ways-to-reach-the-inbox)). The VM
+  therefore needs a network adapter that can reach the collector, for
+  example a bridged adapter.
 
 Your script that powers the VMs on for the scheduled job keeps working. A
 VM does not have to be on at a particular time:
@@ -97,8 +95,6 @@ VM does not have to be on at a particular time:
   missed while the VM was off.
 - To send straight away, before powering the VM off, run
   `sudo blackbox send` in the VM from your script.
-
-In the collector's report, the VM is listed as **via** the workstation.
 
 ## Scenario 3: a LAN with a Windows collector
 
@@ -150,6 +146,40 @@ run.
 
 If the collector cannot be reached during setup, you can still continue.
 The data waits on the sender until the collector can be reached.
+
+## Other ways to reach the inbox
+
+A sender needs only a folder it can write to that holds the collector's
+inbox. Any way of mounting the inbox works:
+
+- a VirtualBox shared folder
+- an SMB share (set up by the installer)
+- an SFTP mount
+- an NFS mount
+
+Blackbox checks for the collector's `BLACKBOX-INBOX.txt` marker before
+every delivery, so a mount that is down is never mistaken for the inbox.
+The data simply waits until the mount is back.
+
+**SFTP (sshfs) from a Linux sender.**
+
+1. On the Windows collector, turn on the **OpenSSH Server** optional
+   feature. On an air-gapped system, install it from the Features on
+   Demand media.
+2. Give an account (the same one as for SMB is fine) write access to the
+   inbox through **Blackbox Senders**, and use key-based sign-in.
+3. On the Linux sender, install `sshfs` from the installation media and
+   mount the inbox at boot. For example, in `/etc/fstab`:
+
+   ```
+   bbsend@COLLECTOR:/C:/BlackboxInbox  /mnt/blackbox-inbox  fuse.sshfs  _netdev,reconnect,IdentityFile=/root/.ssh/blackbox,ServerAliveInterval=15  0 0
+   ```
+
+4. Run `sudo ./install.sh`, choose **Send to a collector**, and enter
+   `/mnt/blackbox-inbox`.
+
+The installer and CI test VirtualBox shared folders and SMB shares. An
+SFTP mount goes through the same checks, but its setup is yours.
 
 ## Day to day
 

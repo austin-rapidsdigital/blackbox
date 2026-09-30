@@ -220,35 +220,6 @@ func TestDeliverNeedsInboxMarker(t *testing.T) {
 	}
 }
 
-func TestRelay(t *testing.T) {
-	// A Linux VM sends to its Windows host, which sends everything on to
-	// the LAN collector.
-	hostInbox, lanInbox := inbox(t), inbox(t)
-	vm := system(t, "ubuntu-vm", "linux", 2, t0)
-	send(t, vm, "ubuntu-vm", hostInbox, t0)
-
-	host := system(t, "WS-02", "windows", 1, t0)
-	if _, err := Import(host, hostInbox, t0.Add(time.Minute), nil); err != nil {
-		t.Fatal(err)
-	}
-	send(t, host, "WS-02", lanInbox, t0.Add(time.Minute))
-
-	col, _ := store.Open(t.TempDir())
-	if _, err := Import(col, lanInbox, t0.Add(2*time.Minute), nil); err != nil {
-		t.Fatal(err)
-	}
-	evs, _ := col.ReadEvents(time.Time{})
-	if len(evs) != 3 {
-		t.Fatalf("collector has %d events, want 3", len(evs))
-	}
-	if s := col.State.Systems["UBUNTU-VM"]; s == nil || s.Via != "WS-02" {
-		t.Errorf("VM should be shown as received via WS-02: %+v", s)
-	}
-	if s := col.State.Systems["WS-02"]; s == nil || s.Via != "" {
-		t.Errorf("WS-02 sent its own data: %+v", s)
-	}
-}
-
 func TestRejectsBadFiles(t *testing.T) {
 	in := inbox(t)
 	os.WriteFile(filepath.Join(in, "WS-01_abc_0000000001.bbx"), []byte("not a batch"), 0o644)

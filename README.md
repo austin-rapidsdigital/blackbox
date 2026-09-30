@@ -90,8 +90,7 @@ flags any that stopped sending.
 
 Set up the collector first: run the installer and choose **This is the
 collector**. Then run it on each other computer and choose **Send to a
-collector**. The [LAN guide](docs/lan.md) walks through each setup,
-including LAN PCs that host their own VMs.
+collector**. The [LAN guide](docs/lan.md) walks through each setup.
 
 ![Systems page of a combined report](docs/images/lan-systems.png)
 
@@ -134,7 +133,7 @@ blackbox report --audit testdata/linux/ubuntu-audit.log \
 
 ## Documentation
 
-- [Several computers (VMs and LANs)](docs/lan.md): collector, senders, relays, day-to-day use
+- [Several computers (VMs and LANs)](docs/lan.md): collector, senders, day-to-day use
 - [Windows guide](docs/windows.md): install, audit settings, what is read
 - [Linux guide](docs/linux.md): install, auditd setup, what is read
 - [Reports](docs/reports.md): report periods, severities, findings, output files

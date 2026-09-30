@@ -31,7 +31,7 @@ type Config struct {
 	// LAN. SendTo is the collector's inbox this system sends its data to
 	// (a folder, or a share: \\server\share on Windows, //server/share on
 	// Linux). Inbox is the folder this system, as a collector, receives
-	// other systems' data in. A system can do both (a relay).
+	// other systems' data in. A computer does one or the other.
 	SendTo    string
 	Inbox     string
 	ShareUser string // account for the SendTo share, when one is needed
@@ -189,8 +189,8 @@ func (c *Config) Validate() error {
 	if c.SendTo != "" && !IsAbs(c.SendTo) && !IsShare(c.SendTo) {
 		return fmt.Errorf("send_to must be a full path or a network share, e.g. %s (got %q)", exampleShare(), c.SendTo)
 	}
-	if c.SendTo != "" && c.Inbox != "" && strings.EqualFold(filepath.Clean(c.SendTo), filepath.Clean(c.Inbox)) {
-		return fmt.Errorf("send_to and inbox are the same folder; a system cannot send to itself")
+	if c.SendTo != "" && c.Inbox != "" {
+		return fmt.Errorf("send_to and inbox are both set: a computer either sends to a collector (send_to) or is the collector (inbox), not both")
 	}
 	return nil
 }
@@ -198,8 +198,6 @@ func (c *Config) Validate() error {
 // Role describes what this system does with its data.
 func (c *Config) Role() string {
 	switch {
-	case c.SendTo != "" && c.Inbox != "":
-		return "relay"
 	case c.SendTo != "":
 		return "sender"
 	case c.Inbox != "":

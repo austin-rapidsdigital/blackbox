@@ -20,8 +20,7 @@ there is no .NET, Go or other runtime to install.
      1) On this computer            (it produces its own reports)
      2) Send to a collector         (for a virtual machine, or a workstation on a LAN)
      3) This is the collector       (its reports cover it and every computer that sends to it)
-     4) Relay                       (receives from virtual machines on this PC and sends everything to a collector)
-   Choose 1-4 [1]:
+   Choose 1-3 [1]:
 
 2. Site or system name, shown at the top of each report
    [none]: Lab 3

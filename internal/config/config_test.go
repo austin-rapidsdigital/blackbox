@@ -144,12 +144,16 @@ func TestLANSettings(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		inbox = `C:\BlackboxInbox`
 	}
-	if err := SetValue(p, "inbox", inbox); err != nil {
+	// A computer sends to a collector or is one, never both.
+	if err := SetValue(p, "inbox", inbox); err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Errorf("setting inbox on a sender: got %v, want a clear refusal", err)
+	}
+	if err := SetValues(p, [][2]string{{"send_to", ""}, {"share_user", ""}, {"inbox", inbox}}); err != nil {
 		t.Fatal(err)
 	}
 	c, _ = Load(p)
-	if c.Role() != "relay" {
-		t.Errorf("role %s, want relay", c.Role())
+	if c.Role() != "collector" || !c.MakesReports() {
+		t.Errorf("role %s, want collector", c.Role())
 	}
 	for _, s := range []string{`\\server\share`, "//server/share", `\\server\share\sub`} {
 		if !IsShare(s) {

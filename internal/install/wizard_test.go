@@ -238,22 +238,6 @@ func TestWizardWindowsCollector(t *testing.T) {
 	}
 }
 
-// A LAN PC that hosts a Linux VM: receives from the VM, sends everything on.
-func TestWizardRelay(t *testing.T) {
-	share := `\\COLLECTOR\BlackboxInbox`
-	input := lines("4", "", "y", "y", "", "n", share, "", "", "")
-	a, out, err := runWizard(t, input, Answers{}, fakeEnv{windows: true, reachable: map[string]string{share: ""}}, false)
-	if err != nil {
-		t.Fatalf("%v\n%s", err, out)
-	}
-	if a.Role != RoleRelay || a.Inbox == "" || a.SendTo != share || a.ShareInbox || a.ShareUser != "" {
-		t.Errorf("got %+v", a)
-	}
-	if strings.Contains(out, "Where should reports be saved") {
-		t.Error("a relay makes no reports")
-	}
-}
-
 // Changing a collector back to standalone clears the LAN settings.
 func TestWizardBackToStandalone(t *testing.T) {
 	cur := Answers{Role: RoleCollector, Inbox: abs("/srv/blackbox-inbox"), ShareInbox: true, ReportEvery: "weekly", CollectEvery: time.Hour}

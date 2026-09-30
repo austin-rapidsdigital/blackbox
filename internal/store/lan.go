@@ -50,7 +50,7 @@ type SeqGap struct {
 }
 
 // System is one computer whose events are in this data folder: this one,
-// or one that sent (directly or through a relay) to this collector.
+// or one that sent to this collector.
 type System struct {
 	Name         string    `json:"name"`
 	OS           string    `json:"os,omitempty"`
