@@ -46,6 +46,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          go run ./scripts/winres -version 0.0.0-ci
           go build -ldflags "-X main.version=0.0.0-ci" -o blackbox.exe ./cmd/blackbox
           $r1 = Join-Path $env:RUNNER_TEMP "bb-reports"
           $r2 = Join-Path $env:RUNNER_TEMP "bb-reports-2"
@@ -56,7 +57,16 @@ jobs:
           schtasks /Query /TN "Blackbox Audit Collection" | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "scheduled task missing" }
           $key = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Blackbox"
-          if ((Get-ItemProperty $key).DisplayVersion -ne "0.0.0-ci") { throw "Programs and Features entry missing" }
+          $entry = Get-ItemProperty $key
+          if ($entry.DisplayVersion -ne "0.0.0-ci") { throw "Programs and Features entry missing" }
+          if ($entry.Publisher -ne "Austin Case") { throw "wrong publisher: $($entry.Publisher)" }
+          # The Apps list shows the icon embedded in the program (DisplayIcon).
+          Add-Type -Namespace W -Name Shell -MemberDefinition '[DllImport("shell32.dll", CharSet=CharSet.Unicode)] public static extern uint ExtractIconEx(string f, int i, IntPtr[] l, IntPtr[] s, uint n);'
+          $icons = [W.Shell]::ExtractIconEx($entry.DisplayIcon, -1, $null, $null, 0)
+          if ($icons -lt 1) { throw "no icon in $($entry.DisplayIcon)" }
+          $vi = (Get-Item $exe).VersionInfo
+          if ($vi.CompanyName -ne "Austin Case" -or $vi.ProductVersion -ne "0.0.0-ci") { throw "version details wrong: $($vi | Format-List | Out-String)" }
+          Write-Host "Icons: $icons; $($vi.FileDescription) $($vi.ProductVersion) by $($vi.CompanyName)"
           & $exe config set report_dir $r2
           if ($LASTEXITCODE -ne 0) { throw "config set failed" }
           & $exe config

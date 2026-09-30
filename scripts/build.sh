@@ -18,10 +18,16 @@ package() { # os arch
 	dir="dist/stage/$name"
 	mkdir -p "$dir"
 	exe=blackbox
-	[ "$1" = windows ] && exe=blackbox.exe
+	if [ "$1" = windows ]; then
+		exe=blackbox.exe
+		# Program icon and version details (Properties > Details, Settings > Apps).
+		syso="cmd/blackbox/rsrc_windows_$2.syso"
+		go run ./scripts/winres -version "$VERSION" -arch "$2" -o "$syso"
+	fi
 	echo "building $name"
 	CGO_ENABLED=0 GOOS="$1" GOARCH="$2" go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$dir/$exe" ./cmd/blackbox
 	if [ "$1" = windows ]; then
+		rm -f "$syso"
 		cp packaging/windows/* "$dir/"
 		# Windows line endings for the batch files and readme.
 		for f in "$dir"/*.cmd "$dir"/README.txt; do sed -i 's/$/\r/' "$f"; done
