@@ -307,6 +307,30 @@ func TestSystemsPage(t *testing.T) {
 	}
 }
 
+// Old events can carry a computer's former name (a renamed PC, or a VM
+// cloned from an image). That is not a second computer gone silent.
+func TestFormerNameIsNotASilentSystem(t *testing.T) {
+	end := time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)
+	runs := []*store.Run{{Time: end.Add(-time.Hour), Host: "WS-07", OS: "windows"}}
+	events := []*event.Event{
+		{Time: end.Add(-2 * time.Hour), Host: "WS-07", Category: event.CatLogon, Severity: event.SevInfo, Action: "logon", Summary: "logon"},
+		{Time: end.AddDate(0, -2, 0), Host: "IMAGE-BUILD-01", Category: event.CatLogon, Severity: event.SevInfo, Action: "logon", Summary: "old logon"},
+	}
+	r := Build(events, runs, Options{WindowEnd: end, Generated: end, Location: time.UTC, Source: "Live collection",
+		Systems: []SystemInfo{{Name: "WS-07", OS: "windows", LastRun: end.Add(-time.Hour)}}})
+	if r.ShowSystems() || len(r.Silent) != 0 || len(r.SystemRows) != 1 {
+		t.Errorf("a former name became a system: %+v", r.SystemRows)
+	}
+	if len(r.Events) != 2 {
+		t.Error("events under the former name must still be reported")
+	}
+	for _, w := range r.Health.Warnings {
+		if strings.Contains(w, "IMAGE-BUILD-01") {
+			t.Errorf("false warning: %s", w)
+		}
+	}
+}
+
 func TestSingleSystemHasNoSystemsPage(t *testing.T) {
 	r := build(t, Options{CheckSets: []CheckSet{NewCheckSet("WS-07", time.Now(), []check.Result{{Area: "a", Item: "b", Status: check.Pass}})}})
 	if r.ShowSystems() {

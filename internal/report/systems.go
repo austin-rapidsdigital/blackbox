@@ -94,8 +94,15 @@ func (r *Report) buildSystems(runs []*store.Run, events []*event.Event) {
 			}
 		}
 	}
+	// Events and checks count towards a computer that collects. An event
+	// recorded under another name (a former name of a renamed or cloned
+	// computer) does not make a new system, so it cannot be reported as
+	// silent; it still appears in every table under its own name.
 	for _, e := range events {
-		s := get(e.Host)
+		s := idx[key(e.Host)]
+		if s == nil {
+			continue
+		}
 		s.Events++
 		if e.Severity == event.SevHigh {
 			s.High++
@@ -106,7 +113,9 @@ func (r *Report) buildSystems(runs []*store.Run, events []*event.Event) {
 	}
 	for i := range r.CheckSets {
 		cs := &r.CheckSets[i]
-		get(cs.Host).Checks = cs
+		if s := idx[key(cs.Host)]; s != nil {
+			s.Checks = cs
+		}
 	}
 
 	live := r.Source == "" || strings.HasPrefix(r.Source, "Live")

@@ -112,6 +112,9 @@ jobs:
           $sum.systems | Format-Table name, status, events, high, audit_settings_failing
           $linux = $sum.systems | Where-Object { $_.name -ne $env:COMPUTERNAME }
           if (-not $linux) { throw "the Linux computer's events are not in the collector's report" }
+          # Every system here collected just now. Old events carrying the image's
+          # build-time computer name must not show up as a silent system.
+          if ($sum.systems | Where-Object { $_.status -eq "silent" }) { throw "a system is wrongly reported as silent" }
           if (-not (Select-String -Path "$dir\report.html" -Pattern 'data-view="systems"' -Quiet)) { throw "report has no Systems page" }
           if (Get-ChildItem C:\BlackboxInbox -Filter *.bbx) { throw "batches left in the inbox after import" }
           & $exe status

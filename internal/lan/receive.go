@@ -168,8 +168,6 @@ func importBatch(st *store.Store, b *Batch, now time.Time) (int, error) {
 	// Received events count as collected now: that is when they became
 	// available to this collector's reports, so one that arrives late goes
 	// into the next report (marked Late) rather than being skipped.
-	type hostInfo struct{ os string }
-	hosts := map[string]hostInfo{}
 	events := make([][]byte, 0, len(b.Events))
 	for _, raw := range b.Events {
 		var e event.Event
@@ -186,7 +184,6 @@ func importBatch(st *store.Store, b *Batch, now time.Time) (int, error) {
 			return 0, err
 		}
 		events = append(events, out)
-		hosts[e.Host] = hostInfo{e.OS}
 	}
 	runs := make([][]byte, 0, len(b.Runs))
 	var runList []store.Run
@@ -209,14 +206,12 @@ func importBatch(st *store.Store, b *Batch, now time.Time) (int, error) {
 		runList = append(runList, r)
 	}
 	checks := make([][]byte, 0, len(b.Checks))
-	var checkList []store.CheckRecord
 	for _, raw := range b.Checks {
 		var c store.CheckRecord
 		if err := json.Unmarshal(raw, &c); err != nil {
 			return 0, fmt.Errorf("checks: %w", err)
 		}
 		checks = append(checks, raw)
-		checkList = append(checkList, c)
 	}
 
 	day := now.UTC().Format("2006-01-02")
@@ -253,12 +248,10 @@ func importBatch(st *store.Store, b *Batch, now time.Time) (int, error) {
 	for _, r := range runList {
 		st.NoteSystem(r.Host, r.OS, r.Version, b.Sender, r.Time, now, now)
 	}
-	for h, info := range hosts {
-		st.NoteSystem(h, info.os, "", b.Sender, time.Time{}, now, now)
-	}
-	for _, c := range checkList {
-		st.NoteSystem(c.Host, c.OS, "", b.Sender, time.Time{}, now, now)
-	}
+	// Systems are only the computers that collect (they send runs), not
+	// every host name in the events: old events can carry a computer's
+	// former name (a renamed PC, or a VM cloned from an image), which is
+	// not a separate computer that has gone silent.
 	st.EndImport()
 	if err := st.Save(); err != nil {
 		return 0, err
