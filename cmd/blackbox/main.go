@@ -388,7 +388,11 @@ func cmdStatus(args []string) error {
 	if err != nil {
 		return err
 	}
-	return newApp(cfg, nil).Status(os.Stdout)
+	err = newApp(cfg, nil).Status(os.Stdout)
+	if errors.Is(err, os.ErrPermission) {
+		return fmt.Errorf("%w\nBlackbox's data folder can only be read by administrators: run this from an elevated Command Prompt (Windows) or with sudo (Linux)", err)
+	}
+	return err
 }
 
 func cmdSend(args []string) error {
