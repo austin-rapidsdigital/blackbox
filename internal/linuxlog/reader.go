@@ -32,7 +32,7 @@ func Follow(path string, bm store.Bookmark, fn func(string) error) (FollowResult
 	if err != nil {
 		return res, err
 	}
-	ino := inode(fi)
+	ino := inode(path, fi)
 	start := int64(0)
 	switch {
 	case bm.Inode == 0:
@@ -107,7 +107,7 @@ func rotatedSince(path string, ino uint64) ([]string, bool) {
 		if err != nil || fi.IsDir() {
 			continue
 		}
-		cs = append(cs, cand{m, fi.ModTime().UnixNano(), inode(fi)})
+		cs = append(cs, cand{m, fi.ModTime().UnixNano(), inode(m, fi)})
 	}
 	sort.Slice(cs, func(i, j int) bool { return cs[i].mod < cs[j].mod })
 	for i, c := range cs {
