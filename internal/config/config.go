@@ -17,16 +17,14 @@ import (
 
 // Config holds all settings. Zero values are replaced by defaults.
 type Config struct {
-	SiteName            string
-	Classification      string   // banner text, e.g. UNCLASSIFIED or SECRET//NOFORN
-	ClassificationColor string   // optional #rrggbb override
-	ReportEvery         string   // daily | weekly | monthly
-	RetentionDays       int      // 0 = keep forever
-	ExcludeUsers        []string // accounts to leave out (case-insensitive)
-	ExcludeProcesses    []string // program names/paths to leave out
-	SignatureBlock      bool
-	ReviewRoles         []string
-	DataDir             string
+	SiteName         string
+	ReportEvery      string   // daily | weekly | monthly
+	RetentionDays    int      // 0 = keep forever
+	ExcludeUsers     []string // accounts to leave out (case-insensitive)
+	ExcludeProcesses []string // program names/paths to leave out
+	SignatureBlock   bool
+	ReviewRoles      []string
+	DataDir          string
 
 	Path string // file the config was loaded from ("" if defaults)
 }
@@ -34,7 +32,6 @@ type Config struct {
 // Default returns the built-in defaults.
 func Default() *Config {
 	return &Config{
-		Classification: "UNCLASSIFIED",
 		ReportEvery:    "weekly",
 		SignatureBlock: true,
 		ReviewRoles:    []string{"ISSO / Auditor", "ISSM"},
@@ -110,12 +107,6 @@ func (c *Config) set(k, v string) error {
 	switch k {
 	case "site_name":
 		c.SiteName = v
-	case "classification":
-		if v != "" {
-			c.Classification = strings.ToUpper(v)
-		}
-	case "classification_color":
-		c.ClassificationColor = v
 	case "report_every":
 		if v != "" {
 			c.ReportEvery = strings.ToLower(v)
@@ -157,9 +148,6 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("report_every must be daily, weekly or monthly (got %q)", c.ReportEvery)
 	}
-	if c.ClassificationColor != "" && !isHexColor(c.ClassificationColor) {
-		return fmt.Errorf("classification_color must look like #007a33 (got %q)", c.ClassificationColor)
-	}
 	return nil
 }
 
@@ -173,49 +161,6 @@ func list(v string) []string {
 	return out
 }
 
-func isHexColor(s string) bool {
-	if len(s) != 7 || s[0] != '#' {
-		return false
-	}
-	_, err := strconv.ParseUint(s[1:], 16, 32)
-	return err == nil
-}
-
-// Banner returns the classification banner text, background and text
-// colors. Standard colors are used for recognised markings unless
-// classification_color overrides them.
-func (c *Config) Banner() (text, bg, fg string) {
-	text = strings.TrimSpace(c.Classification)
-	if text == "" {
-		text = "UNCLASSIFIED"
-	}
-	bg, fg = BannerColors(text)
-	if c.ClassificationColor != "" {
-		bg = c.ClassificationColor
-	}
-	return text, bg, fg
-}
-
-// BannerColors picks the conventional banner colors for a marking.
-func BannerColors(marking string) (bg, fg string) {
-	m := strings.ToUpper(marking)
-	switch {
-	case strings.HasPrefix(m, "TOP SECRET") && strings.Contains(m, "SCI"):
-		return "#fce83a", "#000000"
-	case strings.HasPrefix(m, "TOP SECRET"):
-		return "#ff8c00", "#000000"
-	case strings.HasPrefix(m, "SECRET"):
-		return "#c8102e", "#ffffff"
-	case strings.HasPrefix(m, "CONFIDENTIAL"):
-		return "#0033a0", "#ffffff"
-	case strings.HasPrefix(m, "CUI"), strings.HasPrefix(m, "CONTROLLED"):
-		return "#502b85", "#ffffff"
-	case strings.HasPrefix(m, "UNCLASSIFIED"):
-		return "#007a33", "#ffffff"
-	}
-	return "#444444", "#ffffff"
-}
-
 // Template is the commented config written by `blackbox install`.
 const Template = `# Blackbox configuration
 # Lines starting with # are comments. Lists are comma-separated.
@@ -223,13 +168,6 @@ const Template = `# Blackbox configuration
 
 # Name shown at the top of every report.
 site_name = {{SITE}}
-
-# Classification banner shown at the top and bottom of every report.
-# Standard colors are used automatically for UNCLASSIFIED, CUI,
-# CONFIDENTIAL, SECRET and TOP SECRET (with or without caveats, e.g.
-# SECRET//NOFORN). To override the color, set classification_color.
-classification = {{CLASSIFICATION}}
-classification_color =
 
 # How often a report is produced: daily, weekly or monthly.
 # Events are collected every hour regardless, so nothing is lost to log
@@ -252,7 +190,6 @@ review_roles = ISSO / Auditor, ISSM
 `
 
 // Render fills in Template.
-func Render(site, classification, reportEvery string) string {
-	return strings.NewReplacer("{{SITE}}", site, "{{CLASSIFICATION}}", classification,
-		"{{REPORT_EVERY}}", reportEvery).Replace(Template)
+func Render(site, reportEvery string) string {
+	return strings.NewReplacer("{{SITE}}", site, "{{REPORT_EVERY}}", reportEvery).Replace(Template)
 }

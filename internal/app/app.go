@@ -124,11 +124,10 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 	if check.Supported {
 		checks = check.Run()
 	}
-	text, bg, fg := a.Cfg.Banner()
 	r := report.Build(events, runs, report.Options{
-		Site: a.Cfg.SiteName, Banner: text, BannerBG: bg, BannerFG: fg,
+		Site:        a.Cfg.SiteName,
 		WindowStart: prevEnd, WindowEnd: end, Generated: generated, Version: a.Version,
-		Source: "Live collection", Location: a.loc(),
+		Source: "Live collection", Location: a.loc(), InReportsDir: true,
 		SignatureBlock: a.Cfg.SignatureBlock, ReviewRoles: a.Cfg.ReviewRoles,
 		ExcludeUsers: a.Cfg.ExcludeUsers, ExcludeProcesses: a.Cfg.ExcludeProcesses,
 		KnownDevices: st.State.KnownDevices, Checks: checks,
@@ -162,7 +161,7 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 			a.logf("pruning old reports: %v", err)
 		}
 	}
-	if err := report.WriteIndex(a.ReportsDir(), a.Cfg.SiteName, text, bg, fg, a.loc()); err != nil {
+	if err := report.WriteIndex(a.ReportsDir(), a.Cfg.SiteName, a.loc()); err != nil {
 		a.logf("updating report index: %v", err)
 	}
 	return dir, nil
@@ -277,7 +276,6 @@ func (a *App) ReportFromFiles(xmlFiles, evtxFiles []string, outDir string) (stri
 		events, runs = append(events, ev...), append(runs, run)
 		names = append(names, filepath.Base(p))
 	}
-	text, bg, fg := a.Cfg.Banner()
 	end := now
 	if len(events) > 0 {
 		last := events[0].Time
@@ -289,7 +287,7 @@ func (a *App) ReportFromFiles(xmlFiles, evtxFiles []string, outDir string) (stri
 		end = last
 	}
 	r := report.Build(events, runs, report.Options{
-		Site: a.Cfg.SiteName, Banner: text, BannerBG: bg, BannerFG: fg,
+		Site:      a.Cfg.SiteName,
 		WindowEnd: end, Generated: now, Version: a.Version,
 		Source: "Exported log file" + plural(len(names)) + ": " + strings.Join(names, ", "), Location: a.loc(),
 		SignatureBlock: a.Cfg.SignatureBlock, ReviewRoles: a.Cfg.ReviewRoles,

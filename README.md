@@ -4,9 +4,10 @@ Audit log review for air-gapped Windows systems and small air-gapped LANs.
 Linux support (Ubuntu 22.04/24.04, AlmaLinux 8.10) is the next milestone.
 
 Blackbox reads the Windows event logs, **translates each event into plain
-English**, groups the events the way auditors review them, and produces a
-self-contained HTML report on a schedule. It flags what needs attention and
-tells you whether the audit trail is complete.
+English**, groups the events the way auditors review them, and produces an
+HTML report on a schedule. The report opens in any browser, needs no server,
+and has one page per category. It flags what needs attention and tells you
+whether the audit trail is complete.
 
 | Raw event (what other tools show) | Blackbox |
 |---|---|
@@ -17,8 +18,12 @@ tells you whether the audit trail is complete.
 
 ## What a report contains
 
-- **Summary and "Needs attention."** High-severity events are listed one by
-  one. Patterns across events are also flagged: possible password guessing,
+Each report is a folder of linked pages, laid out for a desktop monitor with
+a sidebar for moving between them. Open `index.html` to start.
+
+- **Overview.** It starts with the reporting period (from, to and length),
+  then shows whether collection was complete, event counts by category, and
+  "Needs attention." High-severity events are listed one by one. Patterns across events are also flagged: possible password guessing,
   one source trying several accounts, and a successful logon after repeated
   failures. Medium-severity items are counted by type.
 - **Audit health.**
@@ -51,12 +56,12 @@ tells you whether the audit trail is complete.
     computer accounts are left out.
 - **People.** Everything in the report counted per account. Click an
   account to filter the whole report to that person.
-- **Review block.** Printable sign-off lines for the ISSO/Auditor and the
-  ISSM (AU-6).
-- **Classification banner** at the top and bottom of the report, repeated
-  on every printed page.
+- **Review & sign-off.** Printable sign-off blocks for the ISSO/Auditor and
+  the ISSM (AU-6).
 
 Every report folder also contains:
+
+- `full-report.html`: every page in one file, for printing or archiving
 
 - `events.csv`: opens in Excel
 - `events.jsonl`: ready for Splunk
@@ -83,7 +88,7 @@ Copy `blackbox.exe` onto the system. Then, in an **elevated** Command
 Prompt or PowerShell:
 
 ```
-blackbox.exe install --site "Lab 3" --classification UNCLASSIFIED --report-every weekly
+blackbox.exe install --site "Lab 3" --report-every weekly
 ```
 
 That's all. `install`:
@@ -107,30 +112,11 @@ Install options:
 | Option | Default | |
 |---|---|---|
 | `--site` | *(blank)* | Name shown at the top of reports |
-| `--classification` | `UNCLASSIFIED` | Banner text, e.g. `SECRET`, `SECRET//NOFORN`, `CUI` |
 | `--report-every` | `weekly` | `daily`, `weekly` (periods end Monday 00:00) or `monthly` |
 | `--collect-every` | `1h` | Use `30m` or `15m` on very busy systems |
 
 Running `install` again upgrades the program and keeps your settings.
 `blackbox uninstall` removes the scheduled task and keeps all reports.
-
-### Classification banner
-
-Set `classification` in `C:\ProgramData\Blackbox\blackbox.conf`. The
-standard banner color is chosen automatically:
-
-| Marking | Color |
-|---|---|
-| UNCLASSIFIED | green |
-| CUI | purple |
-| CONFIDENTIAL | blue |
-| SECRET | red |
-| TOP SECRET | orange |
-| TOP SECRET//SCI | yellow |
-
-To override the color, set `classification_color`. For a single report,
-the `--classification` option on `blackbox report` overrides the file, for
-example when testing on an unclassified machine.
 
 ## Commands
 
@@ -152,7 +138,7 @@ file. This works on any OS, including an unclassified test laptop:
 ```
 wevtutil qe Security /f:xml /c:20000 > security.xml
 wevtutil qe System /f:xml /c:5000 > system.xml
-blackbox report --xml security.xml --xml system.xml --classification UNCLASSIFIED
+blackbox report --xml security.xml --xml system.xml
 ```
 
 The repository includes a synthetic sample:

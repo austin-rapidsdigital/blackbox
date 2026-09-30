@@ -35,7 +35,6 @@ func sampleEvents(t *testing.T) []*event.Event {
 
 func build(t *testing.T, opt Options) *Report {
 	opt.Location = time.UTC
-	opt.Banner, opt.BannerBG, opt.BannerFG = "SECRET", "#c8102e", "#ffffff"
 	opt.WindowEnd = time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)
 	return Build(sampleEvents(t), nil, opt)
 }
@@ -118,29 +117,59 @@ func TestHealthGapWarning(t *testing.T) {
 }
 
 func TestWriteAndVerify(t *testing.T) {
-	r := build(t, Options{Site: "Test Site", SignatureBlock: true, ReviewRoles: []string{"ISSO / Auditor", "ISSM"}})
+	r := build(t, Options{Site: "Test Site", SignatureBlock: true, ReviewRoles: []string{"ISSO / Auditor", "ISSM"}, InReportsDir: true})
 	dir := filepath.Join(t.TempDir(), "rep")
 	if err := r.Write(dir); err != nil {
 		t.Fatal(err)
 	}
-	html, _ := os.ReadFile(filepath.Join(dir, "report.html"))
-	for _, want := range []string{"SECRET", "background:#c8102e", "Possible password guessing", "ISSM", "Test Site"} {
-		if !bytes.Contains(html, []byte(want)) {
-			t.Errorf("report.html missing %q", want)
+	read := func(name string) []byte {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		return b
+	}
+	// One page per category plus overview, health, people, review and the
+	// full printable file.
+	for _, name := range []string{"index.html", "health.html", "people.html", "review.html", "full-report.html",
+		"privileged.html", "removable_media.html", "failed_logon.html", "account_changes.html",
+		"audit_integrity.html", "other_security.html", "logon_activity.html"} {
+		read(name)
+	}
+	checks := map[string][]string{
+		"index.html":           {"Possible password guessing", `href="failed_logon.html#r`, "Mon 28 Sep 2026", "Test Site"},
+		"privileged.html":      {`class="on"><span>Privileged Activity`, "wevtutil  cl Application"},
+		"people.html":          {`href="privileged.html#user=admin_jd"`},
+		"review.html":          {"ISSO / Auditor", "ISSM"},
+		"full-report.html":     {`href="#privileged"`, "Possible password guessing", "ISSM", "wevtutil  cl Application"},
+		"failed_logon.html":    {"Failed logon for administrator"},
+		"removable_media.html": {"SanDisk Cruzer Blade"},
+	}
+	for name, wants := range checks {
+		b := read(name)
+		for _, w := range wants {
+			if !bytes.Contains(b, []byte(w)) {
+				t.Errorf("%s missing %q", name, w)
+			}
+		}
+	}
+	for _, name := range []string{"index.html", "full-report.html"} {
+		if bytes.Contains(read(name), []byte("SECRET")) || bytes.Contains(read(name), []byte("UNCLASSIFIED")) {
+			t.Errorf("%s still contains a classification banner", name)
 		}
 	}
 	if p, err := Verify(dir); err != nil || len(p) != 0 {
 		t.Fatalf("fresh report should verify: %v %v", p, err)
 	}
-	os.WriteFile(filepath.Join(dir, "events.csv"), []byte("tampered"), 0o640)
+	os.WriteFile(filepath.Join(dir, "privileged.html"), []byte("tampered"), 0o640)
 	if p, _ := Verify(dir); len(p) != 1 || !strings.Contains(p[0], "CHANGED") {
 		t.Errorf("tampering not detected: %v", p)
 	}
-	if err := WriteIndex(filepath.Dir(dir), "Test Site", "SECRET", "#c8102e", "#fff", time.UTC); err != nil {
+	if err := WriteIndex(filepath.Dir(dir), "Test Site", time.UTC); err != nil {
 		t.Fatal(err)
 	}
 	idx, _ := os.ReadFile(filepath.Join(filepath.Dir(dir), "index.html"))
-	if !bytes.Contains(idx, []byte("rep/report.html")) {
-		t.Error("index does not link the report")
+	if !bytes.Contains(idx, []byte("rep/index.html")) {
+		t.Error("list of reports does not link the report")
 	}
 }

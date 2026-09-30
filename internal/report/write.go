@@ -21,30 +21,26 @@ import (
 	"github.com/casea1/blackbox/internal/store"
 )
 
-// Files written into every report folder, in manifest order.
-var reportFiles = []string{"report.html", "events.csv", "events.jsonl", "summary.json"}
-
 // Summary is summary.json: a small machine-readable record of the report,
 // used to build the index page.
 type Summary struct {
-	Site           string         `json:"site,omitempty"`
-	Classification string         `json:"classification"`
-	WindowStart    time.Time      `json:"window_start,omitzero"`
-	WindowEnd      time.Time      `json:"window_end"`
-	Generated      time.Time      `json:"generated"`
-	Hosts          []string       `json:"hosts"`
-	Events         int            `json:"events"`
-	High           int            `json:"high"`
-	Medium         int            `json:"medium"`
-	ByCategory     map[string]int `json:"by_category"`
-	Lost           uint64         `json:"events_lost"`
-	LogClears      int            `json:"log_clears"`
-	Version        string         `json:"blackbox_version"`
-	Source         string         `json:"source"`
+	Site        string         `json:"site,omitempty"`
+	WindowStart time.Time      `json:"window_start,omitzero"`
+	WindowEnd   time.Time      `json:"window_end"`
+	Generated   time.Time      `json:"generated"`
+	Hosts       []string       `json:"hosts"`
+	Events      int            `json:"events"`
+	High        int            `json:"high"`
+	Medium      int            `json:"medium"`
+	ByCategory  map[string]int `json:"by_category"`
+	Lost        uint64         `json:"events_lost"`
+	LogClears   int            `json:"log_clears"`
+	Version     string         `json:"blackbox_version"`
+	Source      string         `json:"source"`
 }
 
 func (r *Report) summary() Summary {
-	s := Summary{Site: r.Site, Classification: r.Banner, WindowStart: r.WindowStart, WindowEnd: r.WindowEnd,
+	s := Summary{Site: r.Site, WindowStart: r.WindowStart, WindowEnd: r.WindowEnd,
 		Generated: r.Generated, Hosts: r.Hosts, Events: len(r.Events), ByCategory: map[string]int{},
 		LogClears: r.Health.LogClears, Version: r.Version, Source: r.Source}
 	if s.WindowStart.IsZero() {
@@ -68,13 +64,14 @@ func (r *Report) summary() Summary {
 	return s
 }
 
-// Write creates dir and writes the report, exports and manifest into it.
+// Write creates dir and writes the report pages, exports and manifest
+// into it.
 func (r *Report) Write(dir string) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	var html bytes.Buffer
-	if err := r.WriteHTML(&html); err != nil {
+	contents, err := r.RenderPages()
+	if err != nil {
 		return fmt.Errorf("render report: %w", err)
 	}
 	var csvBuf, jsonl bytes.Buffer
@@ -92,14 +89,17 @@ func (r *Report) Write(dir string) error {
 	if err != nil {
 		return err
 	}
-	contents := map[string][]byte{
-		"report.html":  html.Bytes(),
-		"events.csv":   csvBuf.Bytes(),
-		"events.jsonl": jsonl.Bytes(),
-		"summary.json": append(sum, '\n'),
+	contents["events.csv"] = csvBuf.Bytes()
+	contents["events.jsonl"] = jsonl.Bytes()
+	contents["summary.json"] = append(sum, '\n')
+
+	names := make([]string, 0, len(contents))
+	for name := range contents {
+		names = append(names, name)
 	}
+	sort.Strings(names)
 	var manifest strings.Builder
-	for _, name := range reportFiles {
+	for _, name := range names {
 		if err := store.WriteFileAtomic(filepath.Join(dir, name), contents[name], 0o640); err != nil {
 			return err
 		}
@@ -205,13 +205,12 @@ func Verify(dir string) ([]string, error) {
 // IndexEntry is one row on the index page.
 type IndexEntry struct {
 	Summary
-	Dir    string
-	Period string
+	Dir string
 }
 
 // WriteIndex rebuilds reportsDir/index.html from every report's
 // summary.json.
-func WriteIndex(reportsDir, site, banner, bg, fg string, loc *time.Location) error {
+func WriteIndex(reportsDir, site string, loc *time.Location) error {
 	matches, err := filepath.Glob(filepath.Join(reportsDir, "*", "summary.json"))
 	if err != nil {
 		return err
@@ -227,7 +226,6 @@ func WriteIndex(reportsDir, site, banner, bg, fg string, loc *time.Location) err
 			continue
 		}
 		e := IndexEntry{Summary: s, Dir: filepath.Base(filepath.Dir(m))}
-		e.Period = s.WindowStart.In(loc).Format("2006-01-02 15:04") + " – " + s.WindowEnd.In(loc).Format("2006-01-02 15:04")
 		entries = append(entries, e)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].WindowEnd.After(entries[j].WindowEnd) })
@@ -236,7 +234,7 @@ func WriteIndex(reportsDir, site, banner, bg, fg string, loc *time.Location) err
 		return err
 	}
 	var buf bytes.Buffer
-	err = t.Execute(&buf, map[string]any{"Site": site, "Banner": banner, "BannerBG": bg, "BannerFG": fg, "Entries": entries})
+	err = t.Execute(&buf, map[string]any{"Site": site, "Entries": entries})
 	if err != nil {
 		return err
 	}

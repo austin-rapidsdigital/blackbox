@@ -23,9 +23,6 @@ const maxRowsPerSection = 5000
 // Options describe the report being built.
 type Options struct {
 	Site           string
-	Banner         string
-	BannerBG       string
-	BannerFG       string
 	WindowStart    time.Time // zero = from the beginning of collected data
 	WindowEnd      time.Time
 	Generated      time.Time
@@ -34,6 +31,7 @@ type Options struct {
 	Location       *time.Location
 	SignatureBlock bool
 	ReviewRoles    []string
+	InReportsDir   bool // report sits in the reports folder next to the list of all reports
 
 	ExcludeUsers     []string
 	ExcludeProcesses []string

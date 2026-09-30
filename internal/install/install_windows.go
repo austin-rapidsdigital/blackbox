@@ -67,7 +67,7 @@ func Install(opt Options) error {
 	// 3. Config (kept if it already exists, so upgrades keep settings).
 	cfgPath := config.DefaultPath()
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-		text := config.Render(opt.Site, opt.Classification, opt.ReportEvery)
+		text := config.Render(opt.Site, opt.ReportEvery)
 		text = strings.ReplaceAll(text, "\n", "\r\n") // friendly for Notepad
 		if err := os.WriteFile(cfgPath, []byte(text), 0o640); err != nil {
 			return err

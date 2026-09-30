@@ -213,7 +213,6 @@ Why:
 ### Layout
 
 1. **Header**
-   - Classification banner (configurable text and color)
    - Hosts covered, time window, Blackbox version and rule-set version
 2. **Summary**
    - Counts by category
@@ -367,7 +366,6 @@ blackbox uninstall            # remove the task/timer; reports are kept
   - An SBOM (CycloneDX) and SHA-256 checksums published with every release.
 - **FIPS.** Build with Go's FIPS 140-3 module (`GOFIPS140`) so hashing uses
   validated cryptography.
-- **Classification banner.** Configurable, and shown on every report.
 
 ---
 
@@ -379,8 +377,6 @@ lists are comma-separated.
 
 ```
 site_name =
-classification = UNCLASSIFIED      # SECRET, SECRET//NOFORN, CUI, … (standard colors applied)
-classification_color =             # optional #rrggbb override
 report_every = weekly              # daily | weekly | monthly
 retention_days = 0                 # 0 = keep forever
 exclude_users =                    # e.g. svc_backup, svc_scanner
@@ -428,7 +424,8 @@ The answers are in section 13. The original questions were:
 | Report schedule | Windows LAN hosts currently run PowerStrux daily because a noisy tool overwrites logs within a week. Blackbox separates **collection (hourly by default, `--collect-every`)** from **reporting (`report_every`: daily/weekly/monthly, default weekly)**. Hourly collection captures events before rollover, so weekly reports lose nothing. Linux reports are weekly. |
 | Reviewers | ISSO/Auditor, then ISSM. Nobody else. The report ends with a printable signature block for both roles. Electronic review records (`blackbox review`) are still planned for M4. |
 | Audit baseline | **Report only.** `check` and the report's health panel show what is missing and the command that fixes it. Blackbox never changes settings. |
-| Classification | Configurable per install (`--classification` / `classification =`). The default is UNCLASSIFIED; production is SECRET. `blackbox report --classification` overrides it for a single report. Standard banner colors are applied automatically. |
+| Classification banner | Not needed, and removed. |
+| Report layout | A folder of linked pages designed for a 2560×1440 desktop: a sidebar, an overview page with a clear From / To / Length period block, one page per category, plus Audit health, People and Review pages. `full-report.html` holds everything in one file for printing and archiving. The look is plain and dense: square edges, thin rules, and severity shown as colored text with a small square marker. |
 | Report template | No existing template needs to be matched. |
 | Config format | Plain `key = value`, not YAML. This keeps the module at zero third-party dependencies. |
 | Report chain | Each report covers the time up to its period end and includes every event not already reported. Events collected late, for example from before a system was powered off, go into the next report marked *Late*. Every event appears in exactly one report (`app.SelectWindow`). |

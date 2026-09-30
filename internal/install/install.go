@@ -9,11 +9,10 @@ import (
 
 // Options for install.
 type Options struct {
-	Site           string
-	Classification string
-	ReportEvery    string
-	CollectEvery   time.Duration
-	Logf           func(format string, args ...any)
+	Site         string
+	ReportEvery  string
+	CollectEvery time.Duration
+	Logf         func(format string, args ...any)
 }
 
 // TaskName is the Windows scheduled task name.

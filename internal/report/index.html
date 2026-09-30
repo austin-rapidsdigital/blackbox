@@ -3,45 +3,47 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.Banner}} — Blackbox Reports{{if .Site}} — {{.Site}}{{end}}</title>
+<title>Audit reports{{if .Site}} · {{.Site}}{{end}}</title>
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#1c2430;--muted:#5b6675;--line:#dde2e8;--soft:#eef1f5;--high:#b42318;--high-bg:#fdecea;--med:#9a5b00;--med-bg:#fff4e0;--ok:#11703c}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Segoe UI",system-ui,-apple-system,Arial,sans-serif}
-.banner{text-align:center;font-weight:700;letter-spacing:.08em;padding:4px 8px;font-size:13px}
-.wrap{max-width:1100px;margin:0 auto;padding:0 20px}
-h1{font-size:24px;margin:24px 0 4px}.desc{color:var(--muted);margin:0 0 16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 16px;margin-bottom:24px;overflow-x:auto}
-table{border-collapse:collapse;width:100%;font-size:13px}
-th{text-align:left;font-size:12px;color:var(--muted);border-bottom:2px solid var(--line);padding:8px;white-space:nowrap}
-td{border-bottom:1px solid var(--soft);padding:8px;white-space:nowrap}
-td.num,th.num{text-align:right}
-.sev{display:inline-block;border-radius:4px;padding:0 7px;font-size:11px;font-weight:700;text-transform:uppercase}
-.high{color:var(--high);background:var(--high-bg)}.medium{color:var(--med);background:var(--med-bg)}
-.ok{color:var(--ok);font-weight:600}.bad{color:var(--high);font-weight:600}.muted{color:var(--muted)}
-@media (max-width:640px){.wrap{padding:0 12px}}
+:root{--ink:#15181c;--ink2:#353b43;--muted:#666d76;--rule:#dcdfe3;--rule2:#eceef0;--accent:#1d4b73;--hover:#f3f6f9;--high:#b3261e;--med:#9c5700;--ok:#1e6b3a;--mono:Consolas,"Cascadia Mono","SF Mono",Menlo,monospace}
+*{box-sizing:border-box;border-radius:0}
+body{margin:0;background:#fff;color:var(--ink);font:14px/1.5 "Segoe UI",system-ui,-apple-system,Arial,sans-serif}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.topbar{height:48px;background:var(--ink);color:#fff;display:flex;align-items:center;gap:24px;padding:0 24px}
+.wordmark{font-weight:700;letter-spacing:.22em;font-size:13px}
+.topbar .site{color:#c9ced4;font-size:13px;border-left:1px solid #3b4148;padding-left:24px}
+main{padding:32px 48px 64px;max-width:1880px}
+h1{font-size:24px;font-weight:600;margin:0 0 4px}
+.lede{color:var(--ink2);margin:0 0 24px}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+thead th{text-align:left;font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--ink);padding:8px 12px;white-space:nowrap}
+tbody td{border-bottom:1px solid var(--rule2);padding:9px 12px;white-space:nowrap}
+tbody tr:hover td{background:var(--hover)}
+td.mono{font-family:var(--mono);font-size:13px}
+td.num,th.num{text-align:right;font-family:var(--mono)}
+.arrow{color:var(--muted);margin:0 8px}
+.c-high{color:var(--high);font-weight:600}.c-med{color:var(--med);font-weight:600}.ok{color:var(--ok);font-weight:600}.muted{color:var(--muted)}
 </style>
 </head>
 <body>
-<div class="banner" style="background:{{.BannerBG | css}};color:{{.BannerFG | css}}">{{.Banner}}</div>
-<div class="wrap">
-<h1>{{if .Site}}{{.Site}} — {{end}}Audit Reports</h1>
-<p class="desc">Newest first. Each report covers the period since the previous one, so together they form a continuous audit record.</p>
-<div class="card">
+<header class="topbar"><span class="wordmark">BLACKBOX</span><span class="site">{{if .Site}}{{.Site}} · {{end}}Audit reports</span></header>
+<main>
+<h1>Audit reports</h1>
+<p class="lede">Newest first. Each report starts where the previous one ended, so together they form a continuous audit record.</p>
 {{if .Entries}}
 <table>
-<thead><tr><th>Period</th><th>Systems</th><th class="num">Events</th><th>Needs attention</th><th>Collection</th><th></th></tr></thead>
+<thead><tr><th>From</th><th></th><th>To</th><th>Systems</th><th class="num">Events</th><th class="num">High</th><th class="num">Medium</th><th>Collection</th><th></th></tr></thead>
 <tbody>
 {{range .Entries}}<tr>
-<td>{{.Period}}</td><td>{{join .Hosts ", "}}</td><td class="num">{{.Events}}</td>
-<td>{{if .High}}<span class="sev high">{{.High}} high</span> {{end}}{{if .Medium}}<span class="sev medium">{{.Medium}} medium</span>{{end}}{{if not (or .High .Medium)}}<span class="muted">none</span>{{end}}</td>
-<td>{{if .Lost}}<span class="bad">{{.Lost}} events lost</span>{{else if .LogClears}}<span class="bad">log cleared</span>{{else}}<span class="ok">complete</span>{{end}}</td>
-<td><a href="{{.Dir}}/report.html">Open report</a></td>
+<td class="mono">{{stamp .WindowStart}}</td><td class="arrow">→</td><td class="mono">{{stamp .WindowEnd}} {{zone .WindowEnd}}</td>
+<td>{{join .Hosts ", "}}</td><td class="num">{{commas .Events}}</td>
+<td class="num">{{if .High}}<span class="c-high">{{.High}}</span>{{else}}0{{end}}</td>
+<td class="num">{{if .Medium}}<span class="c-med">{{.Medium}}</span>{{else}}0{{end}}</td>
+<td>{{if .Lost}}<span class="c-high">{{commas .Lost}} events lost</span>{{else if .LogClears}}<span class="c-high">log cleared</span>{{else}}<span class="ok">complete</span>{{end}}</td>
+<td><a href="{{.Dir}}/index.html">Open report</a></td>
 </tr>{{end}}
 </tbody></table>
 {{else}}<p class="muted">No reports yet.</p>{{end}}
-</div>
-</div>
-<div class="banner" style="background:{{.BannerBG | css}};color:{{.BannerFG | css}}">{{.Banner}}</div>
+</main>
 </body>
 </html>

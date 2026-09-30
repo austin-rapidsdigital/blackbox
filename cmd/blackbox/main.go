@@ -80,24 +80,15 @@ func printf(format string, args ...any) { fmt.Printf(format+"\n", args...) }
 
 // common flags shared by commands that read the config.
 type common struct {
-	configPath     string
-	classification string
+	configPath string
 }
 
 func (c *common) register(fs *flag.FlagSet) {
 	fs.StringVar(&c.configPath, "config", config.DefaultPath(), "configuration file")
-	fs.StringVar(&c.classification, "classification", "", "override the classification banner (e.g. UNCLASSIFIED, SECRET)")
 }
 
 func (c *common) load() (*config.Config, error) {
-	cfg, err := config.Load(c.configPath)
-	if err != nil {
-		return nil, err
-	}
-	if c.classification != "" {
-		cfg.Classification = strings.ToUpper(c.classification)
-	}
-	return cfg, nil
+	return config.Load(c.configPath)
 }
 
 func newApp(cfg *config.Config, logf func(string, ...any)) *app.App {
@@ -107,7 +98,6 @@ func newApp(cfg *config.Config, logf func(string, ...any)) *app.App {
 func cmdInstall(args []string) error {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	site := fs.String("site", "", "site or system name shown on reports")
-	class := fs.String("classification", "UNCLASSIFIED", "classification banner text (change later in the config file)")
 	every := fs.String("report-every", "weekly", "how often to produce a report: daily, weekly or monthly")
 	collectEvery := fs.Duration("collect-every", time.Hour, "how often to collect events (e.g. 1h, 30m, 15m)")
 	noReport := fs.Bool("no-first-report", false, "do not produce a report straight away")
@@ -123,7 +113,7 @@ func cmdInstall(args []string) error {
 		return fmt.Errorf("--collect-every must be whole minutes between 5m and 24h")
 	}
 	fmt.Println("Installing Blackbox", version)
-	err := install.Install(install.Options{Site: *site, Classification: strings.ToUpper(*class),
+	err := install.Install(install.Options{Site: *site,
 		ReportEvery: *every, CollectEvery: *collectEvery, Logf: printf})
 	if err != nil {
 		return err
@@ -146,7 +136,7 @@ func cmdInstall(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("\nDone. First report: %s\n", filepath.Join(dir, "report.html"))
+	fmt.Printf("\nDone. First report: %s\n", filepath.Join(dir, "index.html"))
 	fmt.Printf("All reports:        %s\n", filepath.Join(a.ReportsDir(), "index.html"))
 	return nil
 }
@@ -174,7 +164,7 @@ func cmdRun(args []string) error {
 		return err
 	}
 	if dir != "" {
-		logf("report written: %s", filepath.Join(dir, "report.html"))
+		logf("report written: %s", filepath.Join(dir, "index.html"))
 	}
 	logf("run finished")
 	return nil
@@ -230,7 +220,7 @@ func cmdReport(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Report written:", filepath.Join(dir, "report.html"))
+	fmt.Println("Report written:", filepath.Join(dir, "index.html"))
 	return nil
 }
 
