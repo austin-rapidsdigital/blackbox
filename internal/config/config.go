@@ -8,11 +8,13 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds all settings. Zero values are replaced by defaults.
@@ -22,7 +24,9 @@ type Config struct {
 	RetentionDays    int      // 0 = keep forever
 	ExcludeUsers     []string // accounts to leave out (case-insensitive)
 	ExcludeProcesses []string // program names/paths to leave out
-	DataDir          string
+	DataDir          string   // state and collected events
+	ReportDir        string   // where reports go ("" = DataDir/reports)
+	CollectEvery     time.Duration
 
 	Path string // file the config was loaded from ("" if defaults)
 }
@@ -30,12 +34,22 @@ type Config struct {
 // Default returns the built-in defaults.
 func Default() *Config {
 	return &Config{
-		ReportEvery: "weekly",
-		DataDir:     DefaultDataDir(),
+		ReportEvery:  "weekly",
+		DataDir:      DefaultDataDir(),
+		CollectEvery: time.Hour,
 	}
 }
 
-// DefaultDataDir is where state, collected events and reports live.
+// ReportsDir is the folder reports are written to.
+func (c *Config) ReportsDir() string {
+	if c.ReportDir != "" {
+		return c.ReportDir
+	}
+	return filepath.Join(c.DataDir, "reports")
+}
+
+// DefaultDataDir is where state and collected events live (and reports,
+// unless report_dir is set).
 func DefaultDataDir() string {
 	if runtime.GOOS == "windows" {
 		pd := os.Getenv("ProgramData")
@@ -57,17 +71,25 @@ func DefaultPath() string {
 
 // Load reads path. A missing file yields defaults (no error).
 func Load(path string) (*Config, error) {
-	c := Default()
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
-		return c, nil
+		return Default(), nil
 	}
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+	c, err := parse(f, path)
+	if err != nil {
+		return nil, err
+	}
 	c.Path = path
-	sc := bufio.NewScanner(f)
+	return c, nil
+}
+
+func parse(r io.Reader, path string) (*Config, error) {
+	c := Default()
+	sc := bufio.NewScanner(r)
 	n := 0
 	for sc.Scan() {
 		n++
@@ -121,6 +143,16 @@ func (c *Config) set(k, v string) error {
 		if v != "" {
 			c.DataDir = v
 		}
+	case "report_dir":
+		c.ReportDir = v
+	case "collect_every":
+		if v != "" {
+			d, err := time.ParseDuration(v)
+			if err != nil || d < 5*time.Minute {
+				return fmt.Errorf("collect_every must be a duration of at least 5m, e.g. 1h or 30m")
+			}
+			c.CollectEvery = d
+		}
 	default:
 		return fmt.Errorf("unknown setting %q", k)
 	}
@@ -134,7 +166,97 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("report_every must be daily, weekly or monthly (got %q)", c.ReportEvery)
 	}
+	if c.ReportDir != "" && !IsAbs(c.ReportDir) {
+		return fmt.Errorf("report_dir must be a full path, e.g. %s (got %q)", exampleDir(), c.ReportDir)
+	}
 	return nil
+}
+
+// IsAbs reports whether p is a full path. On Windows that includes UNC
+// paths (\\server\share\folder).
+func IsAbs(p string) bool {
+	return filepath.IsAbs(p) || (runtime.GOOS == "windows" && strings.HasPrefix(p, `\\`))
+}
+
+func exampleDir() string {
+	if runtime.GOOS == "windows" {
+		return `D:\AuditReports`
+	}
+	return "/srv/audit-reports"
+}
+
+// Settable lists the settings `blackbox config set` may change.
+var Settable = []string{"site_name", "report_every", "report_dir", "retention_days", "exclude_users", "exclude_processes"}
+
+// SetValue changes one user-settable setting in the config file (see
+// Settable), keeping its comments and line endings.
+func SetValue(path, key, value string) error {
+	key = strings.ToLower(strings.TrimSpace(key))
+	ok := false
+	for _, k := range Settable {
+		ok = ok || k == key
+	}
+	if !ok {
+		return fmt.Errorf("%q cannot be set; settable: %s", key, strings.Join(Settable, ", "))
+	}
+	return SetValues(path, [][2]string{{key, value}})
+}
+
+// SetValues changes settings in the config file, keeping its comments and
+// line endings. The result is validated before it is saved, so a bad value
+// never leaves a broken file behind. A missing file is created from the
+// template first.
+func SetValues(path string, kv [][2]string) error {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		b = []byte(Render("", "weekly", "", time.Hour))
+		if runtime.GOOS == "windows" {
+			b = []byte(strings.ReplaceAll(string(b), "\n", "\r\n"))
+		}
+	} else if err != nil {
+		return err
+	}
+	text := string(b)
+	nl := "\n"
+	if strings.Contains(text, "\r\n") {
+		nl = "\r\n"
+	}
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	for _, p := range kv {
+		key, value := strings.ToLower(strings.TrimSpace(p[0])), strings.TrimSpace(p[1])
+		if strings.ContainsAny(value, "\r\n") {
+			return fmt.Errorf("%s: value must be a single line", key)
+		}
+		newLine := key + " = " + value
+		replaced := false
+		for i, l := range lines {
+			t := strings.TrimSpace(l)
+			if k, _, found := strings.Cut(t, "="); found && !strings.HasPrefix(t, "#") && strings.ToLower(strings.TrimSpace(k)) == key {
+				lines[i] = newLine
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			if n := len(lines); n > 0 && lines[n-1] == "" {
+				lines = append(lines[:n-1], newLine, "")
+			} else {
+				lines = append(lines, newLine)
+			}
+		}
+	}
+	out := strings.Join(lines, nl)
+	if _, err := parse(strings.NewReader(out), path); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".new"
+	if err := os.WriteFile(tmp, []byte(out), 0o640); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func list(v string) []string {
@@ -160,6 +282,19 @@ site_name = {{SITE}}
 # rollover even with weekly reports.
 report_every = {{REPORT_EVERY}}
 
+# Folder where reports are written. Leave blank for the default:
+#   {{DEFAULT_REPORTS}}
+# The folder may be one you have locked down; Blackbox only needs to be able
+# to write to it. To move reports later, run (as administrator/root):
+#   blackbox config set report_dir <folder>
+# which checks the folder first (and on Linux updates the service sandbox).
+# Existing reports stay where they are.
+report_dir = {{REPORT_DIR}}
+
+# How often events are collected (the scheduled task/timer). To change it,
+# run the installer again; it offers the current settings as defaults.
+collect_every = {{COLLECT_EVERY}}
+
 # Days to keep reports and collected events. 0 = keep forever.
 retention_days = 0
 
@@ -173,6 +308,19 @@ exclude_processes =
 `
 
 // Render fills in Template.
-func Render(site, reportEvery string) string {
-	return strings.NewReplacer("{{SITE}}", site, "{{REPORT_EVERY}}", reportEvery).Replace(Template)
+func Render(site, reportEvery, reportDir string, collectEvery time.Duration) string {
+	if collectEvery == 0 {
+		collectEvery = time.Hour
+	}
+	return strings.NewReplacer("{{SITE}}", site, "{{REPORT_EVERY}}", reportEvery,
+		"{{REPORT_DIR}}", reportDir, "{{DEFAULT_REPORTS}}", filepath.Join(DefaultDataDir(), "reports"),
+		"{{COLLECT_EVERY}}", FormatDuration(collectEvery)).Replace(Template)
+}
+
+// FormatDuration writes 1h, 30m or 2h (not Go's 1h0m0s).
+func FormatDuration(d time.Duration) string {
+	if d%time.Hour == 0 {
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dm", int(d.Minutes()))
 }

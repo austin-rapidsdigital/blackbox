@@ -57,21 +57,24 @@ func Install(opt Options) error {
 		return err
 	}
 	logf("Data folder:         %s (root only)", data)
-
-	cfgPath := config.DefaultPath()
-	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
-		return err
-	}
-	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-		if err := os.WriteFile(cfgPath, []byte(config.Render(opt.Site, opt.ReportEvery)), 0o640); err != nil {
+	if opt.ReportDir != "" {
+		if err := PrepareReportDir(opt.ReportDir, logf); err != nil {
 			return err
 		}
-		logf("Configuration:       %s", cfgPath)
-	} else {
-		logf("Configuration:       %s (kept existing file)", cfgPath)
 	}
 
-	if err := os.WriteFile(serviceFile, []byte(systemdService(dst, data)), 0o644); err != nil {
+	// Config: created, or updated with these settings on a re-install.
+	cfgPath := config.DefaultPath()
+	if err := writeConfig(cfgPath, opt, false); err != nil {
+		return err
+	}
+	logf("Configuration:       %s", cfgPath)
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(serviceFile, []byte(systemdService(dst, data, cfg.ReportsDir())), 0o644); err != nil {
 		return err
 	}
 	if err := os.WriteFile(timerFile, []byte(timer), 0o644); err != nil {
@@ -82,7 +85,7 @@ func Install(opt Options) error {
 			return fmt.Errorf("systemctl %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 		}
 	}
-	logf("Scheduled:           blackbox.timer — collects every %s as root; %s reports", opt.CollectEvery, opt.ReportEvery)
+	logf("Scheduled:           blackbox.timer — collects %s as root; %s reports", EveryText(opt.CollectEvery), opt.ReportEvery)
 	return nil
 }
 
@@ -100,10 +103,36 @@ func Uninstall(logf func(string, ...any)) error {
 	}
 	exec.Command("systemctl", "daemon-reload").Run()
 	logf("Removed the blackbox.timer schedule.")
-	logf("Reports and collected events were kept in %s.", config.DefaultDataDir())
+	if cfg, _ := config.Load(config.DefaultPath()); cfg != nil {
+		logf("Reports were kept in %s.", cfg.ReportsDir())
+	}
+	logf("Collected events were kept in %s.", config.DefaultDataDir())
 	logf("To remove the program: rm %s (and %s if no longer needed).", ProgramPath(), filepath.Dir(config.DefaultPath()))
 	return nil
 }
+
+// afterReportDirChange lets the sandboxed service write to the new report
+// folder (systemd ReadWritePaths), if Blackbox is installed.
+func afterReportDirChange(logf func(string, ...any)) error {
+	if _, err := os.Stat(serviceFile); err != nil {
+		return nil // not installed as a service
+	}
+	cfg, err := config.Load(config.DefaultPath())
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(serviceFile, []byte(systemdService(ProgramPath(), config.DefaultDataDir(), cfg.ReportsDir())), 0o644); err != nil {
+		return err
+	}
+	if out, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
+		return fmt.Errorf("systemctl daemon-reload: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	logf("Updated blackbox.service so it may write to %s.", cfg.ReportsDir())
+	return nil
+}
+
+// restrictDir limits a folder Blackbox created to root.
+func restrictDir(dir string) error { return os.Chmod(dir, 0o700) }
 
 func copyFile(src, dst string, mode os.FileMode) error {
 	in, err := os.Open(src)
@@ -125,4 +154,12 @@ func copyFile(src, dst string, mode os.FileMode) error {
 		return err
 	}
 	return os.Rename(tmp, dst)
+}
+
+// RequireAdmin returns an error unless running as root.
+func RequireAdmin() error {
+	if os.Geteuid() != 0 {
+		return errors.New("run this as root (sudo)")
+	}
+	return nil
 }

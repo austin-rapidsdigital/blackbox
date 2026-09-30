@@ -58,24 +58,22 @@ func Install(opt Options) error {
 	if err := os.MkdirAll(data, 0o750); err != nil {
 		return err
 	}
-	if out, err := exec.Command("icacls.exe", data, "/inheritance:r",
-		"/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F").CombinedOutput(); err != nil {
-		return fmt.Errorf("restrict permissions on %s: %v: %s", data, err, out)
+	if err := restrictDir(data); err != nil {
+		return err
 	}
 	logf("Data folder:         %s (Administrators and SYSTEM only)", data)
-
-	// 3. Config (kept if it already exists, so upgrades keep settings).
-	cfgPath := config.DefaultPath()
-	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-		text := config.Render(opt.Site, opt.ReportEvery)
-		text = strings.ReplaceAll(text, "\n", "\r\n") // friendly for Notepad
-		if err := os.WriteFile(cfgPath, []byte(text), 0o640); err != nil {
+	if opt.ReportDir != "" {
+		if err := PrepareReportDir(opt.ReportDir, logf); err != nil {
 			return err
 		}
-		logf("Configuration:       %s", cfgPath)
-	} else {
-		logf("Configuration:       %s (kept existing file)", cfgPath)
 	}
+
+	// 3. Config: created, or updated with these settings on a re-install.
+	cfgPath := config.DefaultPath()
+	if err := writeConfig(cfgPath, opt, true); err != nil {
+		return err
+	}
+	logf("Configuration:       %s", cfgPath)
 
 	// 4. Scheduled task.
 	start := time.Now().Truncate(time.Hour).Add(5 * time.Minute)
@@ -88,23 +86,86 @@ func Install(opt Options) error {
 	if out, err := exec.Command("schtasks.exe", "/Create", "/TN", TaskName, "/XML", tmp, "/F").CombinedOutput(); err != nil {
 		return fmt.Errorf("create scheduled task: %v: %s", err, strings.TrimSpace(string(out)))
 	}
-	logf("Scheduled task:      \"%s\" — collects every %s as SYSTEM; %s reports", TaskName, opt.CollectEvery, opt.ReportEvery)
+	logf("Scheduled task:      \"%s\" — collects %s as SYSTEM; %s reports", TaskName, EveryText(opt.CollectEvery), opt.ReportEvery)
+
+	// 5. Entry in Settings > Apps and Control Panel > Programs and Features.
+	if err := registerUninstall(dst, opt.Version); err != nil {
+		logf("Note: could not add Blackbox to Programs and Features: %v", err)
+	} else {
+		logf("Programs list:       \"Blackbox\" added to Settings > Apps and Programs and Features")
+	}
 	return nil
 }
 
-// Uninstall removes the scheduled task. Reports and collected data are
-// kept; the program file is left for the administrator to delete.
+// uninstallKey is where Windows lists installed programs.
+const uninstallKey = `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Blackbox`
+
+func registerUninstall(exe, version string) error {
+	size := "5000" // KB, shown as the program's size
+	if fi, err := os.Stat(exe); err == nil {
+		size = fmt.Sprint(fi.Size() / 1024)
+	}
+	values := [][3]string{
+		{"DisplayName", "REG_SZ", "Blackbox"},
+		{"DisplayVersion", "REG_SZ", version},
+		{"Publisher", "REG_SZ", "Blackbox project"},
+		{"InstallLocation", "REG_SZ", filepath.Dir(exe)},
+		{"DisplayIcon", "REG_SZ", exe},
+		{"UninstallString", "REG_SZ", `"` + exe + `" uninstall`},
+		{"QuietUninstallString", "REG_SZ", `"` + exe + `" uninstall`},
+		{"URLInfoAbout", "REG_SZ", "https://github.com/casea1/blackbox"},
+		{"NoModify", "REG_DWORD", "1"},
+		{"NoRepair", "REG_DWORD", "1"},
+		{"EstimatedSize", "REG_DWORD", size},
+	}
+	for _, v := range values {
+		if out, err := exec.Command("reg.exe", "add", uninstallKey, "/v", v[0], "/t", v[1], "/d", v[2], "/f").CombinedOutput(); err != nil {
+			return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+		}
+	}
+	return nil
+}
+
+// afterReportDirChange has nothing to update on Windows: the scheduled task
+// runs as SYSTEM and reads the report folder from the config each run.
+func afterReportDirChange(func(string, ...any)) error { return nil }
+
+// restrictDir limits a folder Blackbox created to Administrators and
+// SYSTEM (by SID, so it works on any language version of Windows).
+func restrictDir(dir string) error {
+	if out, err := exec.Command("icacls.exe", dir, "/inheritance:r",
+		"/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F").CombinedOutput(); err != nil {
+		return fmt.Errorf("restrict permissions on %s: %v: %s", dir, err, out)
+	}
+	return nil
+}
+
+// Uninstall removes the scheduled task, the Programs and Features entry
+// and the program folder. Reports, settings and collected data are kept.
 func Uninstall(logf func(string, ...any)) error {
 	if !isAdmin() {
 		return errors.New("uninstall must be run from an elevated (Run as administrator) prompt")
 	}
-	out, err := exec.Command("schtasks.exe", "/Delete", "/TN", TaskName, "/F").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("remove scheduled task: %v: %s", err, strings.TrimSpace(string(out)))
+	if out, err := exec.Command("schtasks.exe", "/Delete", "/TN", TaskName, "/F").CombinedOutput(); err != nil {
+		logf("Scheduled task: %s", strings.TrimSpace(string(out)))
+	} else {
+		logf("Removed scheduled task \"%s\".", TaskName)
 	}
-	logf("Removed scheduled task \"%s\".", TaskName)
-	logf("Reports and collected events were kept in %s.", config.DefaultDataDir())
-	logf("To remove the program, delete %s.", filepath.Dir(ProgramPath()))
+	exec.Command("reg.exe", "delete", uninstallKey, "/f").Run()
+	logf("Removed Blackbox from Programs and Features.")
+
+	// A running program cannot delete itself, so a short-lived cmd.exe
+	// removes the program folder once this process has exited.
+	dir := filepath.Dir(ProgramPath())
+	if _, err := os.Stat(dir); err == nil {
+		if err := exec.Command("cmd.exe", "/c", "ping -n 4 127.0.0.1 >nul & rmdir /s /q \""+dir+"\"").Start(); err == nil {
+			logf("Removing %s.", dir)
+		}
+	}
+	if cfg, _ := config.Load(config.DefaultPath()); cfg != nil {
+		logf("Reports were kept in %s.", cfg.ReportsDir())
+	}
+	logf("Settings and collected events were kept in %s.", config.DefaultDataDir())
 	return nil
 }
 
@@ -157,4 +218,12 @@ func utf16LE(s string) []byte {
 		b[3+2*i] = byte(c >> 8)
 	}
 	return b
+}
+
+// RequireAdmin returns an error unless running elevated.
+func RequireAdmin() error {
+	if !isAdmin() {
+		return errors.New("run this as an administrator (right-click Command Prompt > Run as administrator, or double-click Install.cmd)")
+	}
+	return nil
 }

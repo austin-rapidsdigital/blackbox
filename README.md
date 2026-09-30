@@ -39,8 +39,11 @@ connection, no dependencies.
 
 ## Install
 
+Nothing else needs to be installed first: no Go, no .NET, no runtime of any
+kind.
+
 **Windows:** download `blackbox-<version>-windows-amd64.zip` from
-[Releases](https://github.com/casea1/blackbox/releases/latest), unzip it,
+[Releases](https://github.com/casea1/blackbox/releases/latest), extract it,
 and double-click **`Install.cmd`**.
 
 **Linux:**
@@ -51,17 +54,27 @@ cd blackbox-<version>-linux-amd64
 sudo ./install.sh
 ```
 
-The installer schedules hourly collection, checks your audit settings
-against the DISA STIG (it never changes them), and produces the first
-report straight away. The [Windows](docs/windows.md) and
-[Linux](docs/linux.md) guides cover options, requirements and
-uninstalling.
+Setup asks four questions, each with a default you can accept by pressing
+Enter:
+
+- a site name
+- how often to produce reports
+- where to save them (any folder, including one you have locked down)
+- how often to collect events
+
+It then schedules collection, checks your audit settings against the DISA
+STIG (it never changes them), and produces the first report.
+
+**To change settings later**, such as moving reports to another folder,
+run the installer again. It shows your current settings as the defaults.
+On Windows, Blackbox appears in **Settings → Apps**, where it can be
+uninstalled like any other program.
 
 ## Reports
 
 Reports are written to `C:\ProgramData\Blackbox\reports\` on Windows and
-`/var/lib/blackbox/reports/` on Linux. Open `index.html` there for the list
-of all reports. Each report is one self-contained `report.html` file with
+`/var/lib/blackbox/reports/` on Linux, or to the folder you chose during
+setup. Open `index.html` there for the list of all reports. Each report is one self-contained `report.html` file with
 these views:
 
 | View | Shows |

@@ -42,6 +42,39 @@ jobs:
           $dir = Get-ChildItem C:\ProgramData\Blackbox\reports -Directory | Select-Object -First 1
           ./blackbox.exe verify $dir.FullName
           if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Install, change report folder, run the scheduled job, uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          go build -ldflags "-X main.version=0.0.0-ci" -o blackbox.exe ./cmd/blackbox
+          $r1 = Join-Path $env:RUNNER_TEMP "bb-reports"
+          $r2 = Join-Path $env:RUNNER_TEMP "bb-reports-2"
+          ./blackbox.exe install --yes --site CI --report-dir $r1 --no-first-report
+          if ($LASTEXITCODE -ne 0) { throw "install failed" }
+          $exe = "C:\Program Files\Blackbox\blackbox.exe"
+          if (-not (Test-Path $exe)) { throw "program not installed" }
+          schtasks /Query /TN "Blackbox Audit Collection" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "scheduled task missing" }
+          $key = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Blackbox"
+          if ((Get-ItemProperty $key).DisplayVersion -ne "0.0.0-ci") { throw "Programs and Features entry missing" }
+          & $exe config set report_dir $r2
+          if ($LASTEXITCODE -ne 0) { throw "config set failed" }
+          & $exe config
+          # Run the real scheduled task (as SYSTEM) and wait for the report.
+          schtasks /Run /TN "Blackbox Audit Collection" | Out-Null
+          $deadline = (Get-Date).AddMinutes(4)
+          while (-not (Get-ChildItem $r2 -Recurse -Filter report.html -ErrorAction SilentlyContinue)) {
+            if ((Get-Date) -gt $deadline) { Get-Content C:\ProgramData\Blackbox\blackbox.log -ErrorAction SilentlyContinue; throw "no report written by the scheduled task" }
+            Start-Sleep 5
+          }
+          Write-Host "Scheduled task wrote a report to $r2"
+          & $exe uninstall
+          Start-Sleep 8
+          if (Test-Path "C:\Program Files\Blackbox") { throw "program folder not removed" }
+          if (Test-Path $key) { throw "Programs and Features entry not removed" }
+          schtasks /Query /TN "Blackbox Audit Collection" 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw "scheduled task not removed" }
+          $global:LASTEXITCODE = 0
   linux-live:
     # End-to-end on a real Ubuntu machine: install auditd with Blackbox's
     # recommended rules, make some changes an auditor must see, then
@@ -86,3 +119,16 @@ jobs:
             fi
           done
           echo "All expected events found."
+      - name: Install, change report folder, run the scheduled job, uninstall
+        run: |
+          sudo ./blackbox install --yes --site CI --report-dir /srv/bb-reports --no-first-report
+          systemctl is-enabled blackbox.timer
+          sudo ./blackbox config set report_dir /srv/bb-reports-2
+          grep -q "ReadWritePaths=.*/srv/bb-reports-2" /etc/systemd/system/blackbox.service
+          sudo /usr/local/bin/blackbox config
+          # Run the real (sandboxed) service once and check it wrote a report.
+          sudo systemctl start blackbox.service
+          sudo find /srv/bb-reports-2 -name report.html | grep -q report.html || { sudo journalctl -u blackbox.service --no-pager | tail -30; exit 1; }
+          echo "Sandboxed service wrote a report to /srv/bb-reports-2"
+          sudo ./blackbox uninstall
+          if systemctl is-enabled blackbox.timer 2>/dev/null; then echo "timer not removed"; exit 1; fi

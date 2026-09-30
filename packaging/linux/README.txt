@@ -2,8 +2,9 @@ BLACKBOX - audit log reports for air-gapped systems
 ===================================================
 
 INSTALL
-  sudo ./install.sh --site "Lab 3" --report-every weekly
-  Sets up an hourly systemd timer, checks the audit configuration, and
+  sudo ./install.sh
+  Answer the questions (press Enter to accept each default). Setup
+  schedules hourly collection, checks the audit configuration, and
   produces the first report.
 
   auditd is required by the STIG and gives the most complete reports:
@@ -11,18 +12,15 @@ INSTALL
     sudo blackbox check --audit-rules | sudo tee /etc/audit/rules.d/99-blackbox.rules
     sudo augenrules --load
 
+CHANGE SETTINGS LATER (for example, the report folder)
+  Run sudo ./install.sh again: it shows the current settings as the
+  defaults, so change only what you need.
+
 REPORTS
-  /var/lib/blackbox/reports/index.html   (list of all reports)
-
-SETTINGS
-  /etc/blackbox/blackbox.conf
-
-OTHER COMMANDS
-  sudo blackbox report       produce a report now
-  sudo blackbox check        compare audit settings with the DISA STIG
-  blackbox verify DIR        confirm a report has not been altered
+  Default folder: /var/lib/blackbox/reports  (open index.html)
 
 UNINSTALL
-  sudo ./uninstall.sh (reports are kept)
+  sudo ./uninstall.sh   (reports and settings are kept)
 
+No other software is needed on the system.
 Documentation: https://github.com/casea1/blackbox

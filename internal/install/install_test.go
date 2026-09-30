@@ -2,6 +2,7 @@ package install
 
 import (
 	"encoding/xml"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -43,15 +44,40 @@ func TestSystemdUnits(t *testing.T) {
 		}
 	}
 	timer, _ := systemdTimer(time.Hour)
-	svc := systemdService("/usr/local/bin/blackbox", "/var/lib/blackbox")
+	svc := systemdService("/usr/local/bin/blackbox", "/var/lib/blackbox", "/srv/audit-reports", "/var/lib/blackbox")
 	for _, want := range []string{"Persistent=true", "WantedBy=timers.target"} {
 		if !strings.Contains(timer, want) {
 			t.Errorf("timer missing %s", want)
 		}
 	}
-	for _, want := range []string{"ExecStart=/usr/local/bin/blackbox run", "PrivateNetwork=yes", "ProtectSystem=strict", "ReadWritePaths=/var/lib/blackbox"} {
+	for _, want := range []string{"ExecStart=/usr/local/bin/blackbox run", "PrivateNetwork=yes", "ProtectSystem=strict", "ReadWritePaths=/var/lib/blackbox /srv/audit-reports\n"} {
 		if !strings.Contains(svc, want) {
 			t.Errorf("service missing %s", want)
 		}
+	}
+}
+
+func TestPrepareReportDir(t *testing.T) {
+	base := t.TempDir()
+	newDir := base + "/new/reports"
+	var logs []string
+	logf := func(f string, a ...any) { logs = append(logs, f) }
+	if err := PrepareReportDir(newDir, logf); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(newDir); err != nil || !fi.IsDir() {
+		t.Fatalf("folder not created: %v", err)
+	}
+	// An existing folder is used as is.
+	if err := PrepareReportDir(base, logf); err != nil {
+		t.Fatal(err)
+	}
+	if err := PrepareReportDir("relative/path", logf); err == nil {
+		t.Error("relative path accepted")
+	}
+	f := base + "/afile"
+	os.WriteFile(f, nil, 0o600)
+	if err := PrepareReportDir(f, logf); err == nil {
+		t.Error("a file was accepted as the report folder")
 	}
 }

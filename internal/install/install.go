@@ -3,16 +3,108 @@ package install
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/casea1/blackbox/internal/config"
 )
 
 // Options for install.
 type Options struct {
 	Site         string
 	ReportEvery  string
+	ReportDir    string // "" = the default reports folder
 	CollectEvery time.Duration
+	Version      string
 	Logf         func(format string, args ...any)
+}
+
+// writeConfig creates the config file, or updates these settings in an
+// existing one (keeping everything else, including comments).
+func writeConfig(path string, opt Options, crlf bool) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		text := config.Render(opt.Site, opt.ReportEvery, opt.ReportDir, opt.CollectEvery)
+		if crlf {
+			text = strings.ReplaceAll(text, "\n", "\r\n") // friendly for Notepad
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(path, []byte(text), 0o640)
+	}
+	return config.SetValues(path, [][2]string{
+		{"site_name", opt.Site},
+		{"report_every", opt.ReportEvery},
+		{"report_dir", opt.ReportDir},
+		{"collect_every", config.FormatDuration(opt.CollectEvery)},
+	})
+}
+
+// PrepareReportDir makes sure reports can be written to dir. A folder that
+// does not exist yet is created and restricted to administrators (Windows)
+// or root (Linux); an existing folder's permissions are left exactly as
+// they are, so a folder you have already locked down stays that way.
+func PrepareReportDir(dir string, logf func(string, ...any)) error {
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	if !config.IsAbs(dir) {
+		return fmt.Errorf("report folder must be a full path (got %q)", dir)
+	}
+	fi, err := os.Stat(dir)
+	switch {
+	case os.IsNotExist(err):
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("create report folder %s: %w", dir, err)
+		}
+		if err := restrictDir(dir); err != nil {
+			return err
+		}
+		logf("Report folder:       %s (created; administrators only)", dir)
+	case err != nil:
+		return fmt.Errorf("report folder %s: %w", dir, err)
+	case !fi.IsDir():
+		return fmt.Errorf("report folder %s is a file, not a folder", dir)
+	default:
+		logf("Report folder:       %s (existing folder; its permissions were not changed)", dir)
+	}
+	if err := CheckWritable(dir); err != nil {
+		return err
+	}
+	if strings.HasPrefix(dir, `\\`) {
+		logf("                     Scheduled runs write to this share as the computer account (DOMAIN\\COMPUTER$);")
+		logf("                     make sure it has write access to the share and folder.")
+	}
+	return nil
+}
+
+// CheckWritable confirms a file can be created in dir.
+func CheckWritable(dir string) error {
+	f, err := os.CreateTemp(dir, ".blackbox-write-test-*")
+	if err != nil {
+		return fmt.Errorf("cannot write to %s: %w", dir, err)
+	}
+	name := f.Name()
+	f.Close()
+	os.Remove(name)
+	return nil
+}
+
+// SetReportDir moves future reports to dir (or back to the default when
+// dir is ""), after checking the folder, and updates what the scheduled
+// job is allowed to write to. Existing reports are not moved.
+func SetReportDir(cfgPath, dir string, logf func(string, ...any)) error {
+	if dir != "" {
+		if err := PrepareReportDir(dir, logf); err != nil {
+			return err
+		}
+	}
+	if err := config.SetValue(cfgPath, "report_dir", dir); err != nil {
+		return err
+	}
+	return afterReportDirChange(logf)
 }
 
 // TaskName is the Windows scheduled task name.
@@ -81,8 +173,8 @@ func xmlEscape(s string) string {
 
 // systemdService is the unit that runs one collection (and a report when
 // one is due). It is sandboxed: no network, read-only system, and the only
-// writable place is Blackbox's data folder.
-func systemdService(exe, dataDir string) string {
+// writable places are Blackbox's data folder and the report folder.
+func systemdService(exe string, writable ...string) string {
 	return fmt.Sprintf(`[Unit]
 Description=Blackbox audit log collection and reporting
 Documentation=https://github.com/casea1/blackbox
@@ -105,7 +197,19 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 UMask=0077
 TimeoutStartSec=2h
-`, exe, dataDir)
+`, exe, strings.Join(uniq(writable), " "))
+}
+
+func uniq(in []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, s := range in {
+		if s != "" && !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // systemdTimer runs the service on a fixed schedule and catches up after
