@@ -29,11 +29,13 @@ package() { # os arch
 	if [ "$1" = windows ]; then
 		rm -f "$syso"
 		cp packaging/windows/* "$dir/"
+		cp LICENSE NOTICE "$dir/"
 		# Windows line endings for the batch files and readme.
 		for f in "$dir"/*.cmd "$dir"/README.txt; do sed -i 's/$/\r/' "$f"; done
 		(cd dist/stage && if command -v zip >/dev/null; then zip -qr "../$name.zip" "$name"; else python3 -m zipfile -c "../$name.zip" "$name"; fi)
 	else
 		cp packaging/linux/* "$dir/"
+		cp LICENSE NOTICE "$dir/"
 		chmod +x "$dir/blackbox" "$dir"/*.sh
 		tar -C dist/stage -czf "dist/$name.tar.gz" "$name"
 	fi
