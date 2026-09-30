@@ -98,6 +98,7 @@ tbody td{border-bottom:1px solid var(--rule2);padding:7px 12px;vertical-align:to
 th.num{text-align:right}
 td.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
 td.mono{font-family:var(--mono);font-size:13px;white-space:nowrap;color:var(--ink2);width:1%;padding-right:28px}
+td.mono.hash{white-space:normal;word-break:break-all;width:auto;font-size:12px}
 td.sevc{width:1%;white-space:nowrap}
 tr.row{cursor:pointer}
 tr.row:hover td{background:var(--hover)}
@@ -362,6 +363,16 @@ footer{margin-top:56px;padding-top:12px;border-top:1px solid var(--rule);color:v
       <td>{{if .History}}{{dur .History}}{{else}}—{{end}}</td><td>{{if .MaxSize}}{{bytes .MaxSize}}{{else}}—{{end}}</td>
       <td>{{if .Unavailable}}<span class="st info">not available</span> <span class="meta">{{.Unavailable}}</span>{{else if .LastError}}<span class="st fail">error</span>{{else if .Resets}}<span class="st fail">cleared</span>{{else}}<span class="st pass">OK</span>{{end}}</td></tr>
     {{end}}</tbody></table>
+  {{end}}
+
+  {{if .ArchivesKept}}
+  <h2 id="archives">Original logs<span class="ct">{{len .Archives}} archive{{if ne (len .Archives) 1}}s{{end}}</span></h2>
+  <p class="note">Each computer saves its original logs once a day, unaltered: Windows event logs as .evtx files (open them in Event Viewer), Linux audit records as audit.log (read them with <code>ausearch -if audit.log</code>) and system log lines as text. Each archive's files are checked against their SHA-256 hashes when the collector receives it.</p>
+  {{if .NoArchive}}<div class="status warn">No archive for this period from {{join .NoArchive ", "}}. A computer that sends to a collector delivers its archive with its events; one that has been off or cut off catches up when it is back.</div>{{end}}
+  {{if .Archives}}<table>
+    <thead><tr><th>System</th><th>From</th><th>To</th><th class="num">Size</th><th>SHA-256 of the zip file</th></tr></thead>
+    <tbody>{{range .Archives}}<tr><td>{{.Host}}</td><td class="mono">{{stamp .From}}</td><td class="mono">{{stamp .To}}</td><td class="num">{{bytes .Bytes}}</td><td class="mono hash">{{if .Link}}<a href="{{.Link}}">{{.SHA256}}</a>{{else}}{{.SHA256}}{{end}}</td></tr>{{end}}</tbody>
+  </table>{{end}}
   {{end}}
 
   {{if .CheckSets}}

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/casea1/blackbox/internal/archive"
 	"github.com/casea1/blackbox/internal/event"
 	"github.com/casea1/blackbox/internal/store"
 )
@@ -55,6 +56,7 @@ those events; the collector notices the gap and reports it.
 type ImportResult struct {
 	Batches  int
 	Records  int
+	Archives int      // log archives filed
 	Rejected []string // files that could not be used, and why
 }
 
@@ -65,7 +67,10 @@ const maxClockLead = 10 * time.Minute
 // for each sender, and removes each file once its data is safely stored.
 // A batch this system sent itself is refused, which stops a loop if two
 // systems were set to send to each other.
-func Import(st *store.Store, inbox string, now time.Time, logf func(string, ...any)) (ImportResult, error) {
+//
+// Log archives are checked against their recorded hashes and filed under
+// archivesDir.
+func Import(st *store.Store, inbox, archivesDir string, now time.Time, logf func(string, ...any)) (ImportResult, error) {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
@@ -82,6 +87,14 @@ func Import(st *store.Store, inbox string, now time.Time, logf func(string, ...a
 	var items []item
 	for _, e := range entries {
 		n := e.Name()
+		if archivesDir != "" && !e.IsDir() && strings.HasPrefix(n, archivePrefix) && strings.HasSuffix(n, archiveExt) {
+			if err := importArchive(st, inbox, n, archivesDir); err != nil {
+				res.Rejected = append(res.Rejected, reject(inbox, n, err.Error()))
+			} else {
+				res.Archives++
+			}
+			continue
+		}
 		if e.IsDir() || strings.HasPrefix(n, ".") || !strings.HasSuffix(n, batchExt) {
 			continue
 		}
@@ -129,6 +142,21 @@ func Import(st *store.Store, inbox string, now time.Time, logf func(string, ...a
 		logf("inbox: %s", r)
 	}
 	return res, nil
+}
+
+// importArchive verifies a log archive and files it.
+func importArchive(st *store.Store, inbox, name, archivesDir string) error {
+	id, _, _ := strings.Cut(strings.TrimPrefix(name, archivePrefix), "_")
+	if st.State.Send != nil && id == st.State.Send.ID {
+		return fmt.Errorf("it was sent by this computer (a system cannot send to itself)")
+	}
+	path := filepath.Join(inbox, name)
+	info, err := archive.Verify(path)
+	if err != nil {
+		return err
+	}
+	_, err = archive.File(path, archivesDir, info)
+	return err
 }
 
 // parseInboxName reads <sender>_<id>_<seq>.bbx.

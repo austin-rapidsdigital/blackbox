@@ -60,6 +60,10 @@ type State struct {
 	// LastCheck is when the audit settings were last checked.
 	LastCheck time.Time `json:"last_check,omitzero"`
 
+	// ArchivedUntil is the end of the last archive of the original logs
+	// (see package archive).
+	ArchivedUntil time.Time `json:"archived_until,omitzero"`
+
 	// LAN: sending to a collector, receiving from other systems, and the
 	// systems seen (see lan.go).
 	Send    *SendState              `json:"send,omitempty"`

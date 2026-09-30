@@ -5,6 +5,7 @@ package report
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,6 +53,12 @@ type Options struct {
 	// WorkingHours: administrator activity outside them is detected.
 	WorkingHours config.WorkingHours
 
+	// Archives are the archives of the original logs that cover this
+	// period; ArchivesKept says the archive is on, so a computer without
+	// one is pointed out.
+	Archives     []ArchiveRef
+	ArchivesKept bool
+
 	// CheckSets are the latest audit settings check of each computer.
 	CheckSets []CheckSet
 
@@ -60,6 +67,15 @@ type Options struct {
 	Systems     []SystemInfo
 	Collector   bool
 	LANWarnings []string
+}
+
+// ArchiveRef is one archive of original logs, as the report lists it.
+type ArchiveRef struct {
+	Host     string
+	From, To time.Time
+	Link     string // relative to the report folder
+	Bytes    uint64
+	SHA256   string
 }
 
 // Row is one event in a section table.
@@ -190,6 +206,7 @@ type Report struct {
 	NewDevices map[string]time.Time
 	Learned    map[string]time.Time // baseline items seen in this period
 	Learning   []string             // computers whose normal activity is being learned
+	NoArchive  []string             // computers with no log archive for this period
 	BySev      map[string]int       // by severity
 	SystemRows []SystemRow          // Systems page
 	Silent     []SystemRow          // computers with no collection in this period
@@ -236,10 +253,42 @@ func Build(events []*event.Event, runs []*store.Run, opt Options) *Report {
 	r.buildUsers(events)
 	r.buildHealth(runs, events)
 	r.buildSystems(runs, events)
+	r.checkArchives()
 	for _, s := range r.Silent {
 		r.Health.Warnings = append(r.Health.Warnings, s.Name+": "+s.StatusMsg)
 	}
 	return r
+}
+
+// checkArchives notes the computers in this report with no archive of
+// their original logs for the period.
+func (r *Report) checkArchives() {
+	if !r.ArchivesKept {
+		return
+	}
+	have := map[string]bool{}
+	for _, a := range r.Archives {
+		have[strings.ToLower(a.Host)] = true
+	}
+	for _, h := range r.Hosts {
+		if !have[strings.ToLower(archiveName(h))] {
+			r.NoArchive = append(r.NoArchive, h)
+		}
+	}
+	if len(r.NoArchive) > 0 {
+		r.Health.Warnings = append(r.Health.Warnings, "No archive of the original logs for this period from: "+strings.Join(r.NoArchive, ", ")+". See Audit health.")
+	}
+}
+
+// archiveName is how a host appears in archive file names.
+var archiveUnsafe = regexp.MustCompile(`[^A-Za-z0-9.-]+`)
+
+func archiveName(h string) string {
+	h = strings.Trim(archiveUnsafe.ReplaceAllString(h, "-"), "-")
+	if h == "" {
+		return "unknown"
+	}
+	return h
 }
 
 // ---------------------------------------------------------------- filters

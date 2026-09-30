@@ -45,6 +45,18 @@ func (a *App) Status(w io.Writer) error {
 	if !s.LastCheck.IsZero() {
 		p("Settings checked:", "%s", stampLocal(s.LastCheck, a.loc()))
 	}
+	if s.ArchivedUntil.IsZero() {
+		p("Log archive:", "none yet (the original logs are saved once a day)")
+	} else {
+		where := "in " + a.ArchivesDir()
+		if !a.Cfg.MakesReports() {
+			where = "sent to the collector"
+			if n := lan.QueuedArchives(st); n > 0 {
+				where = fmt.Sprintf("%d waiting to be sent to the collector", n)
+			}
+		}
+		p("Log archive:", "original logs saved up to %s (%s)", stampLocal(s.ArchivedUntil, a.loc()), where)
+	}
 
 	if a.Cfg.SendTo != "" {
 		fmt.Fprintln(w)
