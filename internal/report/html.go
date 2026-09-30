@@ -1,10 +1,10 @@
 package report
 
 import (
-	"bytes"
 	_ "embed"
 	"fmt"
 	"html/template"
+	"io"
 	"strings"
 	"time"
 
@@ -17,25 +17,12 @@ var reportTemplate string
 //go:embed index.html
 var indexTemplate string
 
-// pageData is what each page of the report is rendered from.
+// pageData is what the report template is rendered from. Section is set
+// while rendering one category's view.
 type pageData struct {
 	*Report
-	Page    string   // "overview", "health", "people", "review", or a category ID
-	Title   string   // browser tab title
-	Section *Section // set on category pages
-	Full    bool     // single printable file with every page in it
+	Section *Section
 }
-
-// pageFile is the file a page is written to.
-func pageFile(page string) string {
-	if page == "overview" {
-		return "index.html"
-	}
-	return page + ".html"
-}
-
-// FullReportFile is the single printable file containing every page.
-const FullReportFile = "full-report.html"
 
 // PeriodStart is the start of the report period (the oldest event on a
 // first report).
@@ -117,31 +104,15 @@ func funcs(loc *time.Location) template.FuncMap {
 			}
 			return commas(n)
 		},
-		// href links to a page, optionally to one row on it. In the full
-		// report every page is in the same file, so only the anchor is used.
-		"href": func(p pageData, page any, anchor string) string {
-			id := fmt.Sprint(page)
-			if p.Full {
-				if anchor != "" {
-					return "#" + anchor
-				}
-				return "#" + id
-			}
+		// href links to a view of the report, or to one row in it.
+		"href": func(p pageData, view any, anchor string) string {
 			if anchor != "" {
-				return pageFile(id) + "#" + anchor
+				return "#" + anchor
 			}
-			return pageFile(id)
-		},
-		// userHref opens a category page filtered to one account.
-		"userHref": func(p pageData, cat event.Category, user string) string {
-			if p.Full {
-				return "#" + string(cat)
-			}
-			return pageFile(string(cat)) + "#user=" + user
+			return "#" + fmt.Sprint(view)
 		},
 		"withSection": func(p pageData, s *Section) pageData {
 			p.Section = s
-			p.Page = string(s.Info.ID)
 			return p
 		},
 	}
@@ -154,37 +125,11 @@ func plural(n int, unit string) string {
 	return fmt.Sprintf("%d %ss", n, unit)
 }
 
-// RenderPages renders every page of the report plus the full printable
-// file, keyed by file name.
-func (r *Report) RenderPages() (map[string][]byte, error) {
+// WriteHTML renders the whole report as one self-contained HTML file.
+func (r *Report) WriteHTML(w io.Writer) error {
 	t, err := template.New("report").Funcs(funcs(r.Location)).Parse(reportTemplate)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	pages := []pageData{
-		{Report: r, Page: "overview", Title: "Overview"},
-		{Report: r, Page: "health", Title: "Audit health"},
-		{Report: r, Page: "people", Title: "People"},
-	}
-	if r.SignatureBlock {
-		pages = append(pages, pageData{Report: r, Page: "review", Title: "Review & sign-off"})
-	}
-	for _, s := range r.Sections {
-		pages = append(pages, pageData{Report: r, Page: string(s.Info.ID), Title: s.Info.Title, Section: s})
-	}
-	pages = append(pages, pageData{Report: r, Page: "overview", Title: "Full report", Full: true})
-
-	out := map[string][]byte{}
-	for _, p := range pages {
-		var buf bytes.Buffer
-		if err := t.ExecuteTemplate(&buf, "layout", p); err != nil {
-			return nil, fmt.Errorf("render %s: %w", p.Title, err)
-		}
-		name := pageFile(p.Page)
-		if p.Full {
-			name = FullReportFile
-		}
-		out[name] = buf.Bytes()
-	}
-	return out, nil
+	return t.ExecuteTemplate(w, "layout", pageData{Report: r})
 }

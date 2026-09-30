@@ -229,30 +229,18 @@ Why:
    week."
 5. **Raw event detail.** Collapsed under each translated row, so the original
    is always available.
-6. **Review record** (see below).
 
-### Review and sign-off (optional, configurable)
+### Review and sign-off
 
-This follows the current workflow: the ISSO or auditor reviews first, then the
-ISSM.
-
-- **Printable signature block.** The report ends with review lines for the
-  ISSO/Auditor and the ISSM (name, date, signature, comments). This works when
-  printed or signed on paper.
-- **Recorded review (optional).** `blackbox review <report> --role isso` asks
-  for the reviewer's name and notes. It stores them in a review log alongside
-  the report and adds them to the manifest, so the report itself is never
-  modified. The report index then shows each report as *Awaiting ISSO* →
-  *Awaiting ISSM* → *Reviewed*. This gives an AU-6 review trail without a web
-  server.
+Not part of the report: ISSOs and ISSMs record their reviews on a separate
+platform (see section 13).
 
 ### Other outputs, written on every run
 
 - `events.jsonl`: all normalized events, in a format Splunk can ingest
 - CSV exports for each category
 - `manifest.sha256`
-- `index.html`: links to every report, with its coverage window and review
-  status
+- `index.html`: links to every report, with its coverage window
 
 An optional read-only viewer (`blackbox serve`) could come later if a live
 dashboard is needed. Splunk may make that unnecessary.
@@ -337,7 +325,6 @@ prefer package installs. Neither package has any dependencies.
 ```
 blackbox run                  # generate a report now (the scheduler runs this)
 blackbox check                # check the audit configuration against the STIG baseline
-blackbox review <report>      # record ISSO/ISSM review
 blackbox merge <dirs...>      # combine several hosts into one LAN report
 blackbox verify <report-dir>  # check the SHA-256 manifest
 blackbox uninstall            # remove the task/timer; reports are kept
@@ -381,8 +368,6 @@ report_every = weekly              # daily | weekly | monthly
 retention_days = 0                 # 0 = keep forever
 exclude_users =                    # e.g. svc_backup, svc_scanner
 exclude_processes =                # e.g. C:\Tools\Scanner\scan.exe
-signature_block = true
-review_roles = ISSO / Auditor, ISSM
 ```
 
 ---
@@ -394,7 +379,7 @@ review_roles = ISSO / Auditor, ISSM
 | **M1: single Windows host** | evtx collection, normalization, translation for §4.1–4.3, HTML report, bookmark, manifest, `install` / `run` |
 | **M2: Linux** | auditd and journald collection for Ubuntu 22.04/24.04 and Alma 8.10, the same report |
 | **M3: audit health** | `check` against the STIG baselines, gap and rollover detection, audit-integrity section |
-| **M4: LAN (Model A+)** | `merge`, per-host views, index page, review records |
+| **M4: LAN (Model A+)** | `merge`, per-host views, index page |
 | **M5: packaging** | MSI, .deb, .rpm, SBOM, reproducible release builds |
 | **M6: domain / collector (Model B)** | WEF and forwarding guides, GPO templates, collector mode |
 | Later | Optional `serve` viewer, report signing, Splunk ingestion notes |
@@ -422,10 +407,10 @@ The answers are in section 13. The original questions were:
 | Topic | Decision |
 |---|---|
 | Report schedule | Windows LAN hosts currently run PowerStrux daily because a noisy tool overwrites logs within a week. Blackbox separates **collection (hourly by default, `--collect-every`)** from **reporting (`report_every`: daily/weekly/monthly, default weekly)**. Hourly collection captures events before rollover, so weekly reports lose nothing. Linux reports are weekly. |
-| Reviewers | ISSO/Auditor, then ISSM. Nobody else. The report ends with a printable signature block for both roles. Electronic review records (`blackbox review`) are still planned for M4. |
+| Reviewers | ISSO/Auditor, then ISSM. Reviews are recorded on a separate platform and reports are not printed, so the report has **no signature or review section**, and `blackbox review` is dropped from the roadmap. |
 | Audit baseline | **Report only.** `check` and the report's health panel show what is missing and the command that fixes it. Blackbox never changes settings. |
 | Classification banner | Not needed, and removed. |
-| Report layout | A folder of linked pages designed for a 2560×1440 desktop: a sidebar, an overview page with a clear From / To / Length period block, one page per category, plus Audit health, People and Review pages. `full-report.html` holds everything in one file for printing and archiving. The look is plain and dense: square edges, thin rules, and severity shown as colored text with a small square marker. |
+| Report layout | **One self-contained `report.html`** designed for a 2560×1440 desktop. A sidebar switches between views inside the file: an overview with a clear From / To / Length period block, one view per category, Audit health, and People. The look is plain and dense: square edges, thin rules, and severity shown as colored text with a small square marker. |
 | Report template | No existing template needs to be matched. |
 | Config format | Plain `key = value`, not YAML. This keeps the module at zero third-party dependencies. |
 | Report chain | Each report covers the time up to its period end and includes every event not already reported. Events collected late, for example from before a system was powered off, go into the next report marked *Late*. Every event appears in exactly one report (`app.SelectWindow`). |

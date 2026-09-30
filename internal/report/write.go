@@ -64,17 +64,15 @@ func (r *Report) summary() Summary {
 	return s
 }
 
-// Write creates dir and writes the report pages, exports and manifest
-// into it.
+// Write creates dir and writes the report, exports and manifest into it.
 func (r *Report) Write(dir string) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	contents, err := r.RenderPages()
-	if err != nil {
+	var html, csvBuf, jsonl bytes.Buffer
+	if err := r.WriteHTML(&html); err != nil {
 		return fmt.Errorf("render report: %w", err)
 	}
-	var csvBuf, jsonl bytes.Buffer
 	if err := r.writeCSV(&csvBuf); err != nil {
 		return err
 	}
@@ -89,9 +87,12 @@ func (r *Report) Write(dir string) error {
 	if err != nil {
 		return err
 	}
-	contents["events.csv"] = csvBuf.Bytes()
-	contents["events.jsonl"] = jsonl.Bytes()
-	contents["summary.json"] = append(sum, '\n')
+	contents := map[string][]byte{
+		"report.html":  html.Bytes(),
+		"events.csv":   csvBuf.Bytes(),
+		"events.jsonl": jsonl.Bytes(),
+		"summary.json": append(sum, '\n'),
+	}
 
 	names := make([]string, 0, len(contents))
 	for name := range contents {

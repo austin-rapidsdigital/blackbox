@@ -22,16 +22,14 @@ const maxRowsPerSection = 5000
 
 // Options describe the report being built.
 type Options struct {
-	Site           string
-	WindowStart    time.Time // zero = from the beginning of collected data
-	WindowEnd      time.Time
-	Generated      time.Time
-	Version        string
-	Source         string // e.g. "Live collection" or "Exported file sec.xml"
-	Location       *time.Location
-	SignatureBlock bool
-	ReviewRoles    []string
-	InReportsDir   bool // report sits in the reports folder next to the list of all reports
+	Site         string
+	WindowStart  time.Time // zero = from the beginning of collected data
+	WindowEnd    time.Time
+	Generated    time.Time
+	Version      string
+	Source       string // e.g. "Live collection" or "Exported file sec.xml"
+	Location     *time.Location
+	InReportsDir bool // report sits in the reports folder next to the list of all reports
 
 	ExcludeUsers     []string
 	ExcludeProcesses []string

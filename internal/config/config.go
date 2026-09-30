@@ -22,8 +22,6 @@ type Config struct {
 	RetentionDays    int      // 0 = keep forever
 	ExcludeUsers     []string // accounts to leave out (case-insensitive)
 	ExcludeProcesses []string // program names/paths to leave out
-	SignatureBlock   bool
-	ReviewRoles      []string
 	DataDir          string
 
 	Path string // file the config was loaded from ("" if defaults)
@@ -32,10 +30,8 @@ type Config struct {
 // Default returns the built-in defaults.
 func Default() *Config {
 	return &Config{
-		ReportEvery:    "weekly",
-		SignatureBlock: true,
-		ReviewRoles:    []string{"ISSO / Auditor", "ISSM"},
-		DataDir:        DefaultDataDir(),
+		ReportEvery: "weekly",
+		DataDir:     DefaultDataDir(),
 	}
 }
 
@@ -121,16 +117,6 @@ func (c *Config) set(k, v string) error {
 		c.ExcludeUsers = list(v)
 	case "exclude_processes":
 		c.ExcludeProcesses = list(v)
-	case "signature_block":
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			return fmt.Errorf("signature_block must be true or false")
-		}
-		c.SignatureBlock = b
-	case "review_roles":
-		if l := list(v); len(l) > 0 {
-			c.ReviewRoles = l
-		}
 	case "data_dir":
 		if v != "" {
 			c.DataDir = v
@@ -184,9 +170,6 @@ retention_days = 0
 exclude_users =
 exclude_processes =
 
-# Printable review/signature block at the end of each report.
-signature_block = true
-review_roles = ISSO / Auditor, ISSM
 `
 
 // Render fills in Template.

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="Blackbox {{.Version}}">
-<title>{{.Title}} · {{if .Site}}{{.Site}} · {{end}}{{dateShort .PeriodStart}} – {{dateShort .WindowEnd}}</title>
+<title>Audit Report · {{if .Site}}{{.Site}} · {{end}}{{dateShort .PeriodStart}} – {{dateShort .WindowEnd}}</title>
 <style>
 :root{
   --ink:#15181c;--ink2:#353b43;--muted:#666d76;--rule:#dcdfe3;--rule2:#eceef0;
@@ -116,16 +116,9 @@ details.raw dl{margin-top:6px}
 .filter input:focus,.filter select:focus{outline:2px solid var(--accent);outline-offset:-1px}
 .filter .count{color:var(--muted);font-size:12.5px;margin-left:auto;font-family:var(--mono)}
 
-/* review */
-.sig{display:grid;grid-template-columns:repeat(2,minmax(0,560px));gap:32px;margin-top:16px}
-.sig .box{border:1px solid var(--ink);padding:18px 20px}
-.sig .role{font-weight:600;font-size:15px;margin-bottom:6px}
-.sig .line{border-bottom:1px solid var(--ink);height:34px}
-.sig .lbl{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:3px}
-.sig .notes{border:1px solid var(--rule);height:110px;margin-top:14px}
-
 footer{margin-top:56px;padding-top:12px;border-top:1px solid var(--rule);color:var(--muted);font-size:12px}
-.chapter{break-before:page}
+.view{display:none}
+.view.on{display:block}
 
 @media (max-width:1100px){
   .side{display:none}main{margin-left:0;padding:24px}
@@ -135,6 +128,8 @@ footer{margin-top:56px;padding-top:12px;border-top:1px solid var(--rule);color:v
 }
 @media print{
   .topbar,.side,.filter,details.raw{display:none}
+  .view{display:block!important}
+  .view+.view{break-before:page}
   main{margin:0;padding:0;max-width:none}
   body{font-size:10.5px}
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -152,33 +147,22 @@ footer{margin-top:56px;padding-top:12px;border-top:1px solid var(--rule);color:v
 
 <nav class="side" aria-label="Report sections">
   <h4>Report</h4>
-  <a href="{{href $ "overview" ""}}" class="{{if eq .Page "overview"}}on{{end}}">Overview</a>
+  <a href="#overview" data-view="overview">Overview</a>
   <h4>Events</h4>
-  {{range .Sections}}<a href="{{href $ .Info.ID ""}}" class="{{if eq $.Page (print .Info.ID)}}on{{end}}"><span>{{.Info.Title}}</span><span class="n">{{with index .BySev "high"}}<span class="h">{{.}} high</span>{{end}}{{commas .Total}}</span></a>
+  {{range .Sections}}<a href="#{{.Info.ID}}" data-view="{{.Info.ID}}"><span>{{.Info.Title}}</span><span class="n">{{with index .BySev "high"}}<span class="h">{{.}} high</span>{{end}}{{commas .Total}}</span></a>
   {{end}}
   <h4>Audit</h4>
-  <a href="{{href $ "health" ""}}" class="{{if eq .Page "health"}}on{{end}}"><span>Audit health</span>{{if .Health.Warnings}}<span class="n"><span class="w">{{len .Health.Warnings}} warning{{if gt (len .Health.Warnings) 1}}s{{end}}</span></span>{{end}}</a>
-  <a href="{{href $ "people" ""}}" class="{{if eq .Page "people"}}on{{end}}"><span>People</span><span class="n">{{len .Users}}</span></a>
-  {{if .SignatureBlock}}<a href="{{href $ "review" ""}}" class="{{if eq .Page "review"}}on{{end}}">Review &amp; sign-off</a>{{end}}
-  <div class="foot">
-    {{if not .Full}}<a href="full-report.html">Full report (printable)</a>{{end}}
-    {{if .InReportsDir}}<a href="../index.html">All reports</a>{{end}}
-  </div>
+  <a href="#health" data-view="health"><span>Audit health</span>{{if .Health.Warnings}}<span class="n"><span class="w">{{len .Health.Warnings}} warning{{if gt (len .Health.Warnings) 1}}s{{end}}</span></span>{{end}}</a>
+  <a href="#people" data-view="people"><span>People</span><span class="n">{{len .Users}}</span></a>
+  {{if .InReportsDir}}<div class="foot"><a href="../index.html">All reports</a></div>{{end}}
 </nav>
 
 <main>
-{{if .Full}}
-  {{template "overview" .}}
-  {{range .Sections}}<div class="chapter">{{template "section" (withSection $ .)}}</div>{{end}}
-  <div class="chapter">{{template "health" .}}</div>
-  <div class="chapter">{{template "people" .}}</div>
-  {{if .SignatureBlock}}<div class="chapter">{{template "review" .}}</div>{{end}}
-{{else if eq .Page "overview"}}{{template "overview" .}}
-{{else if eq .Page "health"}}{{template "health" .}}
-{{else if eq .Page "people"}}{{template "people" .}}
-{{else if eq .Page "review"}}{{template "review" .}}
-{{else}}{{template "section" .}}
-{{end}}
+<noscript><style>.view{display:block}</style></noscript>
+<div class="view" data-view="overview">{{template "overview" .}}</div>
+{{range .Sections}}<div class="view" data-view="{{.Info.ID}}">{{template "section" (withSection $ .)}}</div>
+{{end}}<div class="view" data-view="health">{{template "health" .}}</div>
+<div class="view" data-view="people">{{template "people" .}}</div>
 <footer>
   Blackbox {{.Version}} · generated {{stamp .Generated}} {{zone .Generated}} · source: {{.Source}}.
   SHA-256 hashes of every file in this report are in <code>manifest.sha256</code>; run <code>blackbox verify &lt;folder&gt;</code> to confirm nothing has been altered.
@@ -186,11 +170,22 @@ footer{margin-top:56px;padding-top:12px;border-top:1px solid var(--rule);color:v
 </main>
 <script>
 (function(){
+  var views=document.querySelectorAll('.view'), links=document.querySelectorAll('.side a[data-view]');
   function pair(tr){return tr.nextElementSibling;}
-  function openRow(id){
-    var r=document.getElementById(id); if(!r) return;
+  function show(v){
+    views.forEach(function(x){x.classList.toggle('on',x.getAttribute('data-view')===v);});
+    links.forEach(function(a){a.classList.toggle('on',a.getAttribute('data-view')===v);});
+  }
+  function openRow(r){
     r.style.display=''; r.classList.add('open'); var d=pair(r); if(d) d.classList.add('open');
     r.scrollIntoView({block:'center'});
+  }
+  function route(){
+    var h=decodeURIComponent(location.hash.slice(1));
+    var r=/^r\d+$/.test(h)&&document.getElementById(h);
+    if(r){show(r.closest('.view').getAttribute('data-view'));openRow(r);return;}
+    if(h&&document.querySelector('.view[data-view="'+h+'"]')){show(h);window.scrollTo(0,0);return;}
+    show('overview');
   }
   function apply(f){
     var t=document.getElementById(f.getAttribute('data-for')); if(!t) return;
@@ -215,15 +210,9 @@ footer{margin-top:56px;padding-top:12px;border-top:1px solid var(--rule);color:v
     if(tr&&!ev.target.closest('a')){tr.classList.toggle('open');var d=pair(tr);if(d)d.classList.toggle('open');}
     var u=ev.target.closest('a[data-user]');
     if(u){document.querySelectorAll('.filter').forEach(function(f){f.querySelector('input').value=u.getAttribute('data-user');apply(f);});}
-    var a=ev.target.closest('a[href^="#r"]');
-    if(a&&/^#r\d+$/.test(a.getAttribute('href'))){ev.preventDefault();openRow(a.getAttribute('href').slice(1));history.replaceState(null,'',a.getAttribute('href'));}
   });
-  var h=decodeURIComponent(location.hash.slice(1));
-  if(/^r\d+$/.test(h)) openRow(h);
-  else if(h.indexOf('user=')===0){
-    var name=h.slice(5);
-    document.querySelectorAll('.filter').forEach(function(f){f.querySelector('input').value=name;apply(f);});
-  }
+  window.addEventListener('hashchange',route);
+  route();
 })();
 </script>
 </body>
@@ -231,7 +220,7 @@ footer{margin-top:56px;padding-top:12px;border-top:1px solid var(--rule);color:v
 {{end}}
 
 {{define "overview"}}
-<section id="overview">
+<section>
   <h1>{{if .Site}}{{.Site}} — {{end}}Audit Report</h1>
   <div class="meta"><span>System{{if gt (len .Hosts) 1}}s{{end}}: {{if .Hosts}}{{join .Hosts ", "}}{{else}}—{{end}}</span><span>{{commas (len .Events)}} security-relevant events</span><span>Generated {{stamp .Generated}} {{zone .Generated}}</span></div>
 
@@ -289,7 +278,7 @@ footer{margin-top:56px;padding-top:12px;border-top:1px solid var(--rule);color:v
 {{end}}
 
 {{define "section"}}{{with .Section}}
-<section id="{{.Info.ID}}">
+<section>
   <h1>{{.Info.Title}}</h1>
   <p class="lede">{{.Info.Description}}</p>
   <div class="meta"><span>{{commas .Total}} event{{if ne .Total 1}}s{{end}}</span>{{with index .BySev "high"}}<span class="c-high">{{.}} high</span>{{end}}{{with index .BySev "medium"}}<span class="c-med">{{.}} medium</span>{{end}}<span>NIST SP 800-53: {{join .Info.Controls ", "}}</span></div>
@@ -328,7 +317,7 @@ footer{margin-top:56px;padding-top:12px;border-top:1px solid var(--rule);color:v
 {{end}}{{end}}
 
 {{define "health"}}
-<section id="health">
+<section>
   <h1>Audit health</h1>
   <p class="lede">Whether the logs were collected completely, and whether auditing on the system is configured to record what this report needs.</p>
   {{if .Health.Runs}}<div class="meta"><span>{{.Health.Runs}} collection run{{if gt .Health.Runs 1}}s{{end}}, {{stamp .Health.FirstRun}} to {{stamp .Health.LastRun}}</span>{{if gt .Health.Runs 1}}<span>longest gap between runs {{dur .Health.LongestPause}}</span>{{end}}<span>{{commas .Health.TotalRead}} events read, {{commas .Health.TotalKept}} kept</span></div>{{end}}
@@ -369,32 +358,18 @@ footer{margin-top:56px;padding-top:12px;border-top:1px solid var(--rule);color:v
 {{end}}
 
 {{define "people"}}
-<section id="people">
+<section>
   <h1>People</h1>
   <p class="lede">Everything in this report, counted by the account that did it. Select a number to see those events.</p>
   {{if .Users}}
   <table>
     <thead><tr><th>Account</th>{{range $.Sections}}<th class="num">{{.Info.Title}}</th>{{end}}<th class="num">High</th></tr></thead>
     <tbody>{{range .Users}}{{$u := .}}<tr><td><strong>{{.User}}</strong></td>
-      {{range $.Sections}}{{$cat := .Info.ID}}<td class="num">{{with index $u.Counts $cat}}<a href="{{userHref $ $cat $u.User}}"{{if $.Full}} data-user="{{$u.User}}"{{end}}>{{.}}</a>{{else}}<span class="meta">·</span>{{end}}</td>{{end}}
+      {{range $.Sections}}{{$cat := .Info.ID}}<td class="num">{{with index $u.Counts $cat}}<a href="#{{$cat}}" data-user="{{$u.User}}">{{.}}</a>{{else}}<span class="meta">·</span>{{end}}</td>{{end}}
       <td class="num">{{if .High}}<span class="c-high">{{.High}}</span>{{else}}0{{end}}</td></tr>{{end}}</tbody>
   </table>
   {{else}}<p class="empty">No account activity in this period.</p>{{end}}
 </section>
 {{end}}
 
-{{define "review"}}
-<section id="review">
-  <h1>Review &amp; sign-off</h1>
-  <p class="lede">Audit record review (NIST SP 800-53 AU-6). Print this page, or the full report, and complete one block per reviewer.</p>
-  <div class="meta"><span>Period reviewed: {{stamp .PeriodStart}} to {{stamp .WindowEnd}} {{zone .WindowEnd}}</span><span>System{{if gt (len .Hosts) 1}}s{{end}}: {{join .Hosts ", "}}</span></div>
-  <div class="sig">
-  {{range .ReviewRoles}}<div class="box"><div class="role">{{.}}</div>
-    <div class="line"></div><div class="lbl">Name</div>
-    <div class="line"></div><div class="lbl">Signature</div>
-    <div class="line"></div><div class="lbl">Date reviewed</div>
-    <div class="notes"></div><div class="lbl">Findings and actions taken</div>
-  </div>{{end}}
-  </div>
-</section>
-{{end}}
+

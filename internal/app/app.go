@@ -128,7 +128,6 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		Site:        a.Cfg.SiteName,
 		WindowStart: prevEnd, WindowEnd: end, Generated: generated, Version: a.Version,
 		Source: "Live collection", Location: a.loc(), InReportsDir: true,
-		SignatureBlock: a.Cfg.SignatureBlock, ReviewRoles: a.Cfg.ReviewRoles,
 		ExcludeUsers: a.Cfg.ExcludeUsers, ExcludeProcesses: a.Cfg.ExcludeProcesses,
 		KnownDevices: st.State.KnownDevices, Checks: checks,
 	})
@@ -290,7 +289,6 @@ func (a *App) ReportFromFiles(xmlFiles, evtxFiles []string, outDir string) (stri
 		Site:      a.Cfg.SiteName,
 		WindowEnd: end, Generated: now, Version: a.Version,
 		Source: "Exported log file" + plural(len(names)) + ": " + strings.Join(names, ", "), Location: a.loc(),
-		SignatureBlock: a.Cfg.SignatureBlock, ReviewRoles: a.Cfg.ReviewRoles,
 		ExcludeUsers: a.Cfg.ExcludeUsers, ExcludeProcesses: a.Cfg.ExcludeProcesses,
 	})
 	if outDir == "" {

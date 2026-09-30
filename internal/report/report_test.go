@@ -117,51 +117,44 @@ func TestHealthGapWarning(t *testing.T) {
 }
 
 func TestWriteAndVerify(t *testing.T) {
-	r := build(t, Options{Site: "Test Site", SignatureBlock: true, ReviewRoles: []string{"ISSO / Auditor", "ISSM"}, InReportsDir: true})
+	r := build(t, Options{Site: "Test Site", InReportsDir: true})
 	dir := filepath.Join(t.TempDir(), "rep")
 	if err := r.Write(dir); err != nil {
 		t.Fatal(err)
 	}
-	read := func(name string) []byte {
-		b, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		return b
-	}
-	// One page per category plus overview, health, people, review and the
-	// full printable file.
-	for _, name := range []string{"index.html", "health.html", "people.html", "review.html", "full-report.html",
-		"privileged.html", "removable_media.html", "failed_logon.html", "account_changes.html",
-		"audit_integrity.html", "other_security.html", "logon_activity.html"} {
-		read(name)
-	}
-	checks := map[string][]string{
-		"index.html":           {"Possible password guessing", `href="failed_logon.html#r`, "Mon 28 Sep 2026", "Test Site"},
-		"privileged.html":      {`class="on"><span>Privileged Activity`, "wevtutil  cl Application"},
-		"people.html":          {`href="privileged.html#user=admin_jd"`},
-		"review.html":          {"ISSO / Auditor", "ISSM"},
-		"full-report.html":     {`href="#privileged"`, "Possible password guessing", "ISSM", "wevtutil  cl Application"},
-		"failed_logon.html":    {"Failed logon for administrator"},
-		"removable_media.html": {"SanDisk Cruzer Blade"},
-	}
-	for name, wants := range checks {
-		b := read(name)
-		for _, w := range wants {
-			if !bytes.Contains(b, []byte(w)) {
-				t.Errorf("%s missing %q", name, w)
-			}
+	entries, _ := os.ReadDir(dir)
+	var htmlFiles []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".html") {
+			htmlFiles = append(htmlFiles, e.Name())
 		}
 	}
-	for _, name := range []string{"index.html", "full-report.html"} {
-		if bytes.Contains(read(name), []byte("SECRET")) || bytes.Contains(read(name), []byte("UNCLASSIFIED")) {
-			t.Errorf("%s still contains a classification banner", name)
+	if len(htmlFiles) != 1 || htmlFiles[0] != "report.html" {
+		t.Fatalf("want exactly one HTML file (report.html), got %v", htmlFiles)
+	}
+	html, _ := os.ReadFile(filepath.Join(dir, "report.html"))
+	for _, want := range []string{
+		// every view is in the one file
+		`data-view="overview"`, `data-view="privileged"`, `data-view="removable_media"`, `data-view="failed_logon"`,
+		`data-view="account_changes"`, `data-view="audit_integrity"`, `data-view="other_security"`,
+		`data-view="logon_activity"`, `data-view="health"`, `data-view="people"`,
+		// content and in-file links
+		"Possible password guessing", `href="#r`, "Mon 28 Sep 2026", "Test Site",
+		"wevtutil  cl Application", "SanDisk Cruzer Blade", `data-user="admin_jd"`,
+	} {
+		if !bytes.Contains(html, []byte(want)) {
+			t.Errorf("report.html missing %q", want)
+		}
+	}
+	for _, bad := range []string{"SECRET", "UNCLASSIFIED", ".html#", "Signature", "sign-off"} {
+		if bytes.Contains(html, []byte(bad)) {
+			t.Errorf("report.html should not contain %q", bad)
 		}
 	}
 	if p, err := Verify(dir); err != nil || len(p) != 0 {
 		t.Fatalf("fresh report should verify: %v %v", p, err)
 	}
-	os.WriteFile(filepath.Join(dir, "privileged.html"), []byte("tampered"), 0o640)
+	os.WriteFile(filepath.Join(dir, "report.html"), []byte("tampered"), 0o640)
 	if p, _ := Verify(dir); len(p) != 1 || !strings.Contains(p[0], "CHANGED") {
 		t.Errorf("tampering not detected: %v", p)
 	}
@@ -169,7 +162,7 @@ func TestWriteAndVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 	idx, _ := os.ReadFile(filepath.Join(filepath.Dir(dir), "index.html"))
-	if !bytes.Contains(idx, []byte("rep/index.html")) {
+	if !bytes.Contains(idx, []byte("rep/report.html")) {
 		t.Error("list of reports does not link the report")
 	}
 }

@@ -4,10 +4,10 @@ Audit log review for air-gapped Windows systems and small air-gapped LANs.
 Linux support (Ubuntu 22.04/24.04, AlmaLinux 8.10) is the next milestone.
 
 Blackbox reads the Windows event logs, **translates each event into plain
-English**, groups the events the way auditors review them, and produces an
-HTML report on a schedule. The report opens in any browser, needs no server,
-and has one page per category. It flags what needs attention and tells you
-whether the audit trail is complete.
+English**, groups the events the way auditors review them, and produces a
+single HTML report on a schedule. The report opens in any browser and needs
+no server. It flags what needs attention and tells you whether the audit
+trail is complete.
 
 | Raw event (what other tools show) | Blackbox |
 |---|---|
@@ -18,8 +18,9 @@ whether the audit trail is complete.
 
 ## What a report contains
 
-Each report is a folder of linked pages, laid out for a desktop monitor with
-a sidebar for moving between them. Open `index.html` to start.
+Each report is one self-contained file, `report.html`, laid out for a
+desktop monitor. A sidebar switches between the views below, all inside the
+same file.
 
 - **Overview.** It starts with the reporting period (from, to and length),
   then shows whether collection was complete, event counts by category, and
@@ -56,12 +57,9 @@ a sidebar for moving between them. Open `index.html` to start.
     computer accounts are left out.
 - **People.** Everything in the report counted per account. Click an
   account to filter the whole report to that person.
-- **Review & sign-off.** Printable sign-off blocks for the ISSO/Auditor and
-  the ISSM (AU-6).
 
 Every report folder also contains:
 
-- `full-report.html`: every page in one file, for printing or archiving
 
 - `events.csv`: opens in Excel
 - `events.jsonl`: ready for Splunk

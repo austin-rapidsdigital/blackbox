@@ -136,7 +136,7 @@ func cmdInstall(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("\nDone. First report: %s\n", filepath.Join(dir, "index.html"))
+	fmt.Printf("\nDone. First report: %s\n", filepath.Join(dir, "report.html"))
 	fmt.Printf("All reports:        %s\n", filepath.Join(a.ReportsDir(), "index.html"))
 	return nil
 }
@@ -164,7 +164,7 @@ func cmdRun(args []string) error {
 		return err
 	}
 	if dir != "" {
-		logf("report written: %s", filepath.Join(dir, "index.html"))
+		logf("report written: %s", filepath.Join(dir, "report.html"))
 	}
 	logf("run finished")
 	return nil
@@ -220,7 +220,7 @@ func cmdReport(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Report written:", filepath.Join(dir, "index.html"))
+	fmt.Println("Report written:", filepath.Join(dir, "report.html"))
 	return nil
 }
 
