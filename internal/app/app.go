@@ -48,7 +48,7 @@ func (a *App) logf(format string, args ...any) {
 }
 
 // ReportsDir is where reports are written.
-func (a *App) ReportsDir() string { return filepath.Join(a.Cfg.DataDir, "reports") }
+func (a *App) ReportsDir() string { return a.Cfg.ReportsDir() }
 
 // Scheduled is what the scheduled task runs: collect, then produce a
 // report if one is due. It returns the report folder ("" if none).

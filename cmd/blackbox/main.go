@@ -26,7 +26,8 @@ var version = "dev"
 const usage = `Blackbox — audit log review for air-gapped systems
 
 Usage:
-  blackbox install [options]     Set up scheduled collection and reporting (run as administrator)
+  blackbox install               Set up (or change) scheduled collection and reporting; asks each setting
+  blackbox config                Show settings; "blackbox config set report_dir D:\Reports" changes one
   blackbox run                   Collect new events; produce a report if one is due (what the schedule runs)
   blackbox report [options]      Collect and produce a report now
   blackbox report --xml FILE     Produce a report from exported Windows event logs (any OS)
@@ -59,6 +60,8 @@ func main() {
 		err = cmdCollect(args)
 	case "check":
 		err = cmdCheck(args)
+	case "config":
+		err = cmdConfig(args)
 	case "verify":
 		err = cmdVerify(args)
 	case "uninstall":
@@ -101,27 +104,78 @@ func newApp(cfg *config.Config, logf func(string, ...any)) *app.App {
 
 func cmdInstall(args []string) error {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
-	site := fs.String("site", "", "site or system name shown on reports")
-	every := fs.String("report-every", "weekly", "how often to produce a report: daily, weekly or monthly")
-	collectEvery := fs.Duration("collect-every", time.Hour, "how often to collect events (e.g. 1h, 30m, 15m)")
+	fs.Usage = func() {
+		fmt.Fprint(fs.Output(), `Usage: blackbox install [options]
+
+Run with no options to be asked each setting (current settings are offered
+as defaults when Blackbox is already installed). Options are for scripted
+or unattended installs; any setting not given keeps its current value.
+
+`)
+		fs.PrintDefaults()
+	}
+	site := fs.String("site", "", "site or system name shown on reports (\"-\" clears it)")
+	every := fs.String("report-every", "", "how often to produce a report: daily, weekly or monthly")
+	reportDir := fs.String("report-dir", "", "folder for reports (\"default\" for the standard location)")
+	collectEvery := fs.Duration("collect-every", 0, "how often to collect events: 1h, 30m or 15m")
+	yes := fs.Bool("yes", false, "do not ask questions; use the options given and current or default settings")
 	noReport := fs.Bool("no-first-report", false, "do not produce a report straight away")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	switch *every {
-	case "daily", "weekly", "monthly":
-	default:
-		return fmt.Errorf("--report-every must be daily, weekly or monthly")
+	if err := install.RequireAdmin(); err != nil {
+		return err
 	}
-	if *collectEvery < 5*time.Minute || *collectEvery > 24*time.Hour || *collectEvery%time.Minute != 0 {
-		return fmt.Errorf("--collect-every must be whole minutes between 5m and 24h")
+
+	// Current settings (or defaults on a first install) are the starting point.
+	cur, err := config.Load(config.DefaultPath())
+	if err != nil {
+		return fmt.Errorf("%w\n(fix or remove the file, then run install again)", err)
 	}
-	if runtime.GOOS == "linux" && time.Hour%*collectEvery != 0 && (*collectEvery%time.Hour != 0 || (24*time.Hour)%*collectEvery != 0) {
-		return fmt.Errorf("--collect-every must divide an hour or a day evenly on Linux (e.g. 15m, 30m, 1h, 2h)")
+	_, statErr := os.Stat(config.DefaultPath())
+	reinstall := statErr == nil
+	ans := install.Answers{Site: cur.SiteName, ReportEvery: cur.ReportEvery, ReportDir: cur.ReportDir, CollectEvery: cur.CollectEvery}
+	defaultReports := filepath.Join(config.DefaultDataDir(), "reports")
+
+	given := 0
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name != "no-first-report" && f.Name != "yes" {
+			given++
+		}
+	})
+	if given == 0 && !*yes && install.IsTerminal(os.Stdin) {
+		ans, err = install.Wizard(os.Stdin, os.Stdout, ans, defaultReports, reinstall)
+		if err != nil {
+			return err
+		}
+		fmt.Println()
+	} else {
+		if *site == "-" {
+			ans.Site = ""
+		} else if *site != "" {
+			ans.Site = *site
+		}
+		if *every != "" {
+			ans.ReportEvery = strings.ToLower(*every)
+		}
+		switch *reportDir {
+		case "":
+		case "default", defaultReports:
+			ans.ReportDir = ""
+		default:
+			ans.ReportDir = *reportDir
+		}
+		if *collectEvery != 0 {
+			ans.CollectEvery = *collectEvery
+		}
 	}
+	if err := validateInstall(ans); err != nil {
+		return err
+	}
+
 	fmt.Println("Installing Blackbox", version)
-	err := install.Install(install.Options{Site: *site,
-		ReportEvery: *every, CollectEvery: *collectEvery, Logf: printf})
+	err = install.Install(install.Options{Site: ans.Site, ReportEvery: ans.ReportEvery, ReportDir: ans.ReportDir,
+		CollectEvery: ans.CollectEvery, Version: version, Logf: printf})
 	if err != nil {
 		return err
 	}
@@ -129,15 +183,16 @@ func cmdInstall(args []string) error {
 	fmt.Println("\nChecking audit settings against the DISA STIG (nothing will be changed)...")
 	printChecks(check.Run(), false)
 
-	if *noReport {
-		fmt.Println("\nDone. The first report will be produced at the next scheduled run.")
-		return nil
-	}
-	fmt.Println("\nCollecting events and producing the first report (the first run reads the whole log and can take a few minutes)...")
 	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
 		return err
 	}
+	if *noReport {
+		fmt.Println("\nDone. The first report will be produced at the next scheduled run.")
+		fmt.Printf("Reports will be saved in %s\n", cfg.ReportsDir())
+		return nil
+	}
+	fmt.Println("\nCollecting events and producing the first report (the first run reads the whole log and can take a few minutes)...")
 	a := newApp(cfg, printf)
 	dir, err := a.ReportNow(true)
 	if err != nil {
@@ -145,6 +200,79 @@ func cmdInstall(args []string) error {
 	}
 	fmt.Printf("\nDone. First report: %s\n", filepath.Join(dir, "report.html"))
 	fmt.Printf("All reports:        %s\n", filepath.Join(a.ReportsDir(), "index.html"))
+	fmt.Println("\nTo change settings later, run the installer again (it shows the current settings),")
+	fmt.Println("or use: blackbox config set <setting> <value>")
+	return nil
+}
+
+func validateInstall(a install.Answers) error {
+	switch a.ReportEvery {
+	case "daily", "weekly", "monthly":
+	default:
+		return fmt.Errorf("report schedule must be daily, weekly or monthly (got %q)", a.ReportEvery)
+	}
+	d := a.CollectEvery
+	if d < 5*time.Minute || d > 24*time.Hour || d%time.Minute != 0 {
+		return fmt.Errorf("collection interval must be whole minutes between 5m and 24h (got %s)", d)
+	}
+	if runtime.GOOS == "linux" && time.Hour%d != 0 && (d%time.Hour != 0 || (24*time.Hour)%d != 0) {
+		return fmt.Errorf("collection interval must divide an hour or a day evenly on Linux (e.g. 15m, 30m, 1h, 2h)")
+	}
+	if a.ReportDir != "" && !config.IsAbs(a.ReportDir) {
+		return fmt.Errorf("report folder must be a full path (got %q)", a.ReportDir)
+	}
+	return nil
+}
+
+// cmdConfig shows or changes settings after installation.
+func cmdConfig(args []string) error {
+	path := config.DefaultPath()
+	if len(args) == 0 || args[0] == "show" {
+		cfg, err := config.Load(path)
+		if err != nil {
+			return err
+		}
+		src := path
+		if cfg.Path == "" {
+			src += " (not found: showing defaults)"
+		}
+		dir := cfg.ReportsDir()
+		if cfg.ReportDir == "" {
+			dir += " (default)"
+		}
+		fmt.Printf("Settings file:   %s\n\n", src)
+		fmt.Printf("  site_name          %s\n", cfg.SiteName)
+		fmt.Printf("  report_every       %s\n", cfg.ReportEvery)
+		fmt.Printf("  report_dir         %s\n", dir)
+		fmt.Printf("  collect_every      %s   (change by running the installer again)\n", config.FormatDuration(cfg.CollectEvery))
+		fmt.Printf("  retention_days     %d%s\n", cfg.RetentionDays, map[bool]string{true: "   (keep forever)"}[cfg.RetentionDays == 0])
+		fmt.Printf("  exclude_users      %s\n", strings.Join(cfg.ExcludeUsers, ", "))
+		fmt.Printf("  exclude_processes  %s\n", strings.Join(cfg.ExcludeProcesses, ", "))
+		fmt.Printf("\nChange a setting:  blackbox config set <setting> <value>\n")
+		return nil
+	}
+	if args[0] != "set" || len(args) < 2 {
+		return fmt.Errorf("usage: blackbox config                     (show settings)\n       blackbox config set <setting> <value>\nsettings: %s", strings.Join(config.Settable, ", "))
+	}
+	key, value := strings.ToLower(args[1]), strings.Join(args[2:], " ")
+	if err := install.RequireAdmin(); err != nil {
+		return err
+	}
+	if key == "report_dir" {
+		if value == "default" || value == filepath.Join(config.DefaultDataDir(), "reports") {
+			value = ""
+		}
+		if err := install.SetReportDir(path, value, printf); err != nil {
+			return err
+		}
+		cfg, _ := config.Load(path)
+		fmt.Printf("Reports will now be saved in %s (existing reports were not moved).\n", cfg.ReportsDir())
+		return nil
+	}
+	if err := config.SetValue(path, key, value); err != nil {
+		return err
+	}
+	fmt.Printf("Saved %s = %s. It takes effect at the next scheduled run.\n", key, value)
 	return nil
 }
 

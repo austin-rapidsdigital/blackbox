@@ -3,12 +3,15 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadTemplateRoundTrip(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "blackbox.conf")
-	text := Render("Lab 3", "daily") + "exclude_users = svc_backup, svc_scan  # noisy\n"
+	text := Render("Lab 3", "daily", "", time.Hour) + "exclude_users = svc_backup, svc_scan  # noisy\n"
 	if err := os.WriteFile(p, []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -31,5 +34,81 @@ func TestLoadErrors(t *testing.T) {
 	}
 	if c, err := Load(filepath.Join(t.TempDir(), "missing.conf")); err != nil || c.ReportEvery != "weekly" {
 		t.Errorf("missing file should give defaults: %v %v", c, err)
+	}
+}
+
+func absDir() string {
+	if runtime.GOOS == "windows" {
+		return `D:\AuditReports`
+	}
+	return "/srv/audit-reports"
+}
+
+func TestReportDir(t *testing.T) {
+	c := Default()
+	if c.ReportsDir() != filepath.Join(c.DataDir, "reports") {
+		t.Errorf("default reports dir = %s", c.ReportsDir())
+	}
+	c.ReportDir = absDir()
+	if c.ReportsDir() != absDir() {
+		t.Errorf("custom reports dir = %s", c.ReportsDir())
+	}
+	p := filepath.Join(t.TempDir(), "c.conf")
+	os.WriteFile(p, []byte("report_dir = reports\n"), 0o600)
+	if _, err := Load(p); err == nil || !strings.Contains(err.Error(), "full path") {
+		t.Errorf("relative report_dir accepted: %v", err)
+	}
+}
+
+func TestSetValuesKeepsCommentsAndLineEndings(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "blackbox.conf")
+	orig := strings.ReplaceAll(Render("Lab 3", "weekly", "", time.Hour), "\n", "\r\n")
+	os.WriteFile(p, []byte(orig), 0o600)
+
+	if err := SetValue(p, "report_dir", absDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetValues(p, [][2]string{{"collect_every", "30m"}, {"site_name", "Lab 4"}}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	text := string(b)
+	if strings.Count(text, "\n") != strings.Count(text, "\r\n") {
+		t.Error("Windows line endings were not kept")
+	}
+	if !strings.Contains(text, "# How often a report is produced") {
+		t.Error("comments were lost")
+	}
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ReportDir != absDir() || c.CollectEvery != 30*time.Minute || c.SiteName != "Lab 4" || c.ReportEvery != "weekly" {
+		t.Errorf("settings after SetValues: %+v", c)
+	}
+	if strings.Count(text, "report_dir =") != 1 {
+		t.Error("report_dir written more than once")
+	}
+
+	// Invalid values are refused and the file is left as it was.
+	if err := SetValue(p, "report_every", "hourly"); err == nil {
+		t.Error("invalid report_every accepted")
+	}
+	if err := SetValue(p, "data_dir", "/tmp"); err == nil {
+		t.Error("data_dir should not be settable")
+	}
+	if b2, _ := os.ReadFile(p); string(b2) != text {
+		t.Error("file changed by a refused SetValue")
+	}
+}
+
+func TestSetValueCreatesMissingFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "sub", "blackbox.conf")
+	if err := SetValue(p, "site_name", "New Site"); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(p)
+	if err != nil || c.SiteName != "New Site" {
+		t.Errorf("got %+v, %v", c, err)
 	}
 }

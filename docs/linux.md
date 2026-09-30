@@ -2,15 +2,30 @@
 
 Supports Ubuntu 22.04 and 24.04, and AlmaLinux 8.10.
 
+No other software is needed. Blackbox is a single self-contained program:
+there is no Go or other runtime to install.
+
 ## Install
 
 ```sh
 tar xzf blackbox-<version>-linux-amd64.tar.gz     # or linux-arm64
 cd blackbox-<version>-linux-amd64
-sudo ./install.sh --site "Lab 3" --report-every weekly
+sudo ./install.sh
 ```
 
-The installer:
+Setup asks four questions, each with a default you can accept by pressing
+Enter:
+
+- a site name
+- the report schedule (daily, weekly or monthly)
+- the report folder (any full path; an existing folder's permissions are
+  left as they are)
+- how often to collect events
+
+Each answer is checked as you give it. See the
+[Windows guide](windows.md#install) for what the questions look like.
+
+Setup then:
 
 - copies `blackbox` to `/usr/local/bin/`
 - creates `/var/lib/blackbox/` (root only) for reports and collected
@@ -22,9 +37,33 @@ The installer:
   - it can write only to `/var/lib/blackbox`
 - checks the audit configuration and produces the first report
 
-The options are the same as on Windows: `--site`, `--report-every`
-(`daily`, `weekly` or `monthly`), and `--collect-every`, which must divide
-an hour or a day evenly, e.g. `15m`, `30m`, `1h` or `2h`.
+## Changing settings later
+
+**Run `sudo ./install.sh` again.** It shows the current settings as the
+defaults. Or change one setting:
+
+```sh
+sudo blackbox config                                  # show the current settings
+sudo blackbox config set report_dir /srv/audit-reports
+```
+
+Moving the report folder also updates the service sandbox, so the
+scheduled job is allowed to write there. New reports go to the new folder;
+existing reports are not moved.
+
+A report folder on NFS or CIFS works if the system mounts it (through
+`/etc/fstab` or autofs). Blackbox itself has no network access.
+
+**Unattended installs** (Ansible, scripts) use the same options as on
+Windows:
+
+```sh
+sudo ./install.sh --yes --site "Lab 3" --report-dir /srv/audit-reports
+```
+
+The options are `--yes`, `--site`, `--report-every`, `--report-dir`,
+`--collect-every` (which must divide an hour or a day evenly, e.g. `15m`,
+`30m`, `1h`) and `--no-first-report`.
 
 ## Set up auditd
 
@@ -58,7 +97,7 @@ requires.
 |---|---|
 | Program | `/usr/local/bin/blackbox` |
 | Settings | `/etc/blackbox/blackbox.conf` ([reference](configuration.md)) |
-| Reports | `/var/lib/blackbox/reports/` (open `index.html`) |
+| Reports | `/var/lib/blackbox/reports/` by default, or the folder you chose (open `index.html`) |
 | Schedule | `systemctl list-timers blackbox.timer` |
 | Log of each run | `journalctl -u blackbox.service` |
 

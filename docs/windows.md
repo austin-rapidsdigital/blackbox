@@ -2,17 +2,55 @@
 
 Supports Windows 11 and Windows Server 2025.
 
+No other software is needed. Blackbox is a single self-contained program:
+there is no .NET, Go or other runtime to install.
+
 ## Install
 
 1. Download `blackbox-<version>-windows-amd64.zip` from
    [Releases](https://github.com/casea1/blackbox/releases/latest) and copy
    it to the system.
-2. Unzip it and double-click **`Install.cmd`**, then approve the
+2. Extract it and double-click **`Install.cmd`**, then approve the
    administrator prompt.
-3. Enter a site name (optional) and how often you want reports: daily,
-   weekly or monthly.
+3. Answer four questions. Press Enter to accept a default:
 
-The installer then:
+```
+1. Site or system name, shown at the top of each report
+   [none]: Lab 3
+
+2. How often should a report be produced?
+     1) Daily   (each report covers one day, ending at midnight)
+     2) Weekly  (Monday 00:00 to Monday 00:00)
+     3) Monthly (1st to 1st)
+   Choose 1-3 [2]:
+
+3. Where should reports be saved?
+   Use a folder you have locked down if you like; Blackbox only needs to write to it.
+   [C:\ProgramData\Blackbox\reports]: D:\AuditReports
+
+4. How often should events be collected from the logs?
+     1) Every hour        (recommended)
+     2) Every 30 minutes
+     3) Every 15 minutes  (for busy systems whose logs fill up within a few hours)
+   Choose 1-3 [1]:
+
+Summary
+   Site name:        Lab 3
+   Reports:          weekly, saved in D:\AuditReports
+   Collect events:   every hour
+
+Install these settings? (Y/n):
+```
+
+Each answer is checked as you give it. A report folder must be a full path
+that Blackbox can write to:
+
+- **If the folder already exists,** its permissions are left exactly as
+  they are.
+- **If it doesn't exist,** Blackbox offers to create it, restricted to
+  Administrators and SYSTEM.
+
+Setup then:
 
 - copies `blackbox.exe` to `C:\Program Files\Blackbox\`
 - creates `C:\ProgramData\Blackbox\`, readable only by Administrators and
@@ -20,27 +58,53 @@ The installer then:
 - registers the scheduled task **Blackbox Audit Collection**, which runs as
   SYSTEM every hour and at startup, and catches up after the system has
   been off
+- adds **Blackbox** to Settings → Apps (and Programs and Features), with
+  its version, so it can be inventoried and uninstalled like any other
+  program
 - checks the audit settings against the Windows 11 STIG and lists what is
   missing (it changes nothing)
 - collects events and produces the first report. The first run reads the
   whole Security log, so it can take a few minutes.
 
-Running the installer again upgrades Blackbox and keeps your settings.
+## Changing settings later
 
-### Installing from the command line
+**Double-click `Install.cmd` again.** It shows the current settings as the
+defaults, so press Enter through everything except what you want to
+change. Running a newer version's `Install.cmd` the same way upgrades
+Blackbox and keeps your settings.
 
-From an administrator Command Prompt:
+To change a single setting from a script, use `blackbox config`:
 
 ```
-blackbox.exe install --site "Lab 3" --report-every daily --collect-every 30m
+blackbox config                                   (show the current settings)
+blackbox config set report_dir D:\AuditReports    (checks the folder first)
+blackbox config set report_every daily
 ```
 
-| Option | Default | Meaning |
-|---|---|---|
-| `--site` | *(blank)* | Name shown at the top of reports |
-| `--report-every` | `weekly` | `daily`, `weekly` (periods end Monday 00:00) or `monthly` |
-| `--collect-every` | `1h` | Use `30m` or `15m` on systems whose Security log fills in hours |
-| `--no-first-report` | off | Skip the first report (it comes at the next scheduled run) |
+New reports go to the new folder. Existing reports are not moved.
+
+### Unattended installs (SCCM, Intune, GPO scripts)
+
+Options skip the questions. Any setting not given keeps its current value,
+or the default on a first install:
+
+```
+blackbox.exe install --yes --site "Lab 3" --report-dir D:\AuditReports
+```
+
+| Option | Meaning |
+|---|---|
+| `--yes` | Don't ask questions |
+| `--site` | Name shown at the top of reports (`-` clears it) |
+| `--report-every` | `daily`, `weekly` or `monthly` |
+| `--report-dir` | Folder for reports (`default` for the standard location) |
+| `--collect-every` | `1h`, `30m` or `15m` |
+| `--no-first-report` | Skip the first report; it comes at the next scheduled run |
+
+**Report folder on a network share:** the scheduled task runs as SYSTEM,
+which reaches network shares as the computer account (`DOMAIN\COMPUTER$`).
+Grant that account write access to the share and folder. On a workgroup
+system with no domain, use a local folder.
 
 ## Where things are
 
@@ -48,7 +112,7 @@ blackbox.exe install --site "Lab 3" --report-every daily --collect-every 30m
 |---|---|
 | Program | `C:\Program Files\Blackbox\blackbox.exe` |
 | Settings | `C:\ProgramData\Blackbox\blackbox.conf` ([reference](configuration.md)) |
-| Reports | `C:\ProgramData\Blackbox\reports\` (open `index.html`) |
+| Reports | `C:\ProgramData\Blackbox\reports\` by default, or the folder you chose (open `index.html`) |
 | Log of each run | `C:\ProgramData\Blackbox\blackbox.log` |
 
 ## What Blackbox reads
@@ -99,6 +163,6 @@ On Windows, saved `.evtx` files work too: `blackbox report --evtx Security.evtx`
 
 ## Uninstall
 
-Double-click `Uninstall.cmd`, or run `blackbox.exe uninstall` as an
-administrator. This removes the scheduled task. Reports and collected
-events stay in `C:\ProgramData\Blackbox\`.
+Use **Settings → Apps → Blackbox → Uninstall**, or double-click
+`Uninstall.cmd`. This removes the scheduled task, the program and the Apps
+entry. Reports, settings and collected events are kept.
