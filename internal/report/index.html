@@ -3,47 +3,61 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Audit reports{{if .Site}} · {{.Site}}{{end}}</title>
+<title>{{brandName}} · Audit reports{{if .Site}} · {{.Site}}{{end}}</title>
+<link rel="icon" href="{{logo}}">
 <style>
-:root{--ink:#15181c;--ink2:#353b43;--muted:#666d76;--rule:#dcdfe3;--rule2:#eceef0;--accent:#1d4b73;--hover:#f3f6f9;--high:#b3261e;--med:#9c5700;--ok:#1e6b3a;--mono:Consolas,"Cascadia Mono","SF Mono",Menlo,monospace}
-*{box-sizing:border-box;border-radius:0}
-body{margin:0;background:#fff;color:var(--ink);font:14px/1.5 "Segoe UI",system-ui,-apple-system,Arial,sans-serif}
-a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
-.topbar{height:48px;background:var(--ink);color:#fff;display:flex;align-items:center;gap:24px;padding:0 24px}
-.wordmark{font-weight:700;letter-spacing:.22em;font-size:13px}
-.topbar .site{color:#c9ced4;font-size:13px;border-left:1px solid #3b4148;padding-left:24px}
-main{padding:32px 48px 64px;max-width:1880px}
-h1{font-size:24px;font-weight:600;margin:0 0 4px}
-.lede{color:var(--ink2);margin:0 0 24px}
-table{border-collapse:collapse;width:100%;font-size:13.5px}
-thead th{text-align:left;font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--ink);padding:8px 12px;white-space:nowrap}
-tbody td{border-bottom:1px solid var(--rule2);padding:9px 12px;white-space:nowrap}
-tbody tr:hover td{background:var(--hover)}
-td.mono{font-family:var(--mono);font-size:13px}
+/* GE Aerospace navy theme, shared with the reports and ADM-Toolkit. */
+:root{--navy-900:#001E62;--navy-600:#0047BB;--navy-100:#E8EEFF;--navy-50:#F3F6FE;
+  --ink-950:#0B1020;--ink-700:#384055;--ink-600:#545C72;--ink-500:#7A8299;--ink-300:#CDD2DE;--ink-200:#E2E5EC;--ink-150:#EDEFF3;--ink-100:#F3F4F7;--ink-50:#F7F8FA;
+  --ok:#15803D;--ok-bg:#E7F6EC;--ok-border:#C9E8D3;--warn:#B45309;--err:#B91C1C;--err-bg:#FCECEC;--err-border:#F3CBCB;
+  --sans:'Inter',"Segoe UI",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;--mono:'JetBrains Mono',Consolas,"Cascadia Mono","SF Mono",Menlo,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink-50);color:var(--ink-950);font:14px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:var(--navy-600);text-decoration:none}a:hover{text-decoration:underline}
+.topbar{height:56px;background:var(--navy-900);color:#fff;display:flex;align-items:center;gap:16px;padding:0 24px}
+.topbar .logo{width:34px;height:34px;display:block;background:#fff;border-radius:50%;padding:2px}
+.wordmark{font-weight:600;font-size:15px;letter-spacing:-.2px}
+.topbar .site{color:rgba(255,255,255,.6);font-size:12.5px;border-left:1px solid rgba(255,255,255,.2);padding-left:16px}
+main{padding:32px 40px 64px;max-width:1880px}
+h1{font-size:22px;font-weight:700;letter-spacing:-.02em;margin:0 0 4px}
+.lede{color:var(--ink-600);margin:0 0 20px}
+table{border-collapse:separate;border-spacing:0;width:100%;font-size:13.5px;background:#fff;border:1px solid var(--ink-200);border-radius:8px;box-shadow:0 1px 2px rgba(11,16,32,.04);overflow:hidden}
+thead th{text-align:left;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-500);background:var(--ink-50);border-bottom:1px solid var(--ink-200);padding:9px 12px;white-space:nowrap}
+tbody td{border-bottom:1px solid var(--ink-150);padding:10px 12px;white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--ink-100)}
+td.mono{font-family:var(--mono);font-size:12.5px;color:var(--ink-700)}
 td.num,th.num{text-align:right;font-family:var(--mono)}
-.arrow{color:var(--muted);margin:0 8px}
-.c-high{color:var(--high);font-weight:600}.c-med{color:var(--med);font-weight:600}.ok{color:var(--ok);font-weight:600}.muted{color:var(--muted)}
+.arrow{color:var(--ink-500);margin:0 8px}
+.c-high{color:var(--err);font-weight:600}.c-med{color:var(--warn);font-weight:600}.muted{color:var(--ink-500)}
+.st{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border-radius:3px;border:1px solid}
+.st.ok{color:#166534;background:var(--ok-bg);border-color:var(--ok-border)}
+.st.bad{color:#991B1B;background:var(--err-bg);border-color:var(--err-border)}
+.btn{display:inline-block;padding:4px 12px;border:1px solid var(--ink-300);border-radius:6px;background:#fff;font-size:12.5px;font-weight:500}
+.btn:hover{border-color:var(--navy-600);background:var(--navy-50);text-decoration:none}
+.empty{color:var(--ink-500);padding:14px 16px;background:#fff;border:1px dashed var(--ink-300);border-radius:8px}
 </style>
 </head>
 <body>
-<header class="topbar"><span class="wordmark">BLACKBOX</span><span class="site">{{if .Site}}{{.Site}} · {{end}}Audit reports</span></header>
+<header class="topbar"><img class="logo" src="{{logo}}" alt="GE Aerospace"><span class="wordmark">{{brandName}}</span><span class="site">{{if .Site}}{{.Site}} · {{end}}Audit reports</span></header>
 <main>
 <h1>Audit reports</h1>
-<p class="lede">Newest first. Each report starts where the previous one ended, so together they form a continuous audit record.</p>
+<p class="lede">Newest first. Each report starts where the previous one ended, so together they form a continuous audit record.{{if .Archives}} The original logs are kept in <a href="archives/">archives</a>.{{end}}</p>
 {{if .Entries}}
 <table>
-<thead><tr><th>From</th><th></th><th>To</th><th>Systems</th><th class="num">Events</th><th class="num">High</th><th class="num">Medium</th><th>Collection</th><th></th></tr></thead>
+<thead><tr><th>From</th><th></th><th>To</th><th>Systems</th><th class="num">Events</th><th class="num">Detections</th><th class="num">High</th><th class="num">Medium</th><th>Collection</th><th></th></tr></thead>
 <tbody>
 {{range .Entries}}<tr>
 <td class="mono">{{stamp .WindowStart}}</td><td class="arrow">→</td><td class="mono">{{stamp .WindowEnd}} {{zone .WindowEnd}}</td>
 <td>{{join .Hosts ", "}}</td><td class="num">{{commas .Events}}</td>
+<td class="num">{{with len .Detections}}<span class="c-med">{{.}}</span>{{else}}0{{end}}</td>
 <td class="num">{{if .High}}<span class="c-high">{{.High}}</span>{{else}}0{{end}}</td>
 <td class="num">{{if .Medium}}<span class="c-med">{{.Medium}}</span>{{else}}0{{end}}</td>
-<td>{{if .Lost}}<span class="c-high">{{commas .Lost}} events lost</span>{{else if .LogClears}}<span class="c-high">log cleared</span>{{else if .AuditOff}}<span class="c-high">auditing was off</span>{{else}}<span class="ok">complete</span>{{end}}</td>
-<td><a href="{{.Dir}}/report.html">Open report</a></td>
+<td>{{if .Lost}}<span class="st bad">{{commas .Lost}} events lost</span>{{else if .LogClears}}<span class="st bad">log cleared</span>{{else if .AuditOff}}<span class="st bad">auditing was off</span>{{else}}<span class="st ok">complete</span>{{end}}</td>
+<td><a class="btn" href="{{.Dir}}/report.html">Open report</a></td>
 </tr>{{end}}
 </tbody></table>
-{{else}}<p class="muted">No reports yet.</p>{{end}}
+{{else}}<p class="empty">No reports yet.</p>{{end}}
 </main>
 </body>
 </html>

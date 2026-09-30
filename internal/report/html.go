@@ -3,6 +3,7 @@ package report
 import (
 	_ "embed"
 	"fmt"
+	"github.com/casea1/blackbox/internal/brand"
 	"html/template"
 	"io"
 	"strings"
@@ -46,6 +47,8 @@ func funcs(loc *time.Location) template.FuncMap {
 		}
 	}
 	return template.FuncMap{
+		"logo":      func() template.URL { return template.URL(brand.LogoDataURI()) },
+		"brandName": func() string { return brand.Name },
 		"stamp":     format("02 Jan 2006 15:04"),
 		"stampSec":  format("02 Jan 2006 15:04:05"),
 		"dateLong":  format("Mon 02 Jan 2006"),

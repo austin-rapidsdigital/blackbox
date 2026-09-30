@@ -1,5 +1,5 @@
-BLACKBOX - audit log reports for air-gapped systems
-===================================================
+GE AEROSPACE BLACKBOX - audit log reports for air-gapped systems
+================================================================
 
 INSTALL
   sudo ./install.sh

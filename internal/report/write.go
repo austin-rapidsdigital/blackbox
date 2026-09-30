@@ -286,7 +286,8 @@ func WriteIndex(reportsDir, site string, loc *time.Location) error {
 		return err
 	}
 	var buf bytes.Buffer
-	err = t.Execute(&buf, map[string]any{"Site": site, "Entries": entries})
+	_, archErr := os.Stat(filepath.Join(reportsDir, "archives"))
+	err = t.Execute(&buf, map[string]any{"Site": site, "Entries": entries, "Archives": archErr == nil})
 	if err != nil {
 		return err
 	}

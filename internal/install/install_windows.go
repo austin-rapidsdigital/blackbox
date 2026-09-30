@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"github.com/casea1/blackbox/internal/brand"
 	"github.com/casea1/blackbox/internal/config"
 	"github.com/casea1/blackbox/internal/share"
 )
@@ -99,7 +100,7 @@ func Install(opt Options) error {
 	if err := registerUninstall(dst, opt.Version); err != nil {
 		logf("Note: could not add Blackbox to Programs and Features: %v", err)
 	} else {
-		logf("Programs list:       \"Blackbox\" added to Settings > Apps and Programs and Features")
+		logf("Programs list:       \"%s\" added to Settings > Apps and Programs and Features", brand.Name)
 	}
 	return nil
 }
@@ -113,7 +114,7 @@ func registerUninstall(exe, version string) error {
 		size = fmt.Sprint(fi.Size() / 1024)
 	}
 	values := [][3]string{
-		{"DisplayName", "REG_SZ", "Blackbox"},
+		{"DisplayName", "REG_SZ", brand.Name},
 		{"DisplayVersion", "REG_SZ", version},
 		{"Publisher", "REG_SZ", "Austin Case"},
 		{"InstallLocation", "REG_SZ", filepath.Dir(exe)},
