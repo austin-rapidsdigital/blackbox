@@ -6,13 +6,13 @@
 <title>{{brandName}} · Audit reports{{if .Site}} · {{.Site}}{{end}}</title>
 <link rel="icon" href="{{logo}}">
 <style>
-/* GE Aerospace navy theme, shared with the reports and ADM-Toolkit. */
+{{fontCSS}}/* GE Aerospace navy theme, shared with the reports and ADM-Toolkit. */
 :root{--navy-900:#001E62;--navy-600:#0047BB;--navy-100:#E8EEFF;--navy-50:#F3F6FE;
   --ink-950:#0B1020;--ink-700:#384055;--ink-600:#545C72;--ink-500:#7A8299;--ink-300:#CDD2DE;--ink-200:#E2E5EC;--ink-150:#EDEFF3;--ink-100:#F3F4F7;--ink-50:#F7F8FA;
   --ok:#15803D;--ok-bg:#E7F6EC;--ok-border:#C9E8D3;--warn:#B45309;--err:#B91C1C;--err-bg:#FCECEC;--err-border:#F3CBCB;
   --sans:'Inter',"Segoe UI",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;--mono:'JetBrains Mono',Consolas,"Cascadia Mono","SF Mono",Menlo,monospace}
 *{box-sizing:border-box}
-body{margin:0;background:var(--ink-50);color:var(--ink-950);font:14px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
+body{margin:0;background:var(--ink-50);color:var(--ink-950);font:14px/1.55 var(--sans);font-feature-settings:"cv11";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 a{color:var(--navy-600);text-decoration:none}a:hover{text-decoration:underline}
 .topbar{height:56px;background:var(--navy-900);color:#fff;display:flex;align-items:center;gap:16px;padding:0 24px}
 .topbar .logo{width:34px;height:34px;display:block;background:#fff;border-radius:50%;padding:2px}
