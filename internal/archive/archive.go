@@ -362,3 +362,92 @@ func Prune(dir string, days int, now time.Time) error {
 	}
 	return nil
 }
+
+// Bundle combines one computer's daily archives into a single zip at dst,
+// each day's logs (and its archive.json) in a folder named for its period,
+// e.g. 20260929-1520Z_20260930-1520Z/Security.evtx. Every archive is
+// verified first. It returns the period covered and the bundle's SHA-256.
+func Bundle(dst string, list []Stored) (from, to time.Time, sum string, err error) {
+	part := filepath.Join(filepath.Dir(dst), "."+filepath.Base(dst)+".partial")
+	f, err := os.OpenFile(part, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
+	if err != nil {
+		return from, to, "", err
+	}
+	fail := func(e error) (time.Time, time.Time, string, error) {
+		f.Close()
+		os.Remove(part)
+		return from, to, "", e
+	}
+	zw := zip.NewWriter(f)
+	for _, s := range list {
+		if _, err := Verify(s.Path); err != nil {
+			return fail(fmt.Errorf("%s: %w", filepath.Base(s.Path), err))
+		}
+		if from.IsZero() || s.From.Before(from) {
+			from = s.From
+		}
+		if s.To.After(to) {
+			to = s.To
+		}
+		folder := s.From.UTC().Format(stampFormat) + "_" + s.To.UTC().Format(stampFormat) + "/"
+		if err := copyEntries(zw, s.Path, folder); err != nil {
+			return fail(fmt.Errorf("%s: %w", filepath.Base(s.Path), err))
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return fail(err)
+	}
+	if err := f.Sync(); err != nil {
+		return fail(err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(part)
+		return from, to, "", err
+	}
+	if err := os.Rename(part, dst); err != nil {
+		return from, to, "", err
+	}
+	sum, err = FileSHA256(dst)
+	return from, to, sum, err
+}
+
+// copyEntries copies every file of the zip at src into zw under prefix,
+// still compressed.
+func copyEntries(zw *zip.Writer, src, prefix string) error {
+	zr, err := zip.OpenReader(src)
+	if err != nil {
+		return err
+	}
+	defer zr.Close()
+	for _, e := range zr.File {
+		h := e.FileHeader
+		h.Name = prefix + e.Name
+		w, err := zw.CreateRaw(&h)
+		if err != nil {
+			return err
+		}
+		r, err := e.OpenRaw()
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(w, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// FileSHA256 returns the SHA-256 of a file, read in pieces so large log
+// archives are not held in memory.
+func FileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}

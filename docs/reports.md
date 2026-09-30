@@ -75,9 +75,8 @@ too, for an assessor or an investigation, because the report's own
 `events.csv` and `events.jsonl` hold only the security-relevant events,
 translated.
 
-Once a day each computer saves the logs Blackbox reads, unaltered, for the
-time since its last save, as one zip file. The first one reaches back a
-week.
+Each report's folder holds the original logs it was made from, unaltered:
+one zip per computer, `logs-COMPUTER.zip`, covering the report's period.
 
 | Computer | What is in the zip | Open it with |
 |---|---|---|
@@ -85,19 +84,27 @@ week.
 | Linux | `audit.log`: the audit records, in their original format | `ausearch -if audit.log`, or `aureport -if audit.log` |
 | Linux | `syslog`/`messages` and `auth.log`/`secure`: the lines for the period (or `journal.log` from the systemd journal when there are no log files) | Any text editor |
 
-Each zip also holds `archive.json`: the computer, the period, and each
-file's SHA-256.
+Inside, there is a folder for each day, named for the time it covers (in
+UTC), with that day's logs and an `archive.json` listing each file's
+SHA-256. The zip's own SHA-256 is in the report's `manifest.sha256`, so
+`blackbox verify` checks it with the rest of the report.
 
-The zips are kept in the reports folder, under `archives\COMPUTER\`,
-named `COMPUTER_FROM_TO.zip` (times in UTC). A computer that sends to a
-collector delivers its zips there with its events, and the collector
-checks every file against its hash before filing it. A damaged or altered
-zip is set aside in the inbox's `rejected` folder.
+**How it works.** Once a day each computer saves its logs since the last
+save, so nothing rolls over before the report is made. The first save
+reaches back a week. When a report is made, the computer saves its logs up
+to the end of the period, then the saved days go into the report's folder.
+It works the same on a standalone computer and on a collector.
 
-Each report's **Audit health** view lists the archives that cover its
-period, with each zip's SHA-256. It warns about any computer with no
-archive for the period. They are also listed in `summary.json`. Archives
-are removed with reports after `retention_days`.
+A computer that sends to a collector delivers its daily saves with its
+events. The collector checks every file against its hash when it arrives;
+a damaged or altered zip is set aside in the inbox's `rejected` folder. A
+day's logs go into the report whose period its save ends in, so a
+computer that was off catches up in the next report.
+
+The **Audit health** view lists each computer's zip with its period, size
+and SHA-256, and warns about any computer with no logs for the period.
+They are also listed in `summary.json`. The zips are removed with their
+reports after `retention_days`.
 
 Expect a few MB a day per Windows computer (much less for Linux),
 compressed. It depends on how busy the Security log is.
