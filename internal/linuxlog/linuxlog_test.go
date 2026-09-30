@@ -299,3 +299,30 @@ func TestFollowRotationAndTruncation(t *testing.T) {
 		t.Fatalf("after lost rotation = %v gap=%v", got, res3.Gap)
 	}
 }
+
+// Records as written on a real Ubuntu 24.04 system (seen in CI): usermod
+// reports group changes as USER_CHAUTHTOK, and commands run from a service
+// have no login user.
+func TestUbuntu2404AccountRecords(t *testing.T) {
+	lines := []string{
+		`type=USER_CHAUTHTOK msg=audit(1790729684.100:250): pid=3500 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='op=add-user-to-group grp="sudo" acct="bbtestuser" exe="/usr/sbin/usermod" hostname=runnervm addr=? terminal=? res=success'` + "\x1d" + `UID="root" AUID="unset"`,
+		`type=USER_CHAUTHTOK msg=audit(1790729684.101:251): pid=3500 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='op=add-to-shadow-group grp="sudo" acct="bbtestuser" exe="/usr/sbin/usermod" hostname=runnervm addr=? terminal=? res=success'` + "\x1d" + `UID="root" AUID="unset"`,
+		`type=USER_CHAUTHTOK msg=audit(1790729690.000:260): pid=3600 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='op=PAM:chauthtok grantors=pam_unix acct="bbtestuser" exe="/usr/bin/passwd" hostname=runnervm addr=? terminal=? res=success'` + "\x1d" + `UID="root" AUID="unset"`,
+	}
+	tr := NewTranslator("runnervm", nil)
+	var got []string
+	ParseAuditStream(strings.NewReader(strings.Join(lines, "\n")), func(ev *Event) error {
+		if e := tr.Audit(ev); e != nil {
+			got = append(got, e.Summary)
+		}
+		return nil
+	})
+	want := []string{
+		"An administrator added bbtestuser to the privileged group sudo.",
+		"An administrator added bbtestuser to the privileged group sudo.", // shadow group; merged by the report
+		"The password of bbtestuser was changed.",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

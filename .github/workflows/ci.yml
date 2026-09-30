@@ -80,7 +80,8 @@ jobs:
             if ! sudo grep -q "$want" "$dir/report.html"; then
               echo "report is missing: $want"
               sudo grep -o 'class="row s[0-9]"[^<]*<td[^<]*<span[^>]*>[a-z]*</span></td><td class="mono">[^<]*</td><td>[^<]*</td><td>[^<]*' "$dir/report.html" | sed 's/<[^>]*>/ | /g' | head -40
-              sudo tail -50 /var/log/audit/audit.log
+              echo "--- account-related audit records:"
+              sudo grep -E 'type=(ADD_USER|ADD_GROUP|USER_MGMT|GRP_MGMT|USER_CHAUTHTOK)' /var/log/audit/audit.log | tail -20
               exit 1
             fi
           done

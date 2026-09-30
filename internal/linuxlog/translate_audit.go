@@ -419,6 +419,12 @@ func (t *Translator) userStart(r *Record) *event.Event {
 }
 
 func (t *Translator) chauthtok(r *Record) *event.Event {
+	// usermod (shadow-utils 4.13+, e.g. Ubuntu 24.04) logs group changes as
+	// USER_CHAUTHTOK records; only PAM and passwd operations are passwords.
+	op := strings.ToLower(r.Get("op"))
+	if !strings.HasPrefix(op, "pam:") && !strings.Contains(op, "password") {
+		return t.accountMgmt(r)
+	}
 	actor, acct := t.actor(r), t.acct(r)
 	if acct == "" {
 		return nil
@@ -428,9 +434,12 @@ func (t *Translator) chauthtok(r *Record) *event.Event {
 	case r.Get("res") == "failed":
 		e.Action, e.Severity, e.Outcome = "password_change", event.SevLow, "failure"
 		e.Summary = fmt.Sprintf("A password change for %s failed.", acct)
-	case actor == "" || actor == acct:
+	case actor == acct:
 		e.Action, e.Severity = "password_change", event.SevLow
 		e.Summary = fmt.Sprintf("%s changed their own password.", acct)
+	case actor == "":
+		e.Action, e.Severity = "password_change", event.SevLow
+		e.Summary = fmt.Sprintf("The password of %s was changed.", acct)
 	default:
 		e.Action, e.Severity = "password_reset", event.SevMedium
 		e.Summary = fmt.Sprintf("%s changed the password of %s.", actor, acct)
@@ -449,7 +458,7 @@ var privilegedGroups = map[string]bool{
 func (t *Translator) accountMgmt(r *Record) *event.Event {
 	actor := t.actor(r)
 	acct := t.acct(r)
-	grp := r.Get("grp")
+	grp := firstNonEmpty(r.Get("grp"), r.Get("group"))
 	op := strings.ToLower(r.Get("op"))
 	by := "An administrator"
 	if actor != "" {
