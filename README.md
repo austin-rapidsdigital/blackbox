@@ -124,6 +124,12 @@ administrator rights on it, or logs on from a new address. They use only
 the events already collected, so they add no storage or network traffic.
 [All detections →](docs/reports.md#detections)
 
+**Original logs** are kept as well. Once a day each computer saves the
+logs Blackbox reads, unaltered: Windows `.evtx` files and the Linux audit
+and system logs, zipped with a SHA-256 for each file. A computer that
+sends to a collector delivers them there. Each report lists the archives
+for its period. [More →](docs/reports.md#original-logs)
+
 Each report also comes with `events.csv` for Excel, `events.jsonl` for
 Splunk, and a `manifest.sha256`. [More about reports →](docs/reports.md)
 

@@ -77,7 +77,7 @@ jobs:
           Remove-Item Env:BLACKBOX_SHARE_PASSWORD
           if (-not (Get-ChildItem C:\BlackboxInbox -Filter *.bbx)) { throw "no batch arrived over SMB" }
           # Batches the Linux runner's sandboxed service delivered.
-          Copy-Item linux-batches\*.bbx C:\BlackboxInbox\
+          Copy-Item linux-batches\*.bbx, linux-batches\*.zip C:\BlackboxInbox\
           Write-Host "Inbox:"; Get-ChildItem C:\BlackboxInbox | Format-Table Name, Length
           $exe = "C:\Program Files\Blackbox\blackbox.exe"
           if (-not (Test-Path $exe)) { throw "program not installed" }
@@ -117,6 +117,16 @@ jobs:
           if ($sum.systems | Where-Object { $_.status -eq "silent" }) { throw "a system is wrongly reported as silent" }
           if (-not (Select-String -Path "$dir\report.html" -Pattern 'data-view="systems"' -Quiet)) { throw "report has no Systems page" }
           if (Get-ChildItem C:\BlackboxInbox -Filter *.bbx) { throw "batches left in the inbox after import" }
+          # The original logs: this computer's own (.evtx, exported as SYSTEM) and the Linux one's.
+          $zips = Get-ChildItem "$r2\archives" -Recurse -Filter *.zip
+          $zips | Format-Table FullName, Length
+          if ($zips.Count -lt 2) { throw "expected this computer's and the Linux computer's log archives" }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $own = $zips | Where-Object { $_.Directory.Name -eq $env:COMPUTERNAME } | Select-Object -First 1
+          if (-not $own) { throw "no archive of this computer's own logs" }
+          $names = [IO.Compression.ZipFile]::OpenRead($own.FullName).Entries.Name
+          if (-not ($names -contains "Security.evtx")) { throw "Security.evtx not archived: $names" }
+          if ($sum.log_archives.Count -lt 2) { throw "report does not list the log archives" }
           & $exe status
           & $exe uninstall
           $deadline = (Get-Date).AddSeconds(60)
@@ -188,8 +198,14 @@ jobs:
           sudo systemctl start blackbox.service
           sudo find /srv/bb-reports-2 -name report.html | grep -q report.html || { sudo journalctl -u blackbox.service --no-pager | tail -30; exit 1; }
           echo "Sandboxed service wrote a report to /srv/bb-reports-2"
+          # It also saved the original logs, and the report lists them.
+          sudo sh -c 'ls /srv/bb-reports-2/archives/*/*.zip' || { sudo journalctl -u blackbox.service --no-pager | tail -30; exit 1; }
+          sudo sh -c 'unzip -l /srv/bb-reports-2/archives/*/*.zip' | grep -q audit.log
+          sudo sh -c 'grep -q "Original logs" /srv/bb-reports-2/*/report.html'
           sudo ./blackbox uninstall
           if systemctl is-enabled blackbox.timer 2>/dev/null; then echo "timer not removed"; exit 1; fi
+          # Start the sender below from scratch (its first archive is due at once).
+          sudo rm -rf /var/lib/blackbox
       - name: "LAN: send to a collector's SMB share from the sandboxed service"
         run: |
           sudo apt-get install -y -qq samba cifs-utils
@@ -214,10 +230,13 @@ jobs:
           sudo systemctl start blackbox.service
           sudo /usr/local/bin/blackbox status
           sudo sh -c 'ls /srv/inbox/*.bbx' || { sudo journalctl -u blackbox.service -u var-lib-blackbox-collector.mount --no-pager | tail -40; exit 1; }
+          # The original logs came too.
+          sudo sh -c 'ls /srv/inbox/archive_*.zip' || { echo "no log archive delivered"; exit 1; }
           # Hand these batches to the Windows job, then import them here too.
-          mkdir linux-batches && sudo sh -c 'cp /srv/inbox/*.bbx linux-batches/' && sudo chown -R "$USER" linux-batches
+          mkdir linux-batches && sudo sh -c 'cp /srv/inbox/*.bbx /srv/inbox/archive_*.zip linux-batches/' && sudo chown -R "$USER" linux-batches
           sudo ./blackbox report --preview --config col.conf
-          if sudo sh -c 'ls /srv/inbox/*.bbx' 2>/dev/null; then echo "batches not imported"; exit 1; fi
+          if sudo sh -c 'ls /srv/inbox/*.bbx /srv/inbox/*.zip' 2>/dev/null; then echo "batches or archives not imported"; exit 1; fi
+          sudo sh -c 'ls /tmp/col/reports/archives/*/*.zip' || { echo "log archive not filed on the collector"; exit 1; }
           sudo ./blackbox status --config col.conf
           sudo ./blackbox uninstall
           sudo test ! -e /etc/systemd/system/var-lib-blackbox-collector.mount

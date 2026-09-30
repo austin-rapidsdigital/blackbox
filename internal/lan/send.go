@@ -107,7 +107,10 @@ func Queued(st *store.Store) int {
 }
 
 // outbox lists waiting batches, oldest first.
-func outbox(st *store.Store) ([]string, error) {
+func outbox(st *store.Store) ([]string, error) { return listOutbox(st, batchExt) }
+
+// listOutbox lists the outbox files with the extension, in name order.
+func listOutbox(st *store.Store, ext string) ([]string, error) {
 	entries, err := os.ReadDir(OutboxDir(st))
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -117,7 +120,7 @@ func outbox(st *store.Store) ([]string, error) {
 	}
 	var out []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), batchExt) && !strings.HasPrefix(e.Name(), ".") {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ext) && !strings.HasPrefix(e.Name(), ".") {
 			out = append(out, e.Name())
 		}
 	}
@@ -150,6 +153,41 @@ func Deliver(st *store.Store, inbox, host string) (int, error) {
 		final := InboxName(host, st.State.Send.ID, seq)
 		if err := copyInto(src, inbox, final); err != nil {
 			return sent, fmt.Errorf("copy batch %d to %s: %w", seq, inbox, err)
+		}
+		if err := os.Remove(src); err != nil {
+			return sent, err
+		}
+		sent++
+	}
+	return sent, nil
+}
+
+// Archives are zips of the original logs (see package archive), queued in
+// the outbox next to the batches and delivered after them.
+const archiveExt, archivePrefix = ".zip", "archive_"
+
+// QueuedArchives returns the number of log archives waiting in the outbox.
+func QueuedArchives(st *store.Store) int {
+	list, _ := listOutbox(st, archiveExt)
+	return len(list)
+}
+
+// DeliverArchives copies waiting log archives into the collector's inbox,
+// named with this sender's ID, and removes each from the outbox once it is
+// safely there.
+func DeliverArchives(st *store.Store, inbox string) (int, error) {
+	if !IsInbox(inbox) {
+		return 0, fmt.Errorf("%w: %s", ErrNoInbox, inbox)
+	}
+	list, err := listOutbox(st, archiveExt)
+	if err != nil {
+		return 0, err
+	}
+	sent := 0
+	for _, name := range list {
+		src := filepath.Join(OutboxDir(st), name)
+		if err := copyInto(src, inbox, archivePrefix+st.State.Send.ID+"_"+name); err != nil {
+			return sent, fmt.Errorf("copy log archive %s to %s: %w", name, inbox, err)
 		}
 		if err := os.Remove(src); err != nil {
 			return sent, err

@@ -3,7 +3,10 @@
 package app
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/casea1/blackbox/internal/archive"
 	"github.com/casea1/blackbox/internal/check"
 	"github.com/casea1/blackbox/internal/collect"
 	"github.com/casea1/blackbox/internal/config"
@@ -53,6 +57,42 @@ func (a *App) logf(format string, args ...any) {
 
 // ReportsDir is where reports are written.
 func (a *App) ReportsDir() string { return a.Cfg.ReportsDir() }
+
+// ArchivesDir is where archives of the original logs are kept, one folder
+// per computer, next to the reports.
+func (a *App) ArchivesDir() string { return filepath.Join(a.ReportsDir(), "archives") }
+
+// archiveLogs exports the original logs once a day (see package archive):
+// into the outbox on a sender, straight into the archives folder
+// otherwise. If it fails, the same period is tried again next run.
+func (a *App) archiveLogs(st *store.Store) {
+	now := a.now()
+	from, due := archive.Due(st.State.ArchivedUntil, now)
+	if !due {
+		return
+	}
+	host := collect.LocalHost()
+	dir := filepath.Join(a.ArchivesDir(), archive.SafeName(host))
+	if !a.Cfg.MakesReports() {
+		dir = lan.OutboxDir(st)
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		a.logf("archiving the logs: %v", err)
+		return
+	}
+	info, err := archive.Create(filepath.Join(dir, archive.FileName(host, from, now)), host, runtime.GOOS, from, now, now)
+	if err != nil {
+		a.logf("archiving the logs: %v; will try again next run", err)
+		return
+	}
+	for _, n := range info.Notes {
+		a.logf("log archive: %s", n)
+	}
+	st.State.ArchivedUntil = now
+	if err := st.Save(); err != nil {
+		a.logf("saving state: %v", err)
+	}
+}
 
 // open opens the data folder and takes the lock.
 func (a *App) open() (*store.Store, func(), error) {
@@ -117,18 +157,23 @@ func (a *App) receive(st *store.Store) {
 			return
 		}
 	}
-	res, err := lan.Import(st, a.Cfg.Inbox, a.now(), a.Logf)
+	res, err := lan.Import(st, a.Cfg.Inbox, a.ArchivesDir(), a.now(), a.Logf)
 	if err != nil {
 		a.logf("receiving from %s: %v", a.Cfg.Inbox, err)
 	}
 	if res.Batches > 0 {
 		a.logf("received %d batch%s (%d records) from other systems", res.Batches, map[bool]string{true: "es"}[res.Batches != 1], res.Records)
 	}
+	if res.Archives > 0 {
+		a.logf("received %d log archive(s) from other systems", res.Archives)
+	}
 }
 
 // SendResult describes one attempt to send to the collector.
 type SendResult struct {
 	Made, Delivered, Waiting int
+	ArchivesDelivered        int
+	ArchivesWaiting          int
 	Err                      error
 }
 
@@ -145,15 +190,19 @@ func (a *App) send(st *store.Store) SendResult {
 			r.Err = err
 		} else {
 			r.Delivered, r.Err = lan.Deliver(st, dest, host)
+			if r.Err == nil {
+				r.ArchivesDelivered, r.Err = lan.DeliverArchives(st, dest)
+			}
 		}
 	}
 	r.Waiting = lan.Queued(st)
+	r.ArchivesWaiting = lan.QueuedArchives(st)
 	if s := st.State.Send; s != nil {
 		s.LastAttempt = a.now()
 		s.LastError = ""
 		if r.Err != nil {
 			s.LastError = r.Err.Error()
-		} else if r.Waiting == 0 {
+		} else if r.Waiting == 0 && r.ArchivesWaiting == 0 {
 			s.LastDelivered = a.now()
 		}
 		st.Save()
@@ -161,8 +210,8 @@ func (a *App) send(st *store.Store) SendResult {
 	switch {
 	case r.Err != nil:
 		a.logf("could not send to the collector: %v; %d batch(es) waiting, will retry next run", r.Err, r.Waiting)
-	case r.Delivered > 0:
-		a.logf("sent %d batch(es) to the collector", r.Delivered)
+	case r.Delivered > 0 || r.ArchivesDelivered > 0:
+		a.logf("sent %d batch(es) and %d log archive(s) to the collector", r.Delivered, r.ArchivesDelivered)
 	}
 	return r
 }
@@ -179,6 +228,7 @@ func (a *App) Scheduled() (string, error) {
 	if err := a.gather(st, false); err != nil {
 		return "", err
 	}
+	a.archiveLogs(st)
 	if !a.Cfg.MakesReports() {
 		a.send(st)
 		return "", nil
@@ -284,7 +334,8 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		KnownDevices: st.State.KnownDevices, CheckSets: sets,
 		Context: context, Baseline: st.State.Baseline, BaselineHosts: st.State.BaselineHosts,
 		WorkingHours: a.Cfg.WorkingHours,
-		Systems:      systemsFor(st, prevEnd), Collector: a.Cfg.Inbox != "",
+		Archives:     a.archivesFor(prevEnd, end), ArchivesKept: true,
+		Systems: systemsFor(st, prevEnd), Collector: a.Cfg.Inbox != "",
 		LANWarnings: lanWarnings(st, prevGen, generated, a.loc()),
 	})
 	if len(r.Hosts) == 0 {
@@ -314,11 +365,51 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		if err := pruneReports(a.ReportsDir(), a.Cfg.RetentionDays, generated); err != nil {
 			a.logf("pruning old reports: %v", err)
 		}
+		if err := archive.Prune(a.ArchivesDir(), a.Cfg.RetentionDays, generated); err != nil {
+			a.logf("pruning old log archives: %v", err)
+		}
 	}
 	if err := report.WriteIndex(a.ReportsDir(), a.Cfg.SiteName, a.loc()); err != nil {
 		a.logf("updating report index: %v", err)
 	}
 	return dir, nil
+}
+
+// archivesFor lists the log archives that cover part of [start, end), with
+// each zip file's SHA-256 so the report records exactly what was kept.
+func (a *App) archivesFor(start, end time.Time) []report.ArchiveRef {
+	list, err := archive.List(a.ArchivesDir())
+	if err != nil {
+		a.logf("listing log archives: %v", err)
+	}
+	var out []report.ArchiveRef
+	for _, s := range list {
+		if !s.To.After(start) || !s.From.Before(end) {
+			continue
+		}
+		sum, err := fileSHA256(s.Path)
+		if err != nil {
+			a.logf("log archive %s: %v", s.Path, err)
+			continue
+		}
+		rel, _ := filepath.Rel(a.ReportsDir(), s.Path)
+		out = append(out, report.ArchiveRef{Host: s.Host, From: s.From, To: s.To, Bytes: uint64(s.Bytes), SHA256: sum,
+			Link: "../" + filepath.ToSlash(rel)})
+	}
+	return out
+}
+
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // contextSpan is how far before a report's period detections look.

@@ -68,6 +68,40 @@ installing Blackbox does not flag everyone. Something not seen for a year
 counts as new again. Service and computer accounts, and SYSTEM, are left
 out.
 
+## Original logs
+
+Reports show what Blackbox found in the logs. The original logs are kept
+too, for an assessor or an investigation, because the report's own
+`events.csv` and `events.jsonl` hold only the security-relevant events,
+translated.
+
+Once a day each computer saves the logs Blackbox reads, unaltered, for the
+time since its last save, as one zip file. The first one reaches back a
+week.
+
+| Computer | What is in the zip | Open it with |
+|---|---|---|
+| Windows | `Security.evtx`, `System.evtx`, and the USB, Defender and device logs, as `.evtx` files | Event Viewer (Open Saved Log), or `Get-WinEvent -Path` |
+| Linux | `audit.log`: the audit records, in their original format | `ausearch -if audit.log`, or `aureport -if audit.log` |
+| Linux | `syslog`/`messages` and `auth.log`/`secure`: the lines for the period (or `journal.log` from the systemd journal when there are no log files) | Any text editor |
+
+Each zip also holds `archive.json`: the computer, the period, and each
+file's SHA-256.
+
+The zips are kept in the reports folder, under `archives\COMPUTER\`,
+named `COMPUTER_FROM_TO.zip` (times in UTC). A computer that sends to a
+collector delivers its zips there with its events, and the collector
+checks every file against its hash before filing it. A damaged or altered
+zip is set aside in the inbox's `rejected` folder.
+
+Each report's **Audit health** view lists the archives that cover its
+period, with each zip's SHA-256. It warns about any computer with no
+archive for the period. They are also listed in `summary.json`. Archives
+are removed with reports after `retention_days`.
+
+Expect a few MB a day per Windows computer (much less for Linux),
+compressed. It depends on how busy the Security log is.
+
 ## Is the audit trail complete?
 
 The Overview flags a report as incomplete when:

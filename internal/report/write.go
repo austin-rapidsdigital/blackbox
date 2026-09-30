@@ -40,6 +40,17 @@ type Summary struct {
 	Source      string         `json:"source"`
 	Systems     []SystemStatus `json:"systems,omitempty"`
 	Detections  []Detection    `json:"detections,omitempty"`
+	Archives    []ArchiveJSON  `json:"log_archives,omitempty"`
+}
+
+// ArchiveJSON is one archive of original logs in summary.json.
+type ArchiveJSON struct {
+	Host   string    `json:"host"`
+	From   time.Time `json:"from"`
+	To     time.Time `json:"to"`
+	File   string    `json:"file"`
+	Bytes  uint64    `json:"bytes"`
+	SHA256 string    `json:"sha256"`
 }
 
 // Detection is one detection in summary.json.
@@ -70,6 +81,9 @@ func (r *Report) summary() Summary {
 		s.WindowStart = r.FirstEvent
 	}
 	s.High = len(r.HighRows)
+	for _, a := range r.Archives {
+		s.Archives = append(s.Archives, ArchiveJSON{Host: a.Host, From: a.From, To: a.To, File: a.Link, Bytes: a.Bytes, SHA256: a.SHA256})
+	}
 	for _, f := range r.Findings {
 		s.Detections = append(s.Detections, Detection{Severity: string(f.Severity), Time: f.Time, Host: f.Host, Title: f.Title, Detail: f.Detail})
 		if f.Severity == event.SevHigh {
