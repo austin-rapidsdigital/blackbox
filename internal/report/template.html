@@ -402,9 +402,9 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid var(--ink-200);colo
   {{if .CheckSets}}
   <h2>Audit configuration compared with the DISA STIG<span class="ct">{{.Health.ChecksPass}} pass · {{.Health.ChecksFail}} need attention</span></h2>
   <p class="note">Blackbox only reports these settings and never changes them. A FAIL means part of this report may be incomplete.</p>
-  {{if eq (len .CheckSets) 1}}{{with index .CheckSets 0}}<p class="note">Checked {{stamp .Time}} on {{.Host}}.</p>{{template "checktable" .Results}}{{end}}
+  {{if eq (len .CheckSets) 1}}{{with index .CheckSets 0}}<p class="note">Checked {{stamp .Time}} on {{.Host}}{{with .Baseline}} against the {{.}}{{end}}.</p>{{template "checktable" .Results}}{{end}}
   {{else}}{{range .CheckSets}}
-  <details class="sys" id="checks-{{.Host}}"{{if .Fail}} open{{end}}><summary>{{.Host}}<span class="meta">{{.Pass}} pass · {{if .Fail}}<span class="c-high">{{.Fail}} need attention</span>{{else}}0 need attention{{end}} · checked {{stamp .Time}}</span></summary>
+  <details class="sys" id="checks-{{.Host}}"{{if .Fail}} open{{end}}><summary>{{.Host}}<span class="meta">{{with .Baseline}}{{.}} · {{end}}{{.Pass}} pass · {{if .Fail}}<span class="c-high">{{.Fail}} need attention</span>{{else}}0 need attention{{end}} · checked {{stamp .Time}}</span></summary>
   {{template "checktable" .Results}}</details>
   {{end}}{{end}}
   {{end}}
@@ -423,9 +423,9 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid var(--ink-200);colo
 {{define "checktable"}}
   <table>
     <thead><tr><th>Status</th><th>Setting</th><th>Current</th><th>Required</th><th>Effect on this report · how to fix</th></tr></thead>
-    <tbody>{{range .}}{{if ne .Status "pass"}}<tr><td class="sevc"><span class="st {{.Status}}">{{.Status}}</span></td><td>{{.Area}}: <strong>{{.Item}}</strong></td><td>{{.Have}}</td><td>{{.Want}}</td>
+    <tbody>{{range .}}{{if and (ne .Status "pass") (ne .Area "Baseline")}}<tr><td class="sevc"><span class="st {{.Status}}">{{.Status}}</span></td><td>{{.Area}}: <strong>{{.Item}}</strong>{{with .STIG}}<br><span class="meta">{{.}}</span>{{end}}</td><td>{{.Have}}</td><td>{{.Want}}</td>
       <td>{{.Affects}}{{if .Fix}}<br><code>{{.Fix}}</code>{{end}}</td></tr>{{end}}{{end}}
-    {{range .}}{{if eq .Status "pass"}}<tr><td class="sevc"><span class="st pass">pass</span></td><td>{{.Area}}: {{.Item}}</td><td>{{.Have}}</td><td>{{.Want}}</td><td></td></tr>{{end}}{{end}}
+    {{range .}}{{if eq .Status "pass"}}<tr><td class="sevc"><span class="st pass">pass</span></td><td>{{.Area}}: {{.Item}}{{with .STIG}}<br><span class="meta">{{.}}</span>{{end}}</td><td>{{.Have}}</td><td>{{.Want}}</td><td></td></tr>{{end}}{{end}}
     </tbody></table>
 {{end}}
 

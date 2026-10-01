@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // LogSettings is the configuration of one event log.
@@ -50,4 +51,21 @@ func (s LogSettings) OverwriteMode() string {
 		return "stop logging when full"
 	}
 	return "overwrite oldest events when full"
+}
+
+// LogHistory is how far back a log reaches and how full it is.
+type LogHistory struct {
+	Oldest, Newest time.Time
+	FileSize       uint64 // bytes in use
+}
+
+// ParseFileSize reads fileSize from `wevtutil gli <log>` output.
+func ParseFileSize(text string) uint64 {
+	for _, l := range strings.Split(text, "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(l), ":"); ok && k == "fileSize" {
+			n, _ := strconv.ParseUint(strings.TrimSpace(v), 10, 64)
+			return n
+		}
+	}
+	return 0
 }

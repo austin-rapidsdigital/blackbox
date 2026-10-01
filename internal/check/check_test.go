@@ -3,6 +3,7 @@ package check
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/casea1/blackbox/internal/winevt"
 )
@@ -18,47 +19,117 @@ func TestAuditpol(t *testing.T) {
 		t.Fatal(err)
 	}
 	byName := map[string]Result{}
-	for _, r := range EvaluateAuditpol(have) {
+	for _, r := range EvaluateAuditpol(Windows11, have) {
 		byName[r.Item] = r
 	}
-	if byName["Logon"].Status != Pass {
-		t.Error("Logon should pass")
+	if byName["Logon"].Status != Pass || byName["Logon"].STIG != "WN11-AU-000075, WN11-AU-000070" {
+		t.Errorf("Logon: %+v", byName["Logon"])
 	}
 	rs := byName["Removable Storage"]
 	if rs.Status != Fail || !strings.Contains(rs.Fix, "/success:enable /failure:enable") || !strings.Contains(rs.Affects, "USB") {
 		t.Errorf("Removable Storage: %+v", rs)
 	}
 	if al := byName["Account Lockout"]; al.Status != Fail || strings.Contains(al.Fix, "/success") {
-		t.Errorf("Account Lockout needs failure only: %+v", al)
+		t.Errorf("Account Lockout needs failure only on Windows 11: %+v", al)
+	}
+	for _, name := range []string{"File System", "Handle Manipulation", "Registry"} {
+		if r := byName[name]; r.Want != "Success and Failure" || r.Status != Fail {
+			t.Errorf("%s is required (2026 STIG): %+v", name, r)
+		}
+	}
+	if r := byName["Process Creation"]; r.Want != "Success and Failure" {
+		t.Errorf("Process Creation failures are required (WN11-AU-000585): %+v", r)
+	}
+}
+
+func TestOtherPolicyChangeNeedsFailureOnly(t *testing.T) {
+	have := map[string][2]bool{gOtherPolicyChange: {false, true}}
+	for _, r := range EvaluateAuditpol(Windows11, have) {
+		if r.Item == "Other Policy Change Events" && r.Status != Pass {
+			t.Errorf("failure-only auditing meets WN11-AU-000555: %+v", r)
+		}
+	}
+}
+
+func TestServerBaselineDiffers(t *testing.T) {
+	if BaselineFor("Server").Name != WindowsServer2025.Name || BaselineFor("Server Core").Name != WindowsServer2025.Name || BaselineFor("Client").Name != Windows11.Name {
+		t.Fatal("baseline chosen by installation type")
+	}
+	byName := map[string]Result{}
+	for _, r := range EvaluateAuditpol(WindowsServer2025, map[string][2]bool{}) {
+		byName[r.Item] = r
+	}
+	if r := byName["Other Account Management Events"]; r.Status != Fail || r.STIG != "WN25-AU-000090" {
+		t.Errorf("Server 2025 requires Other Account Management Events: %+v", r)
+	}
+	if r := byName["Account Lockout"]; r.Want != "Success and Failure" {
+		t.Errorf("Server 2025 Account Lockout: %+v", r)
+	}
+	if _, ok := byName["MPSSVC Rule-Level Policy Change"]; ok {
+		t.Error("MPSSVC is a Windows 11 requirement, not Server 2025")
+	}
+	if r := byName["Other Logon/Logoff Events"]; r.Status != Info {
+		t.Errorf("not a Server 2025 requirement, so only recommended: %+v", r)
 	}
 }
 
 func TestRegistryAndLogs(t *testing.T) {
-	rs := EvaluateRegistry(func(key, value string) (string, error) {
+	rs := EvaluateRegistry(Windows11, func(key, value string) (string, error) {
 		return "\r\nHKEY_LOCAL_MACHINE\\...\r\n    " + value + "    REG_DWORD    0x1\r\n", nil
 	})
+	if len(rs) != 4 {
+		t.Errorf("Windows 11 registry checks: %d, want 4 (incl. PowerShell logging)", len(rs))
+	}
 	for _, r := range rs {
-		if r.Status != Pass {
-			t.Errorf("%s: %s", r.Item, r.Status)
+		if r.Status != Pass || r.STIG == "" {
+			t.Errorf("%s: %s %q", r.Item, r.Status, r.STIG)
 		}
 	}
-	logs := EvaluateLogs(func(name string) (winevt.LogSettings, error) {
+	settings := func(name string) (winevt.LogSettings, error) {
 		return winevt.ParseLogSettings("name: " + name + "\nenabled: false\nlogging:\n  retention: false\n  maxSize: 20971520\n"), nil
-	})
-	var sec, part Result
-	for _, r := range logs {
-		switch r.Item {
-		case "Security log":
-			sec = r
-		case "Microsoft-Windows-Partition/Diagnostic":
-			part = r
+	}
+	now := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	full := func(span time.Duration) func(string) (winevt.LogHistory, error) {
+		return func(string) (winevt.LogHistory, error) {
+			return winevt.LogHistory{Oldest: now.Add(-span), Newest: now, FileSize: 20971520}, nil
 		}
 	}
-	if sec.Status != Fail || !strings.Contains(sec.Have, "20 MB") {
-		t.Errorf("20 MB Security log should fail: %+v", sec)
+	find := func(rs []Result, item string) Result {
+		for _, r := range rs {
+			if r.Item == item {
+				return r
+			}
+		}
+		return Result{}
 	}
-	if part.Status != Fail {
+	sec := find(EvaluateLogs(Windows11, settings, full(3*24*time.Hour)), "Security log")
+	if sec.Status != Fail || !strings.Contains(sec.Have, "holds about 3 days") || !strings.Contains(sec.Fix, "about 48128 KB") {
+		t.Errorf("a full 20 MB log holding 3 days fails the one-week rule: %+v", sec)
+	}
+	if sec := find(EvaluateLogs(Windows11, settings, full(9*24*time.Hour)), "Security log"); sec.Status != Pass {
+		t.Errorf("a log holding 9 days passes: %+v", sec)
+	}
+	if sec := find(EvaluateLogs(Windows11, settings, full(time.Hour)), "Security log"); sec.Status != Fail {
+		t.Errorf("a full log holding an hour fails: %+v", sec)
+	}
+	if part := find(EvaluateLogs(Windows11, settings, full(time.Hour)), "Microsoft-Windows-Partition/Diagnostic"); part.Status != Fail {
 		t.Errorf("disabled Partition/Diagnostic log should fail: %+v", part)
+	}
+	srv := find(EvaluateLogs(WindowsServer2025, settings, full(time.Hour)), "Security log")
+	if srv.Status != Fail || !strings.Contains(srv.Want, "196608 KB") || srv.STIG != "WN25-CC-000280" {
+		t.Errorf("Server 2025 Security log needs 196608 KB: %+v", srv)
+	}
+}
+
+func TestHeldFor(t *testing.T) {
+	now := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	// Half full after 4 days: holds about 8.
+	if d, ok := HeldFor(winevt.LogHistory{Oldest: now.Add(-96 * time.Hour), Newest: now, FileSize: 50}, 100); !ok || d != 192*time.Hour {
+		t.Errorf("half full: %v %v", d, ok)
+	}
+	// Under a day of events in a mostly empty log: too early to tell.
+	if _, ok := HeldFor(winevt.LogHistory{Oldest: now.Add(-time.Hour), Newest: now, FileSize: 1}, 100); ok {
+		t.Error("too little history to estimate")
 	}
 }
 

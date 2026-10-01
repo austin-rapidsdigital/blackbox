@@ -454,7 +454,7 @@ The answers are in section 13. The original questions were:
 - The HTML report (section 6), CSV, JSONL, `summary.json`, a SHA-256
   manifest, `verify`, and an index page listing all reports.
 - `check`, which compares the audit policy, command-line auditing, forced
-  subcategories, log sizes and USB logs against the Windows 11 STIG.
+  subcategories, log sizes and USB logs against the Windows 11 or Windows Server 2025 STIG (see internal/check/stig.go).
 - `install` / `uninstall` (scheduled task as SYSTEM, restricted data
   folder), and `report --xml` for exported logs on any OS.
 
