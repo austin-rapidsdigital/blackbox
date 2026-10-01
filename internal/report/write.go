@@ -123,7 +123,7 @@ func (r *Report) Write(dir string) error {
 		if a.Path == "" {
 			continue
 		}
-		if err := moveFile(a.Path, filepath.Join(dir, a.Name)); err != nil {
+		if err := copyIn(a.Path, filepath.Join(dir, a.Name)); err != nil {
 			return fmt.Errorf("add the original logs %s: %w", a.Name, err)
 		}
 	}
@@ -325,11 +325,11 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// moveFile renames src to dst, copying when they are on different drives.
-func moveFile(src, dst string) error {
-	if err := os.Rename(src, dst); err == nil {
-		return nil
-	}
+// copyIn copies src to dst as a new file, then removes src. It does not
+// rename: on Windows a renamed file keeps the permissions of the folder it
+// came from (the data folder, Administrators and SYSTEM only), while a new
+// file takes the report folder's, like the rest of the report.
+func copyIn(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
