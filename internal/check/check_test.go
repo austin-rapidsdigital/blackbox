@@ -115,6 +115,9 @@ func TestRegistryAndLogs(t *testing.T) {
 	if part := find(EvaluateLogs(Windows11, settings, full(time.Hour)), "Microsoft-Windows-Partition/Diagnostic"); part.Status != Fail {
 		t.Errorf("disabled Partition/Diagnostic log should fail: %+v", part)
 	}
+	if psl := find(EvaluateLogs(Windows11, settings, full(time.Hour)), "Microsoft-Windows-PowerShell/Operational"); psl.Status != Info {
+		t.Errorf("a disabled PowerShell log is information, not a failure: %+v", psl)
+	}
 	srv := find(EvaluateLogs(WindowsServer2025, settings, full(time.Hour)), "Security log")
 	if srv.Status != Fail || !strings.Contains(srv.Want, "196608 KB") || srv.STIG != "WN25-CC-000280" {
 		t.Errorf("Server 2025 Security log needs 196608 KB: %+v", srv)

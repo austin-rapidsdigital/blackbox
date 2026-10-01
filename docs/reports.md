@@ -80,7 +80,7 @@ one zip per computer, `logs-COMPUTER.zip`, covering the report's period.
 
 | Computer | What is in the zip | Open it with |
 |---|---|---|
-| Windows | `Security.evtx`, `System.evtx`, and the USB, Defender and device logs, as `.evtx` files | Event Viewer (Open Saved Log), or `Get-WinEvent -Path` |
+| Windows | `Security.evtx`, `System.evtx`, and the USB, Defender, device and PowerShell (`Microsoft-Windows-PowerShell-Operational.evtx`, every script block, not only the ones reported) logs, as `.evtx` files | Event Viewer (Open Saved Log), or `Get-WinEvent -Path` |
 | Linux | `audit.log`: the audit records, in their original format | `ausearch -if audit.log`, or `aureport -if audit.log` |
 | Linux | `syslog`/`messages` and `auth.log`/`secure`: the lines for the period (or `journal.log` from the systemd journal when there are no log files) | Any text editor |
 

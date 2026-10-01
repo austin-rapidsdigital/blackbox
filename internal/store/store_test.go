@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -55,5 +56,27 @@ func TestLock(t *testing.T) {
 		t.Error("lock after unlock should succeed")
 	} else {
 		u()
+	}
+}
+
+func TestWaitLock(t *testing.T) {
+	lockPoll = 10 * time.Millisecond
+	s, _ := Open(t.TempDir())
+	unlock, err := s.Lock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WaitLock(30*time.Millisecond, nil); !errors.Is(err, ErrBusy) {
+		t.Fatalf("WaitLock on a held lock = %v, want ErrBusy", err)
+	}
+	waited := false
+	go func() { time.Sleep(50 * time.Millisecond); unlock() }()
+	u, err := s.WaitLock(5*time.Second, func() { waited = true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	u()
+	if !waited {
+		t.Error("waiting callback was not called")
 	}
 }
