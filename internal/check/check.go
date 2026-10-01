@@ -198,18 +198,23 @@ func EvaluateRegistry(b Baseline, query func(key, value string) (string, error))
 	return out
 }
 
-// USB-related logs Blackbox reads, and whether they matter.
-var usbLogs = []struct {
-	name     string
-	required bool
-	note     string
+// enabledLogs are the logs Blackbox reads that can be switched off, and
+// whether they matter.
+var enabledLogs = []struct {
+	area, name string
+	required   bool
+	affects    string // report section and what it gives
 }{
-	{"Microsoft-Windows-Partition/Diagnostic", true, "USB storage make, model, serial number and size (on by default)"},
-	{"Microsoft-Windows-Kernel-PnP/Configuration", true, "first-time USB device setup (on by default)"},
-	{"Microsoft-Windows-DriverFrameworks-UserMode/Operational", false, "extra USB connect/disconnect detail (optional, off by default)"},
+	{"USB logging", "Microsoft-Windows-Partition/Diagnostic", true, "USB & Removable Media: USB storage make, model, serial number and size (on by default)"},
+	{"USB logging", "Microsoft-Windows-Kernel-PnP/Configuration", true, "USB & Removable Media: first-time USB device setup (on by default)"},
+	{"USB logging", "Microsoft-Windows-DriverFrameworks-UserMode/Operational", false, "USB & Removable Media: extra USB connect/disconnect detail (optional, off by default)"},
+	// Script Block Logging (a STIG setting, checked with the registry)
+	// writes here; the log itself is not a STIG item.
+	{"PowerShell logging", "Microsoft-Windows-PowerShell/Operational", false, "Audit & System Integrity, Other Security Events: PowerShell script logging details (on by default)"},
 }
 
-// EvaluateLogs checks log sizes and that USB-related logs are enabled.
+// EvaluateLogs checks log sizes and that the USB-related and PowerShell
+// logs are enabled.
 // history reports how far back a log reaches, for a baseline that wants
 // the Security log to hold a week of events.
 func EvaluateLogs(b Baseline, get func(string) (winevt.LogSettings, error), history func(string) (winevt.LogHistory, error)) []Result {
@@ -237,8 +242,8 @@ func EvaluateLogs(b Baseline, get func(string) (winevt.LogSettings, error), hist
 		}
 		out = append(out, r)
 	}
-	for _, l := range usbLogs {
-		r := Result{Area: "USB logging", Item: l.name, Want: "Enabled", Affects: "USB & Removable Media: " + l.note}
+	for _, l := range enabledLogs {
+		r := Result{Area: l.area, Item: l.name, Want: "Enabled", Affects: l.affects}
 		s, err := get(l.name)
 		switch {
 		case err != nil:

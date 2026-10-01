@@ -42,6 +42,7 @@ var Channels = []string{
 	"Microsoft-Windows-Kernel-PnP/Configuration",
 	"Microsoft-Windows-DriverFrameworks-UserMode/Operational",
 	"Microsoft-Windows-Windows Defender/Operational",
+	"Microsoft-Windows-PowerShell/Operational",
 }
 
 // Translate returns the normalized event for r, or nil if r is not
@@ -82,6 +83,8 @@ func (t *Translator) translate(r *Raw) *event.Event {
 		return t.driverFrameworks(r)
 	case r.Channel == "Microsoft-Windows-Windows Defender/Operational":
 		return t.defender(r)
+	case r.Channel == "Microsoft-Windows-PowerShell/Operational":
+		return t.powerShell(r)
 	}
 	return nil
 }
@@ -930,6 +933,172 @@ func (t *Translator) defender(r *Raw) *event.Event {
 			Summary: "Microsoft Defender scanning was turned off."}
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------- PowerShell
+
+// psRule is one kind of PowerShell script worth reporting. A script block
+// matches when every pattern in find matches somewhere in it; the line
+// holding the first pattern's match is shown in the report.
+type psRule struct {
+	action string
+	sev    event.Severity
+	cat    event.Category
+	what   string // completes "jsmith ran a PowerShell script that …"
+	find   []*regexp.Regexp
+}
+
+// psRules are the script blocks that are reported, checked in order (the
+// first match wins). Everything else PowerShell records is routine:
+// management tools, logon scripts and modules loading run thousands of
+// script blocks a day. Matching ignores case.
+var psRules = []psRule{
+	// Clearing logs or weakening auditing: the same commands that are
+	// flagged on a command line (auditTamper), plus PowerShell's own.
+	{"powershell_tamper", event.SevHigh, event.CatIntegrity, "can clear logs or weaken auditing",
+		psPatterns(tamperPattern(), `limit-eventlog`, `wevtutil(?:\.exe)?\s+clear-log`,
+			`stop-service\s+(?:-name\s+)?['"]?eventlog\b`)},
+
+	// Turning Microsoft Defender off, excluding files from scanning, or
+	// removing it ($false re-enables, so only $true/1 counts).
+	{"powershell_av_tamper", event.SevHigh, event.CatOther, "turns off or weakens Microsoft Defender",
+		psPatterns(`set-mppreference\b.*-disable\w+(?:\s+|:)(?:\$true|1)\b`,
+			`(?:add|set)-mppreference\b.*-exclusion(?:path|process|extension)\b`,
+			`(?:uninstall|remove)-windowsfeature\b.*windows-defender`)},
+
+	// Switching off the Antimalware Scan Interface, which lets Defender
+	// see the scripts PowerShell runs.
+	{"powershell_amsi_bypass", event.SevHigh, event.CatOther, "tries to switch off malware scanning of scripts (AMSI bypass)",
+		psPatterns(`amsiutils|amsiinitfailed`)},
+
+	// Tools that steal passwords and logon tokens from memory or Group
+	// Policy files.
+	{"powershell_credential", event.SevHigh, event.CatOther, "uses a password-stealing tool",
+		psPatterns(`mimikatz|\bsekurlsa\b|\blsadump\b|get-gpppassword`,
+			`out-minidump.*lsass|lsass.*out-minidump`)},
+
+	// Download cradles: code fetched from the network and run straight
+	// away, without ever being saved where it could be scanned.
+	{"powershell_download", event.SevHigh, event.CatOther, "downloads and runs code",
+		[]*regexp.Regexp{psPattern(`net\.webclient|downloadstring|downloadfile|downloaddata|invoke-webrequest|\biwr\b|invoke-restmethod|\birm\b|start-bitstransfer`),
+			psPattern(`invoke-expression|\biex\b`)}},
+	{"powershell_download", event.SevHigh, event.CatOther, "decodes hidden (base64) code and runs it",
+		[]*regexp.Regexp{psPattern(`frombase64string`), psPattern(`invoke-expression|\biex\b`)}},
+}
+
+// psPattern compiles a case-insensitive pattern.
+func psPattern(p string) *regexp.Regexp { return regexp.MustCompile(`(?i)` + p) }
+
+// psPatterns is one pattern matching any of the alternatives.
+func psPatterns(alts ...string) []*regexp.Regexp {
+	return []*regexp.Regexp{psPattern(`(?:` + strings.Join(alts, `)|(?:`) + `)`)}
+}
+
+// tamperPattern matches the auditTamper commands with any spacing.
+func tamperPattern() string {
+	var alts []string
+	for _, frag := range auditTamper {
+		alts = append(alts, strings.ReplaceAll(regexp.QuoteMeta(frag), " ", `\s+`))
+	}
+	return strings.Join(alts, "|")
+}
+
+// powerShell handles PowerShell/Operational 4104 (Script Block Logging).
+// Only suspicious script blocks are reported: those PowerShell itself
+// logs as warnings, and those matching psRules. Module logging (4103) is
+// skipped: it repeats what the script blocks show, at great volume.
+func (t *Translator) powerShell(r *Raw) *event.Event {
+	if r.EventID != 4104 {
+		return nil
+	}
+	text := r.Get("ScriptBlockText")
+	var rule *psRule
+	var line string
+	for i := range psRules {
+		if l, ok := psMatch(&psRules[i], text); ok {
+			rule, line = &psRules[i], l
+			break
+		}
+	}
+	if rule == nil {
+		if r.Level != 3 {
+			return nil
+		}
+		// Windows logs a script block as a warning, even when Script Block
+		// Logging is off, when it uses commands attackers favour.
+		rule = &psRule{action: "powershell_suspicious", sev: event.SevMedium, cat: event.CatOther,
+			what: "PowerShell itself flagged as suspicious"}
+		line = firstLine(text)
+	}
+	user := t.resolve(r.UserSID)
+	e := &event.Event{Category: rule.cat, Severity: rule.sev, Action: rule.action, User: user,
+		Summary: fmt.Sprintf("%s ran a PowerShell script that %s", orUnknown(user), rule.what)}
+	if line != "" {
+		e.Summary += ": " + clip(line, 120)
+	} else {
+		e.Summary += "."
+	}
+	// A large script is logged in parts sharing one ID: matching parts are
+	// reported once.
+	if id := r.Get("ScriptBlockId"); id != "" {
+		e.DedupeKey = "psblock|" + strings.ToLower(id)
+		e.Priority = rule.sev.Rank()
+	}
+	e.AddDetail("Matched line", clip(line, 500))
+	e.AddDetail("Script (excerpt)", clip(strings.TrimSpace(text), 2000))
+	if n, total := r.Get("MessageNumber"), r.Get("MessageTotal"); total != "" && total != "1" {
+		e.AddDetail("Script part", n+" of "+total)
+	}
+	e.AddDetail("Script path", r.Get("Path"))
+	e.AddDetail("Script block ID", r.Get("ScriptBlockId"))
+	if r.Level == 3 && rule.action != "powershell_suspicious" {
+		e.AddDetail("Note", "PowerShell also flagged this script as suspicious.")
+	}
+	// The whole script is in the original log; keep only the excerpt.
+	e.Fields = trimFields(r.Data, "ScriptBlockText")
+	return e
+}
+
+// psMatch reports whether every pattern of rule matches text, and returns
+// the line holding the first pattern's match.
+func psMatch(rule *psRule, text string) (string, bool) {
+	if text == "" || len(rule.find) == 0 {
+		return "", false
+	}
+	loc := rule.find[0].FindStringIndex(text)
+	if loc == nil {
+		return "", false
+	}
+	for _, re := range rule.find[1:] {
+		if !re.MatchString(text) {
+			return "", false
+		}
+	}
+	start := strings.LastIndexByte(text[:loc[0]], '\n') + 1
+	end := len(text)
+	if i := strings.IndexByte(text[loc[0]:], '\n'); i >= 0 {
+		end = loc[0] + i
+	}
+	return strings.TrimSpace(text[start:end]), true
+}
+
+// firstLine returns the first non-blank line of s.
+func firstLine(s string) string {
+	for _, l := range strings.Split(s, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			return l
+		}
+	}
+	return ""
+}
+
+// clip shortens s to n characters, marking the cut.
+func clip(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return strings.TrimSpace(string(r[:n])) + " …"
 }
 
 // ---------------------------------------------------------------- helpers

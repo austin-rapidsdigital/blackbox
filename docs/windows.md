@@ -137,6 +137,22 @@ system with no domain, use a local folder.
 | Microsoft-Windows-Kernel-PnP/Configuration | First-time USB device setup |
 | Microsoft-Windows-DriverFrameworks-UserMode/Operational | Extra USB detail (optional, off by default) |
 | Microsoft-Windows-Windows Defender/Operational | Malware detections, protection turned off |
+| Microsoft-Windows-PowerShell/Operational | Suspicious PowerShell scripts: clearing logs or weakening auditing, turning off Defender, downloading and running code, password-stealing tools, malware-scanning (AMSI) bypasses |
+
+PowerShell records every script it runs (event 4104, Script Block
+Logging), which on a managed computer is thousands a day. Blackbox reports
+only the suspicious ones: those matching the list above (High), and those
+PowerShell itself flags as suspicious (Medium). The rest are counted but
+not listed, and stay in the original log saved with each report. A large
+script is recorded in several parts; matching parts of one script are
+shown as one row. Windows PowerShell 5.1 is read; PowerShell 7 writes to a
+separate log that Blackbox does not read yet.
+
+Script Block Logging must be turned on by Group Policy: Administrative
+Templates > Windows Components > Windows PowerShell > Turn on PowerShell
+Script Block Logging (STIG WN11-CC-000326 on Windows 11, WN25-CC-000460 on
+Server 2025; `blackbox.exe check` shows whether it is on). Without it,
+only the scripts PowerShell flags itself are recorded.
 
 ## Audit settings
 
@@ -181,7 +197,9 @@ What is checked:
 - **PowerShell script block logging**, and on Windows 11 **PowerShell
   transcription**.
 - **USB logs** (Partition/Diagnostic and Kernel-PnP/Configuration),
-  which the report needs for device details. These are not STIG rules.
+  which the report needs for device details, and the **PowerShell log**
+  (on by default; shown for information, never as a failure). These are
+  not STIG rules.
 
 On a server, Other Logon/Logoff Events auditing is not a STIG rule, but
 the report needs it for Remote Desktop sessions. It is listed as

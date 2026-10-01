@@ -341,7 +341,7 @@ func dedupeWindow(key string) time.Duration {
 		return 24 * time.Hour
 	case strings.HasPrefix(key, "rm|"):
 		return time.Minute
-	case strings.HasPrefix(key, "svc|"):
+	case strings.HasPrefix(key, "svc|"), strings.HasPrefix(key, "psblock|"):
 		return 10 * time.Minute
 	}
 	return 5 * time.Minute
@@ -773,6 +773,12 @@ var actionLabels = map[string][2]string{
 	"promiscuous_mode":        {"network capture (promiscuous mode) started", "network captures (promiscuous mode) started"},
 	"audit_rule_added":        {"audit rule added", "audit rules added"},
 	"audit_config_changed":    {"audit configuration change", "audit configuration changes"},
+	"powershell_suspicious":   {"PowerShell script flagged as suspicious", "PowerShell scripts flagged as suspicious"},
+	"powershell_tamper":       {"PowerShell script that can clear logs or weaken auditing", "PowerShell scripts that can clear logs or weaken auditing"},
+	"powershell_av_tamper":    {"PowerShell script that weakens Microsoft Defender", "PowerShell scripts that weaken Microsoft Defender"},
+	"powershell_download":     {"PowerShell script that downloads and runs code", "PowerShell scripts that download and run code"},
+	"powershell_credential":   {"password-stealing tool run in PowerShell", "password-stealing tools run in PowerShell"},
+	"powershell_amsi_bypass":  {"PowerShell attempt to switch off script scanning (AMSI)", "PowerShell attempts to switch off script scanning (AMSI)"},
 }
 
 func (r *Report) buildAttention(rows []*Row) {
