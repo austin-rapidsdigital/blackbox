@@ -203,7 +203,7 @@ jobs:
           grep -q "ReadWritePaths=.*/srv/bb-reports-2" /etc/systemd/system/blackbox.service
           sudo /usr/local/bin/blackbox config
           # Run the real (sandboxed) service once and check it wrote a report.
-          sudo systemctl start blackbox.service
+          sudo systemctl start blackbox.service || { sudo journalctl -u blackbox.service --no-pager | tail -40; exit 1; }
           sudo find /srv/bb-reports-2 -name report.html | grep -q report.html || { sudo journalctl -u blackbox.service --no-pager | tail -30; exit 1; }
           echo "Sandboxed service wrote a report to /srv/bb-reports-2"
           # The report folder holds the original logs, in its manifest.
@@ -236,7 +236,7 @@ jobs:
           # A sender also delivers when the computer shuts down.
           systemctl is-enabled blackbox-shutdown.service
           # The sandboxed service (no network of its own) mounts the share and delivers.
-          sudo systemctl start blackbox.service
+          sudo systemctl start blackbox.service || { sudo journalctl -u blackbox.service -u var-lib-blackbox-collector.mount --no-pager | tail -40; exit 1; }
           sudo /usr/local/bin/blackbox status
           sudo sh -c 'ls /srv/inbox/*.bbx' || { sudo journalctl -u blackbox.service -u var-lib-blackbox-collector.mount --no-pager | tail -40; exit 1; }
           # The original logs came too.
