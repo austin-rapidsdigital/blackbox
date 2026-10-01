@@ -29,6 +29,7 @@ type CheckSet struct {
 	Time             time.Time
 	Results          []check.Result
 	Pass, Fail, Warn int
+	Baseline         string // the STIG compared with, e.g. "Windows 11 STIG V2R8"
 }
 
 // SystemRow is one computer on the Systems page.
@@ -193,6 +194,11 @@ func (r *Report) SystemsNeedingAttention() int {
 func NewCheckSet(host string, at time.Time, rs []check.Result) CheckSet {
 	cs := CheckSet{Host: host, Time: at, Results: rs}
 	cs.Pass, cs.Fail, cs.Warn = check.Summary(rs)
+	for _, r := range rs {
+		if r.Area == "Baseline" {
+			cs.Baseline = r.Have
+		}
+	}
 	// Settings that need attention first.
 	sort.SliceStable(cs.Results, func(i, j int) bool {
 		return (cs.Results[i].Status != check.Pass) && (cs.Results[j].Status == check.Pass)

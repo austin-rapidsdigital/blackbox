@@ -32,6 +32,7 @@ type Result struct {
 	Want    string `json:"want"`
 	Affects string `json:"affects,omitempty"` // report section that is incomplete without it
 	Fix     string `json:"fix,omitempty"`
+	STIG    string `json:"stig,omitempty"` // STIG rule IDs, e.g. WN11-AU-000505
 }
 
 // Summary counts results by status.
@@ -51,39 +52,9 @@ func Summary(rs []Result) (pass, fail, warn int) {
 
 type auditReq struct {
 	guid, name string
-	succ, fail bool
+	succ, fail string // STIG IDs requiring success / failure auditing ("" = not required)
 	affects    string
-}
-
-// windowsAuditReqs is the Windows 11 / Server 2025 STIG advanced audit
-// policy baseline.
-var windowsAuditReqs = []auditReq{
-	{"{0CCE923F-69AE-11D9-BED3-505054503030}", "Credential Validation", true, true, "Failed Logons"},
-	{"{0CCE9237-69AE-11D9-BED3-505054503030}", "Security Group Management", true, false, "Account & Group Changes"},
-	{"{0CCE9235-69AE-11D9-BED3-505054503030}", "User Account Management", true, true, "Account & Group Changes"},
-	{"{0CCE9248-69AE-11D9-BED3-505054503030}", "Plug and Play Events", true, false, "USB & Removable Media"},
-	{"{0CCE922B-69AE-11D9-BED3-505054503030}", "Process Creation", true, false, "Privileged Activity (elevated programs)"},
-	{"{0CCE9217-69AE-11D9-BED3-505054503030}", "Account Lockout", false, true, "Failed Logons"},
-	{"{0CCE9249-69AE-11D9-BED3-505054503030}", "Group Membership", true, false, ""},
-	{"{0CCE9216-69AE-11D9-BED3-505054503030}", "Logoff", true, false, "Logon Activity"},
-	{"{0CCE9215-69AE-11D9-BED3-505054503030}", "Logon", true, true, "Logon Activity and Failed Logons"},
-	{"{0CCE921B-69AE-11D9-BED3-505054503030}", "Special Logon", true, false, "Privileged Activity (administrator logons)"},
-	{"{0CCE921C-69AE-11D9-BED3-505054503030}", "Other Logon/Logoff Events", true, true, "Logon Activity (Remote Desktop sessions)"},
-	{"{0CCE9224-69AE-11D9-BED3-505054503030}", "File Share", true, true, ""},
-	{"{0CCE9244-69AE-11D9-BED3-505054503030}", "Detailed File Share", false, true, ""},
-	{"{0CCE9227-69AE-11D9-BED3-505054503030}", "Other Object Access Events", true, true, "Other Security Events (scheduled tasks)"},
-	{"{0CCE9245-69AE-11D9-BED3-505054503030}", "Removable Storage", true, true, "USB & Removable Media (files read/written)"},
-	{"{0CCE922F-69AE-11D9-BED3-505054503030}", "Audit Policy Change", true, true, "Audit & System Integrity"},
-	{"{0CCE9230-69AE-11D9-BED3-505054503030}", "Authentication Policy Change", true, false, ""},
-	{"{0CCE9231-69AE-11D9-BED3-505054503030}", "Authorization Policy Change", true, false, ""},
-	{"{0CCE9232-69AE-11D9-BED3-505054503030}", "MPSSVC Rule-Level Policy Change", true, true, ""},
-	{"{0CCE9234-69AE-11D9-BED3-505054503030}", "Other Policy Change Events", true, true, ""},
-	{"{0CCE9228-69AE-11D9-BED3-505054503030}", "Sensitive Privilege Use", true, true, ""},
-	{"{0CCE9213-69AE-11D9-BED3-505054503030}", "IPsec Driver", false, true, ""},
-	{"{0CCE9214-69AE-11D9-BED3-505054503030}", "Other System Events", true, true, ""},
-	{"{0CCE9210-69AE-11D9-BED3-505054503030}", "Security State Change", true, false, "Audit & System Integrity (startup, time changes)"},
-	{"{0CCE9211-69AE-11D9-BED3-505054503030}", "Security System Extension", true, false, "Other Security Events (services installed)"},
-	{"{0CCE9212-69AE-11D9-BED3-505054503030}", "System Integrity", true, true, "Audit & System Integrity"},
+	optional   bool // not a STIG requirement here, but this report needs it
 }
 
 func settingText(s, f bool) string {
@@ -135,20 +106,28 @@ func ParseAuditpol(text string) (map[string][2]bool, error) {
 	return out, nil
 }
 
-// EvaluateAuditpol compares auditpol settings with the STIG baseline.
-func EvaluateAuditpol(have map[string][2]bool) []Result {
+// EvaluateAuditpol compares auditpol settings with a STIG baseline.
+func EvaluateAuditpol(b Baseline, have map[string][2]bool) []Result {
 	var out []Result
-	for _, q := range windowsAuditReqs {
+	for _, q := range b.Audit {
 		h := have[q.guid]
+		wantS, wantF := q.succ != "", q.fail != ""
+		if q.optional {
+			wantS, wantF = true, true
+		}
 		r := Result{Area: "Audit policy", Item: q.name, Have: settingText(h[0], h[1]),
-			Want: settingText(q.succ, q.fail), Affects: q.affects, Status: Pass}
-		if (q.succ && !h[0]) || (q.fail && !h[1]) {
+			Want: settingText(wantS, wantF), Affects: q.affects, STIG: joinIDs(q.succ, q.fail), Status: Pass}
+		if (wantS && !h[0]) || (wantF && !h[1]) {
 			r.Status = Fail
+			if q.optional {
+				r.Status = Info
+				r.Want += " (recommended for this report; not a STIG requirement for this system)"
+			}
 			var flags []string
-			if q.succ && !h[0] {
+			if wantS && !h[0] {
 				flags = append(flags, "/success:enable")
 			}
-			if q.fail && !h[1] {
+			if wantF && !h[1] {
 				flags = append(flags, "/failure:enable")
 			}
 			r.Fix = fmt.Sprintf(`auditpol /set /subcategory:"%s" %s  (or set it in Group Policy: Advanced Audit Policy Configuration)`, q.guid, strings.Join(flags, " "))
@@ -156,6 +135,27 @@ func EvaluateAuditpol(have map[string][2]bool) []Result {
 		out = append(out, r)
 	}
 	return out
+}
+
+func joinIDs(ids ...string) string {
+	var out []string
+	for _, id := range ids {
+		if id != "" {
+			out = append(out, id)
+		}
+	}
+	return strings.Join(out, ", ")
+}
+
+// ParseRegSZ extracts a REG_SZ value from `reg query` output.
+func ParseRegSZ(text, name string) (string, bool) {
+	for _, line := range strings.Split(text, "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 3 && strings.EqualFold(f[0], name) && f[1] == "REG_SZ" {
+			return strings.Join(f[2:], " "), true
+		}
+	}
+	return "", false
 }
 
 // ParseRegDWORD extracts a REG_DWORD value from `reg query` output.
@@ -171,24 +171,15 @@ func ParseRegDWORD(text, name string) (uint64, bool) {
 }
 
 type regReq struct {
-	key, value, item, affects, why string
-}
-
-var windowsRegReqs = []regReq{
-	{`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit`, "ProcessCreationIncludeCmdLine_Enabled",
-		"Include command line in process creation events", "Privileged Activity (full commands, not just program names)",
-		"Group Policy: Administrative Templates > System > Audit Process Creation"},
-	{`HKLM\SYSTEM\CurrentControlSet\Control\Lsa`, "SCENoApplyLegacyAuditPolicy",
-		"Force audit policy subcategory settings", "All sections (advanced audit policy may be ignored without it)",
-		"Group Policy: Security Options > Audit: Force audit policy subcategory settings"},
+	key, value, item, affects, why, stig string
 }
 
 // EvaluateRegistry checks the registry settings; query returns `reg query`
 // output for a key/value.
-func EvaluateRegistry(query func(key, value string) (string, error)) []Result {
+func EvaluateRegistry(b Baseline, query func(key, value string) (string, error)) []Result {
 	var out []Result
-	for _, q := range windowsRegReqs {
-		r := Result{Area: "Audit settings", Item: q.item, Want: "Enabled (1)", Affects: q.affects}
+	for _, q := range b.Registry {
+		r := Result{Area: "Audit settings", Item: q.item, Want: "Enabled (1)", Affects: q.affects, STIG: q.stig}
 		text, err := query(q.key, q.value)
 		v, ok := ParseRegDWORD(text, q.value)
 		switch {
@@ -207,13 +198,6 @@ func EvaluateRegistry(query func(key, value string) (string, error)) []Result {
 	return out
 }
 
-// Minimum log sizes from the Windows 11 STIG.
-var minLogSize = map[string]uint64{
-	"Security":    1024000 * 1024,
-	"System":      32768 * 1024,
-	"Application": 32768 * 1024,
-}
-
 // USB-related logs Blackbox reads, and whether they matter.
 var usbLogs = []struct {
 	name     string
@@ -226,23 +210,30 @@ var usbLogs = []struct {
 }
 
 // EvaluateLogs checks log sizes and that USB-related logs are enabled.
-func EvaluateLogs(get func(string) (winevt.LogSettings, error)) []Result {
+// history reports how far back a log reaches, for a baseline that wants
+// the Security log to hold a week of events.
+func EvaluateLogs(b Baseline, get func(string) (winevt.LogSettings, error), history func(string) (winevt.LogHistory, error)) []Result {
 	var out []Result
-	for _, name := range []string{"Security", "System", "Application"} {
-		r := Result{Area: "Event log size", Item: name + " log", Want: fmt.Sprintf("at least %s", mb(minLogSize[name]))}
-		s, err := get(name)
+	for _, q := range b.Logs {
+		r := Result{Area: "Event log size", Item: q.name + " log", STIG: q.stig}
+		s, err := get(q.name)
 		if err != nil {
 			r.Status, r.Have = Error, err.Error()
 			out = append(out, r)
 			continue
 		}
 		r.Have = fmt.Sprintf("%s, %s", mb(s.MaxSize), s.OverwriteMode())
-		if s.MaxSize >= minLogSize[name] {
+		if q.week {
+			out = append(out, holdsWeek(r, s, history))
+			continue
+		}
+		r.Want = fmt.Sprintf("at least %s (%d KB)", mb(q.minKB*1024), q.minKB)
+		if s.MaxSize >= q.minKB*1024 {
 			r.Status = Pass
 		} else {
 			r.Status = Fail
 			r.Affects = "Events may be overwritten before collection on busy systems"
-			r.Fix = fmt.Sprintf("wevtutil sl %s /ms:%d  (or Group Policy: Event Log Service > %s > Specify the maximum log file size)", name, minLogSize[name], name)
+			r.Fix = fmt.Sprintf("wevtutil sl %s /ms:%d  (or Group Policy: Event Log Service > %s > Specify the maximum log file size (KB): %d)", q.name, q.minKB*1024, q.name, q.minKB)
 		}
 		out = append(out, r)
 	}

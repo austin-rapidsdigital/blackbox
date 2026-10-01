@@ -72,8 +72,9 @@ Setup then:
 - adds **Blackbox** to Settings → Apps (and Programs and Features), with
   its version, so it can be inventoried and uninstalled like any other
   program
-- checks the audit settings against the Windows 11 STIG and lists what is
-  missing (it changes nothing)
+- checks the audit settings against the DISA STIG (Windows 11 or Windows
+  Server 2025, whichever the computer is) and lists what is missing (it
+  changes nothing)
 - collects events and produces the first report. The first run reads the
   whole Security log, so it can take a few minutes.
 
@@ -140,25 +141,56 @@ system with no domain, use a local folder.
 ## Audit settings
 
 A report can only show what Windows records. To compare the system with
-the STIG requirements that matter for the report, run:
+the STIG, run:
 
 ```
 blackbox.exe check
 ```
 
-Each item that falls short is listed with the report section it affects
-and the exact command or Group Policy setting that fixes it. Blackbox never
-changes settings itself. The report's **Audit health** view shows the same
-check.
+Blackbox picks the STIG from the kind of Windows:
 
-The most important settings are:
+| Computer | Compared with |
+|---|---|
+| Windows 11 (workstations) | Windows 11 STIG V2R8 (audit rules unchanged through V2R10, September 2026) |
+| Windows Server (any version) | Windows Server 2025 STIG V1R1 |
 
-- **Security log size:** at least 1 GB, as the STIG requires. The default
-  is 20 MB, which a busy system fills in hours.
-- **Command-line auditing for new processes.** Without it, elevated
+Each setting shows its STIG rule ID (for example `WN11-AU-000505`). Each
+item that falls short is listed with the report section it affects and the
+exact command or Group Policy setting that fixes it. Blackbox never changes
+settings itself. The report's **Audit health** view shows the same check,
+and which STIG it used.
+
+What is checked:
+
+- **Advanced audit policy**: every subcategory the STIG requires, with
+  success and/or failure exactly as the STIG says. This includes the 2026
+  additions: File System, Handle Manipulation and Registry (success and
+  failure), and Process Creation failures (Windows 11).
+- **Security log size**:
+  - Windows 11 (WN11-AU-000505): it must hold **at least a week** of
+    events. Blackbox measures this: from the oldest event when the log is
+    full, or from how fast it is filling when it is not (once it has a day
+    of events). If it falls short, the fix shows a size that would hold a
+    week. DISA's example size is 5,120,000 KB (about 5 GB).
+  - Windows Server 2025 (WN25-CC-000280): at least 196,608 KB.
+- **System and Application log sizes**: at least 32,768 KB.
+- **Command line in process creation events.** Without it, elevated
   programs are listed by name only.
-- **Removable Storage** and **Plug and Play** auditing, for USB file
-  access and device details.
+- **Audit: Force audit policy subcategory settings.** Without it, the
+  advanced audit policy can be ignored.
+- **PowerShell script block logging**, and on Windows 11 **PowerShell
+  transcription**.
+- **USB logs** (Partition/Diagnostic and Kernel-PnP/Configuration),
+  which the report needs for device details. These are not STIG rules.
+
+On a server, Other Logon/Logoff Events auditing is not a STIG rule, but
+the report needs it for Remote Desktop sessions. It is listed as
+recommended, not as a failure.
+
+The File System, Handle Manipulation and Registry rules record far more
+events where files and keys have auditing (SACLs) set. That is why the STIG
+asks for a much larger Security log. Blackbox reads these events but
+reports only what matters, so the report itself does not grow much.
 
 ## Reporting on exported logs
 

@@ -577,10 +577,18 @@ func cmdCheck(args []string) error {
 func printChecks(rs []check.Result, all bool) {
 	pass, fail, warn := check.Summary(rs)
 	for _, r := range rs {
+		if r.Area == "Baseline" {
+			fmt.Printf("  Compared with the %s.\n", r.Have)
+			continue
+		}
 		if r.Status == check.Pass && !all {
 			continue
 		}
-		fmt.Printf("  [%-5s] %s: %s — have %s, need %s\n", strings.ToUpper(string(r.Status)), r.Area, r.Item, r.Have, r.Want)
+		stig := ""
+		if r.STIG != "" {
+			stig = " [" + r.STIG + "]"
+		}
+		fmt.Printf("  [%-5s] %s: %s%s — have %s, need %s\n", strings.ToUpper(string(r.Status)), r.Area, r.Item, stig, r.Have, r.Want)
 		if r.Affects != "" && r.Status != check.Pass {
 			fmt.Printf("           Affects: %s\n", r.Affects)
 		}
