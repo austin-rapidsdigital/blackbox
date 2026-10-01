@@ -18,6 +18,7 @@ import (
 	"github.com/casea1/blackbox/internal/config"
 	"github.com/casea1/blackbox/internal/install"
 	"github.com/casea1/blackbox/internal/report"
+	"github.com/casea1/blackbox/internal/store"
 )
 
 // version is set at build time with -ldflags "-X main.version=…".
@@ -350,6 +351,20 @@ func cmdConfig(args []string) error {
 	key, value := strings.ToLower(args[1]), strings.Join(args[2:], " ")
 	if err := install.RequireAdmin(); err != nil {
 		return err
+	}
+	// A run that is already going would read the new setting but keep the
+	// old service sandbox (and could not write the new report folder), so
+	// wait for it to finish and keep new runs out until the change is done.
+	if cfg, err := config.Load(path); err == nil {
+		if st, err := store.Open(cfg.DataDir); err == nil {
+			unlock, err := st.WaitLock(15*time.Minute, func() {
+				fmt.Println("Waiting for the current collection run to finish...")
+			})
+			if err != nil {
+				return err
+			}
+			defer unlock()
+		}
 	}
 	if key == "report_dir" {
 		if value == "default" || value == filepath.Join(config.DefaultDataDir(), "reports") {

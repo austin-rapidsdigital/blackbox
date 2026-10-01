@@ -374,10 +374,31 @@ func (s *Store) Lock() (unlock func(), err error) {
 			os.Remove(p)
 			continue
 		}
-		return nil, fmt.Errorf("another Blackbox run is in progress (lock file %s)", p)
+		return nil, fmt.Errorf("%w (lock file %s)", ErrBusy, p)
 	}
 	return nil, fmt.Errorf("could not take lock %s", p)
 }
+
+// ErrBusy means another Blackbox run holds the lock.
+var ErrBusy = errors.New("another Blackbox run is in progress")
+
+// WaitLock is Lock, but waits up to timeout for a run in progress to
+// finish. waiting is called once if it has to wait.
+func (s *Store) WaitLock(timeout time.Duration, waiting func()) (unlock func(), err error) {
+	deadline := time.Now().Add(timeout)
+	for told := false; ; told = true {
+		unlock, err = s.Lock()
+		if !errors.Is(err, ErrBusy) || time.Now().After(deadline) {
+			return unlock, err
+		}
+		if !told && waiting != nil {
+			waiting()
+		}
+		time.Sleep(lockPoll)
+	}
+}
+
+var lockPoll = 2 * time.Second
 
 // WriteFileAtomic writes to a temp file and renames it into place.
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
