@@ -126,6 +126,10 @@ jobs:
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $own = $zips | Where-Object { $_.Name -eq "logs-$env:COMPUTERNAME.zip" } | Select-Object -First 1
           if (-not $own) { throw "no zip of this computer's own logs" }
+          # The zip takes the report folder's permissions, like report.html, not
+          # the data folder's (Administrators and SYSTEM only).
+          $zipAcl = (Get-Acl $own.FullName).Sddl; $htmlAcl = (Get-Acl "$dir\report.html").Sddl
+          if ($zipAcl -ne $htmlAcl) { throw "the logs zip has different permissions from the report: $zipAcl vs $htmlAcl" }
           $names = [IO.Compression.ZipFile]::OpenRead($own.FullName).Entries.Name
           if (-not ($names -contains "Security.evtx")) { throw "Security.evtx not archived: $names" }
           if ($sum.log_archives.Count -lt 2) { throw "report does not list the log archives" }
