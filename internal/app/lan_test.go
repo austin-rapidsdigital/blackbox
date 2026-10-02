@@ -118,6 +118,27 @@ func TestLANEndToEnd(t *testing.T) {
 	if status["WS-09"] != "silent" || status["WS-07"] != "warn" || status["ubu-ws12"] != "ok" {
 		t.Errorf("summary.json systems: %+v", sum.Systems)
 	}
+
+	// A report run by hand mid-period is interim: marked as such, and the
+	// schedule (the end of the last scheduled report) is unchanged.
+	a.Now = func() time.Time { return next.Add(9 * time.Hour) }
+	interim, err := a.report(col, a.now(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(interim, "_interim") || !strings.Contains(readFile(t, interim, "report.html"), "Interim report.") {
+		t.Errorf("interim report not marked: %s", interim)
+	}
+	if !col.State.LastWindowEnd.Equal(next) {
+		t.Errorf("an interim report moved the schedule to %v", col.State.LastWindowEnd)
+	}
+	var isum report.Summary
+	if err := json.Unmarshal([]byte(readFile(t, interim, "summary.json")), &isum); err != nil || !isum.Interim {
+		t.Errorf("summary.json interim flag: %+v %v", isum.Interim, err)
+	}
+	if idx := readFile(t, filepath.Dir(interim), "index.html"); !strings.Contains(idx, `class="st int">Interim`) {
+		t.Error("the list of reports does not mark the interim report")
+	}
 	if out := os.Getenv("BLACKBOX_SAMPLE_OUT"); out != "" {
 		os.RemoveAll(out)
 		if err := os.Rename(dir, out); err != nil {

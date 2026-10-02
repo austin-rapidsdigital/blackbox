@@ -9,16 +9,28 @@ choose:
   the logs and remembers where it stopped. Events are captured before a
   busy log overwrites them, and the copy stays small.
 - **Reporting:**
-  - The first report is produced at install time.
-  - After that, a daily report ends at midnight, a weekly one on Monday at
-    00:00, and a monthly one on the 1st.
+  - The first report is produced at install time. Installing again (to
+    upgrade or change settings) does not produce one, so the schedule is
+    kept.
+  - After that, each report ends at the time set by `report_at` (default
+    `Wednesday 00:00`: a weekly report covers the week up to Tuesday night,
+    ready for Wednesday morning). Daily reports end at that time each day,
+    monthly ones on the 1st.
   - Each report starts where the previous one ended, so every event
     appears in exactly one report.
   - Events that happened earlier but were collected late, for example
     because the system was off, go into the next report marked **Late**.
 
-To produce a report now, run `blackbox report`. Add `--preview` to leave
-the schedule alone.
+To produce a report now, run `blackbox report`. This is an **interim**
+report: it covers the time since the last scheduled report, is marked
+*Interim* in the report and on the list of reports, and does not change the
+schedule. The next scheduled report still covers its whole period. Interim
+reports do not include the original logs; those go with the scheduled
+report.
+
+If you change `report_at`, the next report ends at the new time and
+covers the time since the last report (so it may be shorter or longer
+than usual once).
 
 ## Severities
 

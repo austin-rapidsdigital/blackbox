@@ -22,7 +22,7 @@ type Options struct {
 // existing one (keeping everything else, including comments).
 func writeConfig(path string, opt Options, crlf bool) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		text := config.Render(opt.Site, opt.ReportEvery, opt.ReportDir, opt.CollectEvery)
+		text := config.Render(opt.Site, opt.ReportEvery, opt.ReportAt, opt.ReportDir, opt.CollectEvery)
 		for _, kv := range [][2]string{{"send_to", opt.SendTo}, {"share_user", opt.ShareUser}, {"inbox", opt.Inbox}} {
 			text = strings.Replace(text, "\n"+kv[0]+" = \n", "\n"+kv[0]+" = "+kv[1]+"\n", 1)
 		}
@@ -37,6 +37,7 @@ func writeConfig(path string, opt Options, crlf bool) error {
 	return config.SetValues(path, [][2]string{
 		{"site_name", opt.Site},
 		{"report_every", opt.ReportEvery},
+		{"report_at", opt.ReportAt.String()},
 		{"report_dir", opt.ReportDir},
 		{"collect_every", config.FormatDuration(opt.CollectEvery)},
 		{"send_to", opt.SendTo},

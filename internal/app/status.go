@@ -11,6 +11,7 @@ import (
 
 	"github.com/casea1/blackbox/internal/brand"
 	"github.com/casea1/blackbox/internal/collect"
+	"github.com/casea1/blackbox/internal/config"
 	"github.com/casea1/blackbox/internal/lan"
 	"github.com/casea1/blackbox/internal/store"
 )
@@ -81,10 +82,10 @@ func (a *App) Status(w io.Writer) error {
 	}
 	if a.Cfg.MakesReports() {
 		fmt.Fprintln(w)
-		p("Reports:", "%s, saved in %s", a.Cfg.ReportEvery, a.Cfg.ReportsDir())
+		p("Reports:", "%s, saved in %s", a.Cfg.ReportAt.Describe(a.Cfg.ReportEvery), a.Cfg.ReportsDir())
 		if !s.LastWindowEnd.IsZero() {
 			p("Last report:", "period ending %s", stampLocal(s.LastWindowEnd, a.loc()))
-			if next, due := nextReport(a.Cfg.ReportEvery, s.LastWindowEnd, now, a.loc()); !due {
+			if next, due := nextReport(a.Cfg.ReportEvery, a.Cfg.ReportAt, s.LastWindowEnd, now, a.loc()); !due {
 				p("Next report:", "after %s", stampLocal(next, a.loc()))
 			} else {
 				p("Next report:", "at the next scheduled run")
@@ -185,18 +186,26 @@ func (a *App) RemoveSystem(name string) error {
 	return st.Save()
 }
 
-func nextReport(every string, lastEnd, now time.Time, loc *time.Location) (time.Time, bool) {
-	if _, due := DueWindowEnd(every, lastEnd, now, loc); due {
+// NextScheduled returns when the last scheduled report period ended (zero
+// if no report has been produced yet) and when the next one is due.
+func (a *App) NextScheduled() (lastEnd, next time.Time, err error) {
+	st, err := store.Open(a.Cfg.DataDir)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	lastEnd = st.State.LastWindowEnd
+	next, due := nextReport(a.Cfg.ReportEvery, a.Cfg.ReportAt, lastEnd, a.now(), a.loc())
+	if due {
+		next = a.now()
+	}
+	return lastEnd, next, nil
+}
+
+func nextReport(every string, at config.ReportAt, lastEnd, now time.Time, loc *time.Location) (time.Time, bool) {
+	if _, due := DueWindowEnd(every, at, lastEnd, now, loc); due {
 		return time.Time{}, true
 	}
-	// Step forward a day at a time to the next period boundary.
-	for t := now; t.Before(now.AddDate(0, 1, 2)); t = t.Add(24 * time.Hour) {
-		day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
-		if end, due := DueWindowEnd(every, lastEnd, day.Add(time.Minute), loc); due {
-			return end, false
-		}
-	}
-	return time.Time{}, true
+	return at.NextBoundary(every, now, loc), false
 }
 
 func stampLocal(t time.Time, loc *time.Location) string {

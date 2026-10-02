@@ -12,6 +12,7 @@ file:
 |---|---|---|
 | `site_name` | *(blank)* | Name shown at the top of reports |
 | `report_every` | `weekly` | `daily`, `weekly` or `monthly` |
+| `report_at` | `Wednesday 00:00` | When each report period ends and the report is produced. Weekly: a day and time; `Wednesday 00:00` covers each week up to Tuesday night, so a fresh report is ready on Wednesday morning. Daily and monthly: a time such as `06:00` (monthly periods end on the 1st) |
 | `report_dir` | *(blank = default)* | Folder for reports. Any full path Blackbox can write to, including one you have locked down |
 | `collect_every` | `1h` | How often events are collected. To change it, run the installer again, which updates the schedule |
 | `retention_days` | `0` | Days to keep reports and collected events; `0` keeps them forever |
@@ -29,6 +30,7 @@ the current values as defaults. To change one setting from a script:
 ```
 blackbox config set report_dir D:\AuditReports
 blackbox config set report_every daily
+blackbox config set report_at "Thursday 06:00"
 blackbox config set working_hours "Mon-Fri 06:00-18:00"
 ```
 

@@ -33,6 +33,11 @@ type Options struct {
 	Location     *time.Location
 	InReportsDir bool // report sits in the reports folder next to the list of all reports
 
+	// Interim marks a report run by hand between scheduled reports. It
+	// covers the time since the last scheduled report and does not move
+	// the schedule; the next scheduled report covers that time again.
+	Interim bool
+
 	ExcludeUsers     []string
 	ExcludeProcesses []string
 

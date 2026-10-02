@@ -26,16 +26,21 @@ there is no .NET, Go or other runtime to install.
    [none]: Lab 3
 
 3. How often should a report be produced?
-     1) Daily   (each report covers one day, ending at midnight)
-     2) Weekly  (Monday 00:00 to Monday 00:00)
-     3) Monthly (1st to 1st)
+     1) Daily
+     2) Weekly
+     3) Monthly (each period ends on the 1st)
    Choose 1-3 [2]:
 
-4. Where should reports be saved?
+4. Which day and time should each weekly report be ready?
+   The week ends then. "Wednesday 00:00" covers the week up to Tuesday night,
+   so auditors have a fresh report on Wednesday morning.
+   [Wednesday 00:00]:
+
+5. Where should reports be saved?
    Use a folder you have locked down if you like; Blackbox only needs to write to it.
    [C:\ProgramData\Blackbox\reports]: D:\AuditReports
 
-5. How often should events be collected from the logs?
+6. How often should events be collected from the logs?
      1) Every hour        (recommended)
      2) Every 30 minutes
      3) Every 15 minutes  (for busy systems whose logs fill up within a few hours)
@@ -44,7 +49,8 @@ there is no .NET, Go or other runtime to install.
 Summary
    This computer:    standalone: reports on itself
    Site name:        Lab 3
-   Reports:          weekly, saved in D:\AuditReports
+   Reports:          weekly, ready Wednesday 00:00 (each covers the week to Tuesday night)
+   Saved in:         D:\AuditReports
    Collect events:   every hour
 
 Install these settings? (Y/n):

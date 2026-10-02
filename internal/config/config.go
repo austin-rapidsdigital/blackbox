@@ -21,6 +21,7 @@ import (
 type Config struct {
 	SiteName         string
 	ReportEvery      string   // daily | weekly | monthly
+	ReportAt         ReportAt // when a report period ends
 	RetentionDays    int      // 0 = keep forever
 	ExcludeUsers     []string // accounts to leave out (case-insensitive)
 	ExcludeProcesses []string // program names/paths to leave out
@@ -44,6 +45,7 @@ type Config struct {
 func Default() *Config {
 	return &Config{
 		ReportEvery:  "weekly",
+		ReportAt:     DefaultReportAt,
 		DataDir:      DefaultDataDir(),
 		CollectEvery: time.Hour,
 	}
@@ -137,6 +139,14 @@ func (c *Config) set(k, v string) error {
 	case "report_every":
 		if v != "" {
 			c.ReportEvery = strings.ToLower(v)
+		}
+	case "report_at":
+		if v != "" {
+			r, err := ParseReportAt(v)
+			if err != nil {
+				return err
+			}
+			c.ReportAt = r
 		}
 	case "retention_days":
 		n, err := strconv.Atoi(v)
@@ -252,7 +262,7 @@ func exampleDir() string {
 }
 
 // Settable lists the settings `blackbox config set` may change.
-var Settable = []string{"site_name", "report_every", "report_dir", "retention_days", "exclude_users", "exclude_processes", "working_hours", "send_to", "inbox", "share_user"}
+var Settable = []string{"site_name", "report_every", "report_at", "report_dir", "retention_days", "exclude_users", "exclude_processes", "working_hours", "send_to", "inbox", "share_user"}
 
 // SetValue changes one user-settable setting in the config file (see
 // Settable), keeping its comments and line endings.
@@ -275,7 +285,7 @@ func SetValue(path, key, value string) error {
 func SetValues(path string, kv [][2]string) error {
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		b = []byte(Render("", "weekly", "", time.Hour))
+		b = []byte(Render("", "weekly", DefaultReportAt, "", time.Hour))
 		if runtime.GOOS == "windows" {
 			b = []byte(strings.ReplaceAll(string(b), "\n", "\r\n"))
 		}
@@ -342,15 +352,19 @@ func list(v string) []string {
 // keyIntro is the explanation added above a setting when it is added to a
 // config file written by an older version.
 var keyIntro = func() map[string][]string {
-	intro := []string{}
-	for _, l := range strings.Split(Template, "\n") {
-		if strings.HasPrefix(l, "# LAN:") || (len(intro) > 0 && strings.HasPrefix(l, "#")) {
-			intro = append(intro, l)
-		} else if len(intro) > 0 {
-			break
+	block := func(start string) []string {
+		var out []string
+		for _, l := range strings.Split(Template, "\n") {
+			if strings.HasPrefix(l, start) || (len(out) > 0 && strings.HasPrefix(l, "#")) {
+				out = append(out, l)
+			} else if len(out) > 0 {
+				break
+			}
 		}
+		return out
 	}
-	return map[string][]string{"send_to": intro, "inbox": intro, "share_user": intro}
+	lan := block("# LAN:")
+	return map[string][]string{"send_to": lan, "inbox": lan, "share_user": lan, "report_at": block("# When each report period")}
 }()
 
 // Template is the commented config written by `blackbox install`.
@@ -365,6 +379,13 @@ site_name = {{SITE}}
 # Events are collected every hour regardless, so nothing is lost to log
 # rollover even with weekly reports.
 report_every = {{REPORT_EVERY}}
+
+# When each report period ends and the report is produced. Weekly: a day
+# and time; "Wednesday 00:00" covers each week up to Tuesday night, so a
+# fresh report is ready on Wednesday morning. Daily and monthly: a time
+# (monthly periods end on the 1st). A report run by hand
+# ("blackbox report") is an interim report and does not move this.
+report_at = {{REPORT_AT}}
 
 # Folder where reports are written. Leave blank for the default:
 #   {{DEFAULT_REPORTS}}
@@ -417,11 +438,11 @@ working_hours =
 `
 
 // Render fills in Template.
-func Render(site, reportEvery, reportDir string, collectEvery time.Duration) string {
+func Render(site, reportEvery string, reportAt ReportAt, reportDir string, collectEvery time.Duration) string {
 	if collectEvery == 0 {
 		collectEvery = time.Hour
 	}
-	return strings.NewReplacer("{{SITE}}", site, "{{REPORT_EVERY}}", reportEvery,
+	return strings.NewReplacer("{{SITE}}", site, "{{REPORT_EVERY}}", reportEvery, "{{REPORT_AT}}", reportAt.String(),
 		"{{REPORT_DIR}}", reportDir, "{{DEFAULT_REPORTS}}", filepath.Join(DefaultDataDir(), "reports"),
 		"{{COLLECT_EVERY}}", FormatDuration(collectEvery),
 		"{{SEND_TO}}", "", "{{SHARE_USER}}", "", "{{INBOX}}", "").Replace(Template)
