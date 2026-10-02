@@ -60,6 +60,10 @@ func (a *App) Status(w io.Writer) error {
 		p("Log archive:", "original logs saved up to %s (%s)", stampLocal(s.ArchivedUntil, a.loc()), where)
 	}
 
+	for _, l := range lostSince(st, s.LastWindowEnd, now) {
+		p("Events lost:", "%s", LostText(l, a.loc()))
+	}
+
 	if a.Cfg.SendTo != "" {
 		fmt.Fprintln(w)
 		p("Sending to:", "%s", a.Cfg.SendTo)
@@ -107,7 +111,7 @@ func (a *App) Status(w io.Writer) error {
 			p("", "%d file%s set aside in %s (see blackbox.log)", len(rej), map[bool]string{true: "s"}[len(rej) != 1], filepath.Join(a.Cfg.Inbox, "rejected"))
 		}
 	}
-	if len(s.Systems) > 1 || a.Cfg.Inbox != "" {
+	if a.Cfg.Inbox != "" {
 		fmt.Fprintln(w)
 		a.writeSystems(w, st, now)
 	}
@@ -148,8 +152,13 @@ func (a *App) writeSystems(w io.Writer, st *store.Store, now time.Time) {
 		if s.Via != "" {
 			note = "via " + s.Via
 		}
-		if !s.LastRun.IsZero() && now.Sub(s.LastRun) > silentAfter {
+		switch {
+		case !s.LastRun.IsZero() && now.Sub(s.LastRun) > silentAfter:
 			note = strings.TrimSpace(note + "  NO DATA SINCE " + strings.ToUpper(ago(now.Sub(s.LastRun))))
+		case store.SystemKey(s.Name) != self && !s.LastReceived.IsZero() && now.Sub(s.LastReceived) > 2*expectedSend:
+			// Earlier than the silence above: a sender whose deliveries
+			// are refused (or that is switched off) shows here first.
+			note = strings.TrimSpace(note + "  no batch since " + stampLocal(s.LastReceived, a.loc()))
 		}
 		fmt.Fprintf(w, "  %-20s %-8s %-18s %-18s %s\n", s.Name, s.OS, stampLocal(s.LastRun, a.loc()), recv, note)
 	}
@@ -159,6 +168,10 @@ func (a *App) writeSystems(w io.Writer, st *store.Store, now time.Time) {
 		}
 	}
 }
+
+// expectedSend is how often a sender delivers: after each collection, by
+// default every hour.
+const expectedSend = time.Hour
 
 // silentAfter matches the report's threshold for pointing out a computer
 // that has stopped collecting.
@@ -212,6 +225,20 @@ func nextReport(every string, at config.ReportAt, lastEnd, now time.Time, loc *t
 		return time.Time{}, true
 	}
 	return at.NextBoundary(every, now, loc), false
+}
+
+// LostText describes events lost to rollover, with what to do about it.
+func LostText(l LostLog, loc *time.Location) string {
+	return fmt.Sprintf("%s log on %s: %s events overwritten before they could be collected, since %s. Collect more often (every 15 minutes), or make the log larger.",
+		l.Channel, l.Host, commaNum(l.Count), stampLocal(l.Since, loc))
+}
+
+func commaNum(n uint64) string {
+	s := fmt.Sprint(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }
 
 func stampLocal(t time.Time, loc *time.Location) string {

@@ -110,6 +110,13 @@ second are five rows, so fast password guessing is detected. Removing a
 deleted account from its primary group ("None" or "Domain Users") is not
 shown as a separate change.
 
+**Linux sign-ins and restarts.** One SSH sign-in or sign-out is one row,
+even when it is recorded twice (two audit login records, or the same
+line read from two logs). The audit service stopping during a planned
+restart or shutdown (`reboot`, `shutdown`, `systemctl poweroff`, or a
+shutdown record within minutes) is shown as routine, not as auditing
+being switched off.
+
 **Computer accounts.** An account whose name ends in `$` is treated as a
 computer account, and its routine activity is left out, only when it is
 this computer's own account or comes from a domain. A local account named

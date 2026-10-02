@@ -193,6 +193,12 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw "scheduled task not removed" }
           net share BlackboxInbox 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) { throw "inbox share not removed" }
+          # The senders' group is kept, so a reinstall doesn't lock out a
+          # sender whose connection still carries it.
+          net localgroup "Blackbox Senders" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "the Blackbox Senders group was removed" }
+          schtasks /Query /TN "Blackbox Status" 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw "status icon task not removed by uninstall" }
           $global:LASTEXITCODE = 0
   linux-live:
     # End-to-end on a real Ubuntu machine: install auditd with Blackbox's

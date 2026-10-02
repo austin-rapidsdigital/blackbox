@@ -253,6 +253,7 @@ func Build(events []*event.Event, runs []*store.Run, opt Options) *Report {
 	events = r.exclude(events)
 	events = r.dedupe(events)
 	attributeDevices(events)
+	shutdownStops(events)
 
 	rows := make([]*Row, len(events))
 	hosts := map[string]bool{}
@@ -410,6 +411,8 @@ func dedupeWindow(key string) time.Duration {
 	switch {
 	case strings.HasPrefix(key, "authfail|"):
 		return 2 * time.Second
+	case strings.HasPrefix(key, "lxlogon|"), strings.HasPrefix(key, "lxlogoff|"):
+		return 5 * time.Second // one sign-in recorded more than once
 	case strings.HasPrefix(key, "4672|"):
 		return 24 * time.Hour
 	case strings.HasPrefix(key, "rm|"):
@@ -461,6 +464,38 @@ func (r *Report) dedupe(in []*event.Event) []*event.Event {
 		out = append(out, e)
 	}
 	return out
+}
+
+// rebootCmd is a command that restarts or shuts down the system.
+var rebootCmd = regexp.MustCompile(`(^|/|\s)(reboot|poweroff|halt|shutdown)(\s|$)|systemctl\s+(reboot|poweroff|halt|kexec)`)
+
+// shutdownStops marks the audit service stopping as part of a restart or
+// shutdown (a SYSTEM_SHUTDOWN record, or a reboot command, on the same
+// computer within minutes) as routine: it is how every planned restart
+// ends, not someone switching auditing off. A stop with neither stays High.
+func shutdownStops(events []*event.Event) {
+	for i, e := range events {
+		if e.Action != "audit_stopped" || e.Severity != event.SevHigh || e.OS == "windows" {
+			continue
+		}
+		near := func(x *event.Event) bool {
+			if x.Host != e.Host {
+				return false
+			}
+			return x.Action == "system_stop" || (x.Command != "" && rebootCmd.MatchString(strings.ToLower(x.Command)))
+		}
+		found := false
+		for j := i - 1; j >= 0 && e.Time.Sub(events[j].Time) <= 5*time.Minute && !found; j-- {
+			found = near(events[j])
+		}
+		for j := i + 1; j < len(events) && events[j].Time.Sub(e.Time) <= time.Minute && !found; j++ {
+			found = near(events[j])
+		}
+		if found {
+			e.Severity = event.SevInfo
+			e.Summary = fmt.Sprintf("The audit service (auditd) stopped as part of a restart or shutdown by %s (normal).", orUnknown(e.User))
+		}
+	}
 }
 
 // recordKind identifies the kind of record an event came from: its log,

@@ -110,6 +110,9 @@ func classify(h app.Health, err error, now time.Time) trayView {
 	for _, host := range quiet {
 		v.Items = append(v.Items, fmt.Sprintf("%s has not sent since %s", host, when(h.Quiet[host], now)))
 	}
+	for _, l := range h.Lost {
+		v.Items = append(v.Items, fmt.Sprintf("%s log on %s: %s events lost to rollover since %s", l.Channel, l.Host, commaNum(l.Count), when(l.Since, now)))
+	}
 	if h.Rejected > 0 {
 		v.Items = append(v.Items, fmt.Sprintf("%s set aside in the inbox", plural(h.Rejected, "file")))
 	}
@@ -121,6 +124,14 @@ func classify(h app.Health, err error, now time.Time) trayView {
 		v.Tip = v.Tip[:124] + "..."
 	}
 	return v
+}
+
+func commaNum(n uint64) string {
+	s := fmt.Sprint(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }
 
 func plural(n int, word string) string {
@@ -139,6 +150,7 @@ type trayMemory struct {
 	Quiet   map[string]string `json:"quiet"`   // host → last run notified
 	Gaps    map[string]bool   `json:"gaps"`    // hosts whose settings didn't match
 	Version string            `json:"version"` // version last running
+	Lost    string            `json:"lost"`    // report period whose lost events were notified
 }
 
 // notice is one notification.
@@ -152,7 +164,7 @@ type notice struct {
 // look nothing is notified: only what changes after it.
 func notices(m trayMemory, h app.Health, v trayView, version string, now time.Time) ([]notice, trayMemory) {
 	var out []notice
-	next := trayMemory{Seen: true, Report: m.Report, Stopped: m.Stopped, Quiet: map[string]string{}, Gaps: map[string]bool{}, Version: version}
+	next := trayMemory{Seen: true, Report: m.Report, Stopped: m.Stopped, Quiet: map[string]string{}, Gaps: map[string]bool{}, Version: version, Lost: m.Lost}
 	first := !m.Seen
 
 	if m.Version != "" && m.Version != version {
@@ -197,6 +209,21 @@ func notices(m trayMemory, h app.Health, v trayView, version string, now time.Ti
 			out = append(out, notice{Title: "Blackbox", Text: fmt.Sprintf("%s has not sent its events since %s.", host, when(last, now)), Warn: true})
 		}
 		next.Quiet[host] = key
+	}
+
+	// Events lost to rollover: once per report period.
+	if len(h.Lost) > 0 {
+		period := h.PeriodStart.String()
+		if m.Lost != period && !first {
+			l := h.Lost[0]
+			text := fmt.Sprintf("Events are being lost: the %s log on %s overwrote %s events before they could be collected. Collect every 15 minutes, or make the log larger.",
+				l.Channel, l.Host, commaNum(l.Count))
+			if len(h.Lost) > 1 {
+				text += fmt.Sprintf(" (%s in all.)", plural(len(h.Lost), "log"))
+			}
+			out = append(out, notice{Title: "Blackbox", Text: text, Warn: true})
+		}
+		next.Lost = period
 	}
 
 	var hosts []string

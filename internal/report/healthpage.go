@@ -69,6 +69,7 @@ type HealthRow struct {
 	Facts                   []Fact
 	Table                   []SettingLine
 	Checked                 bool
+	CheckedAt               string // when the settings were checked
 }
 
 // SettingLine is one line of a system's settings table.
@@ -166,6 +167,9 @@ func (r *Report) healthPage() *HealthPage {
 		rank := map[check.Status]int{check.Pass: 1, check.Info: 1, check.Warn: 2, check.Error: 2, check.Fail: 3}
 		if s.Checks != nil {
 			row.Checked = true
+			if !s.Checks.Time.IsZero() {
+				row.CheckedAt = r.stamp(s.Checks.Time)
+			}
 			hp.Checked++
 			for _, res := range s.Checks.Results {
 				col := healthColumn(res)

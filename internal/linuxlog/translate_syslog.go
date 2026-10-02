@@ -269,7 +269,7 @@ func (t *Translator) auth(l Line) *event.Event {
 		if x := sshOkRE.FindStringSubmatch(m); x != nil {
 			addr := cleanAddr(x[3])
 			e := &event.Event{Category: event.CatLogon, Action: "logon", User: x[2], Outcome: "success", SourceIP: addr,
-				Interactive: true, Summary: fmt.Sprintf("%s logged on via SSH%s.", x[2], fromAddr(addr))}
+				Interactive: true, Summary: fmt.Sprintf("%s logged on via SSH%s.", x[2], fromAddr(addr)), DedupeKey: logonKey(x[2], addr)}
 			e.AddDetail("Logon type", "SSH")
 			e.AddDetail("Source address", addr)
 			e.AddDetail("Authentication", x[1])
@@ -362,16 +362,20 @@ func (t *Translator) auth(l Line) *event.Event {
 	if x := sessOpenRE.FindStringSubmatch(m); x != nil {
 		how, label := consoleSession(x[1])
 		e := &event.Event{Category: event.CatLogon, Action: "logon", User: x[2], Outcome: "success", Interactive: true,
-			Summary: fmt.Sprintf("%s logged on %s.", x[2], how)}
+			Summary: fmt.Sprintf("%s logged on %s.", x[2], how), DedupeKey: logonKey(x[2], "")}
 		e.AddDetail("Logon type", label)
 		return e
 	}
 	if x := sessCloseRE.FindStringSubmatch(m); x != nil {
 		return &event.Event{Category: event.CatLogon, Action: "logoff", User: x[2], Outcome: "success",
-			Summary: fmt.Sprintf("%s logged off.", x[2])}
+			Summary: fmt.Sprintf("%s logged off.", x[2]), DedupeKey: "lxlogoff|" + x[2]}
 	}
 	return nil
 }
+
+// logonKey merges the records of one sign-in: the same line read from two
+// logs, or the two audit records some systems write for one login.
+func logonKey(user, addr string) string { return "lxlogon|" + user + "|" + addr }
 
 func consoleSession(service string) (string, string) {
 	if strings.Contains(service, "xrdp") {

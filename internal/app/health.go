@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"time"
 
 	"github.com/casea1/blackbox/internal/check"
+	"github.com/casea1/blackbox/internal/collect"
 	"github.com/casea1/blackbox/internal/report"
 	"github.com/casea1/blackbox/internal/store"
 )
@@ -31,6 +33,17 @@ type Health struct {
 	AVOld     []string       // hosts whose Defender intelligence is out of date
 	Quiet     map[string]time.Time
 	Rejected  int // files set aside in the inbox
+
+	// Lost lists the logs that overwrote events before they could be
+	// collected, since the last report.
+	Lost []LostLog
+}
+
+// LostLog is one log losing events to rollover.
+type LostLog struct {
+	Host, Channel string
+	Count         uint64
+	Since         time.Time // the first loss in this period
 }
 
 // LastRun is the outcome of the last scheduled run.
@@ -40,6 +53,43 @@ type LastRun struct {
 }
 
 func lastRunPath(dataDir string) string { return filepath.Join(dataDir, "last-run.json") }
+
+// lostSince adds up the events each log overwrote before they could be
+// collected, since start (or the last week when there is no report yet).
+func lostSince(st *store.Store, start, now time.Time) []LostLog {
+	if start.IsZero() {
+		start = now.AddDate(0, 0, -7)
+	}
+	runs, err := st.ReadRuns(start)
+	if err != nil {
+		return nil
+	}
+	by := map[string]*LostLog{}
+	var order []string
+	for _, r := range runs {
+		for _, c := range r.Channels {
+			if c.Gap == nil || c.Gap.Lost == 0 {
+				continue
+			}
+			k := r.Host + "|" + c.Channel
+			l := by[k]
+			if l == nil {
+				l = &LostLog{Host: r.Host, Channel: c.Channel, Since: r.Time}
+				by[k] = l
+				order = append(order, k)
+			}
+			l.Count += c.Gap.Lost
+			if r.Time.Before(l.Since) {
+				l.Since = r.Time
+			}
+		}
+	}
+	out := make([]LostLog, 0, len(order))
+	for _, k := range order {
+		out = append(out, *by[k])
+	}
+	return out
+}
 
 // RecordRun notes the outcome of a scheduled run, for the status icon.
 func (a *App) RecordRun(err error) {
@@ -73,6 +123,7 @@ func (a *App) Health() (Health, error) {
 	if l, ok := report.Latest(h.ReportsDir); ok {
 		h.Latest = &l
 	}
+	h.Lost = lostSince(st, h.PeriodStart, now)
 
 	// Audit settings: the latest check of each system.
 	if checks, err := st.LatestChecks(now.AddDate(0, 0, -8), now); err == nil {
@@ -100,6 +151,20 @@ func (a *App) Health() (Health, error) {
 				h.Quiet[sys.Name] = sys.LastRun
 			}
 		}
+	}
+	// A computer that is no longer a collector shows only itself, though
+	// the data it once received is still kept.
+	if a.Cfg.Inbox == "" {
+		self := store.SystemKey(collect.LocalHost())
+		mine := func(h string) bool { return store.SystemKey(h) == self }
+		for host := range h.AuditGaps {
+			if !mine(host) {
+				delete(h.AuditGaps, host)
+			}
+		}
+		h.AVOld = slices.DeleteFunc(h.AVOld, func(x string) bool { return !mine(x) })
+		h.Quiet = map[string]time.Time{}
+		h.Lost = slices.DeleteFunc(h.Lost, func(l LostLog) bool { return !mine(l.Host) })
 	}
 	if a.Cfg.Inbox != "" {
 		if rej, _ := filepath.Glob(filepath.Join(a.Cfg.Inbox, "rejected", "*")); len(rej) > 0 {

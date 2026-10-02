@@ -33,6 +33,8 @@ type App struct {
 	// LiveLogs reads this computer's own logs for a period (tests replace
 	// it); nil uses the event logs.
 	LiveLogs func(host string, from, to time.Time) ([]*event.Event, []string, error)
+	// BootTime is when this computer last started (tests replace it).
+	BootTime func() time.Time
 }
 
 func (a *App) now() time.Time {
@@ -180,6 +182,20 @@ func (a *App) gather(st *store.Store, forceCheck bool) error {
 // its audit settings (a report always includes a fresh check).
 const checkEvery = 20 * time.Hour
 
+// checkDue says whether the audit settings should be checked again: daily,
+// and after every restart, since settings such as auditd or the kernel's
+// audit=1 often only take effect after one.
+func checkDue(last, boot, now time.Time) bool {
+	return now.Sub(last) >= checkEvery || (!boot.IsZero() && boot.After(last))
+}
+
+func (a *App) bootTime() time.Time {
+	if a.BootTime != nil {
+		return a.BootTime()
+	}
+	return bootTime()
+}
+
 // recordChecks checks this system's audit settings and keeps the result,
 // so it reaches reports here or on the collector.
 func (a *App) recordChecks(st *store.Store, host string, force bool) error {
@@ -187,7 +203,7 @@ func (a *App) recordChecks(st *store.Store, host string, force bool) error {
 		return nil
 	}
 	now := a.now()
-	if !force && now.Sub(st.State.LastCheck) < checkEvery {
+	if !force && !checkDue(st.State.LastCheck, a.bootTime(), now) {
 		return nil
 	}
 	rec := &store.CheckRecord{Time: now, Host: host, OS: runtime.GOOS, Results: check.Run()}

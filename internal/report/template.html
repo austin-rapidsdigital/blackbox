@@ -124,7 +124,7 @@
 <a class="pm link" href="#health" style="display:block;padding:12px 16px 4px">← Every system, every check</a></div>
 <div style="min-width:0">{{range .Groups}}{{range .Rows}}<div data-pane="{{.Name}}" hidden><div class="panel" style="margin-bottom:12px"><div class="dh"><div><h3>{{.Name}}</h3><p>{{.Line}}</p></div><span class="sv {{if eq .Level "bad"}}high{{else if eq .Level "warn"}}medium{{else}}ok{{end}}">{{.Note}}</span></div>
 <div class="facts4">{{range .Facts}}{{template "fact" .}}{{end}}</div></div>
-<div class="panel"><div class="ph"><h2>{{icon "shield-check" 17}}Settings on {{.Name}}</h2><span class="pm">Report only · Blackbox never changes these</span></div>{{if not .Checked}}<p class="pm">The audit settings of this system have not been checked yet. They are checked at each collection.</p>{{end}}
+<div class="panel"><div class="ph"><h2>{{icon "shield-check" 17}}Settings on {{.Name}}</h2><span class="pm">{{if .CheckedAt}}Checked {{.CheckedAt}} · {{end}}Report only · Blackbox never changes these</span></div>{{if not .Checked}}<p class="pm">The audit settings of this system have not been checked yet. They are checked at each collection.</p>{{end}}
 <table class="stig"><thead><tr><th>Check</th><th>STIG ID</th><th>Required</th><th>On this system</th><th>Result</th></tr></thead><tbody>{{range .Table}}<tr class="{{.Class}}"><td><b>{{.Check}}</b>{{if and .Fix (ne .Class "ok")}}<div class="fixline">How to fix: {{.Fix}}</div>{{end}}</td><td class="mono mute">{{or .STIG "—"}}</td><td>{{.Want}}</td><td>{{.Have}}</td><td><span class="st {{.Class}}">{{.Result}}</span></td></tr>{{end}}</tbody></table></div>
 </div>{{end}}{{end}}</div></div></div>{{end}}
 
