@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,7 +26,7 @@ import (
 // version is set at build time with -ldflags "-X main.version=…".
 var version = "dev"
 
-const usage = `GE Aerospace Blackbox — audit log review for air-gapped systems
+const usage = `Blackbox — audit log review for air-gapped systems
 
 Usage:
   blackbox install               Set up (or change) scheduled collection and reporting; asks each setting
@@ -542,6 +544,9 @@ func cmdReport(args []string) error {
 	fs.StringVar(&in.Passwd, "passwd", "", "Linux: copy of /etc/passwd, to show names instead of user IDs")
 	out := fs.String("out", "", "output folder for reports from files (default: ./blackbox-report-<time>)")
 	fs.Bool("preview", false, "no effect; kept for older scripts (a report run by hand is always an interim report)")
+	fromS := fs.String("from", "", "report on a chosen period from this date (YYYY-MM-DD, or YYYY-MM-DD HH:MM), as far back as the events go")
+	toS := fs.String("to", "", "with --from: end of the period (default: now; a date alone means the end of that day)")
+	days := fs.Int("days", 0, "report on the last N days")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -550,17 +555,38 @@ func cmdReport(args []string) error {
 		return err
 	}
 	a := newApp(cfg, printf)
+	loc := time.Local
+	from, to, err := reportRange(*fromS, *toS, *days, time.Now(), loc)
+	if err != nil {
+		return err
+	}
+	// Run by hand with nothing chosen: ask which period.
+	if from.IsZero() && in.Empty() && *fromS == "" && *days == 0 && install.IsTerminal(os.Stdin) {
+		fmt.Print("Report on which period?\n" +
+			"  Enter               since the last report\n" +
+			"  a number, e.g. 30   the last 30 days\n" +
+			"  a date, 2026-09-01  from that date to now (add a second date to end there)\n> ")
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		if from, to, err = parseRangeAnswer(strings.TrimSpace(line), time.Now(), loc); err != nil {
+			return err
+		}
+	}
 	var dir string
-	if !in.Empty() {
+	switch {
+	case !in.Empty():
 		dir, err = a.ReportFromFiles(in, *out)
-	} else {
+	case !from.IsZero():
+		dir, err = a.ReportRange(from, to)
+	default:
 		dir, err = a.ReportNow(false)
 	}
 	if err != nil {
 		return err
 	}
 	fmt.Println("Report written:", filepath.Join(dir, "report.html"))
-	if in.Empty() {
+	if in.Empty() && !from.IsZero() {
+		fmt.Println("This report covers the period you chose; the schedule is unchanged.")
+	} else if in.Empty() {
 		if _, next, err := a.NextScheduled(); err == nil {
 			fmt.Printf("This is an interim report; the schedule is unchanged. Next scheduled report: %s\n", app.NextText(next))
 		}
@@ -697,4 +723,75 @@ func openLog(dataDir string) (func(string, ...any), func()) {
 			f.Close()
 		}
 	}
+}
+
+// reportRange reads --from, --to and --days. A zero from means no period
+// was chosen.
+func reportRange(fromS, toS string, days int, now time.Time, loc *time.Location) (time.Time, time.Time, error) {
+	switch {
+	case days < 0:
+		return time.Time{}, time.Time{}, errors.New("--days must be a positive number")
+	case days > 0 && fromS != "":
+		return time.Time{}, time.Time{}, errors.New("use --days or --from, not both")
+	case days > 0:
+		return now.AddDate(0, 0, -days), now, nil
+	case fromS == "":
+		if toS != "" {
+			return time.Time{}, time.Time{}, errors.New("--to needs --from")
+		}
+		return time.Time{}, time.Time{}, nil
+	}
+	from, _, err := parseWhen(fromS, loc)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("--from: %w", err)
+	}
+	to := now
+	if toS != "" {
+		t, dateOnly, err := parseWhen(toS, loc)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("--to: %w", err)
+		}
+		if dateOnly {
+			t = t.AddDate(0, 0, 1) // the whole of that day
+		}
+		if t.After(now) {
+			t = now
+		}
+		to = t
+	}
+	if !from.Before(to) {
+		return time.Time{}, time.Time{}, errors.New("the period must start before it ends")
+	}
+	return from, to, nil
+}
+
+// parseRangeAnswer reads the answer to "Report on which period?".
+func parseRangeAnswer(s string, now time.Time, loc *time.Location) (time.Time, time.Time, error) {
+	if s == "" {
+		return time.Time{}, time.Time{}, nil
+	}
+	if n, err := strconv.Atoi(s); err == nil {
+		return reportRange("", "", n, now, loc)
+	}
+	f := strings.Fields(s)
+	switch len(f) {
+	case 1:
+		return reportRange(f[0], "", 0, now, loc)
+	case 2:
+		return reportRange(f[0], f[1], 0, now, loc)
+	}
+	return time.Time{}, time.Time{}, fmt.Errorf("could not read %q: give a number of days, a date, or two dates", s)
+}
+
+// parseWhen reads YYYY-MM-DD or YYYY-MM-DD HH:MM (or with a T) in loc.
+func parseWhen(s string, loc *time.Location) (time.Time, bool, error) {
+	s = strings.TrimSpace(strings.Replace(s, "T", " ", 1))
+	if t, err := time.ParseInLocation("2006-01-02 15:04", s, loc); err == nil {
+		return t, false, nil
+	}
+	t, err := time.ParseInLocation("2006-01-02", s, loc)
+	if err != nil {
+		return t, false, fmt.Errorf("%q is not a date like 2026-09-01 or 2026-09-01 08:00", s)
+	}
+	return t, true, nil
 }

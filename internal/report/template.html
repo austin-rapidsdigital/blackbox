@@ -11,7 +11,7 @@
 </head>
 <body>
 <aside>
-  <div class="brand"><img src="{{logo}}" alt=""><div><b>Blackbox</b><span>GE Aerospace</span></div></div>
+  <div class="brand"><img src="{{logo}}" alt=""><div><b>Blackbox</b></div></div>
   <div class="site"><span>{{if .IsLAN}}Network{{else}}System{{end}}</span><b>{{if .Site}}{{.Site}}{{else}}{{.MainSystem}}{{end}}</b></div>
   <nav>
     <a href="#overview" data-nav="overview">{{icon "layout-dashboard" 17}}<span>Overview</span></a>
@@ -33,7 +33,7 @@
   </nav>
 </aside>
 <main>
-{{if .Interim}}<div class="alertbar interim">{{icon "clock-alert" 18}}<b>Interim report.</b><span>Run by hand {{stamp .Generated}} {{zone .Generated}}, between scheduled reports. It does not change the schedule: the next scheduled report covers this time again, and that report's folder holds the original logs.</span></div>{{end}}
+{{if .Range}}<div class="alertbar interim">{{icon "clock-alert" 18}}<b>Report for a chosen period.</b><span>Run by hand {{stamp .Generated}} {{zone .Generated}}. {{.Range}} It does not change the schedule.</span></div>{{else if .Interim}}<div class="alertbar interim">{{icon "clock-alert" 18}}<b>Interim report.</b><span>Run by hand {{stamp .Generated}} {{zone .Generated}}, between scheduled reports. It does not change the schedule: the next scheduled report covers this time again, and that report's folder holds the original logs.</span></div>{{end}}
 
 <section class="view" data-view="overview">
   {{template "head" (head . (overviewTitle .) "")}}
@@ -65,7 +65,7 @@
 {{end}}
 
 {{define "head"}}<div class="head"><div><div class="crumb">{{.Crumb}}</div><h1>{{.Title}}</h1></div>
-<div class="tools"><span class="btn">{{icon "calendar-range" 16}}{{.Range}}</span><button class="btn verified" data-open="verified">{{icon "fingerprint" 16}}<span>Verified</span></button><button class="btn primary" data-open="export">Export</button></div></div>{{end}}
+<div class="tools">{{if .Index}}<a class="btn" href="../index.html" title="All reports">{{icon "calendar-range" 16}}{{.Range}}</a>{{else}}<span class="btn">{{icon "calendar-range" 16}}{{.Range}}</span>{{end}}<button class="btn verified" data-open="verified">{{icon "fingerprint" 16}}<span>Verified</span></button><button class="btn primary" data-open="export">Export</button></div></div>{{end}}
 
 {{define "soon"}}<div class="panel"><p class="pm" style="margin:0">{{.}}</p></div>{{end}}
 
@@ -115,7 +115,7 @@
 {{define "health"}}<div class="ev6" style="grid-template-columns:repeat(4,1fr)">{{range .Stats}}<div class="panel ec {{.Level}}"><div class="l">{{icon .Icon 15}}{{.Label}}</div><div class="v">{{.Value}}</div><div class="d">{{.Note}}</div></div>{{end}}</div>
 <div data-a1{{if .Single}} data-single="{{.Single}}"{{end}}><div class="row" style="grid-template-columns:1.45fr 1fr">
 <div class="panel" style="overflow-x:auto"><div class="ph"><h2>{{icon "layers" 17}}Every system, every check</h2><span class="pm"><span style="color:#147A3D">✓</span> matches STIG · <span style="color:#C22020">✕</span> gap · <span style="color:#A35A00">!</span> warning</span></div>
-<table class="mxs"><thead><tr><th>System</th>{{range .Cols}}<th>{{.}}</th>{{end}}</tr></thead><tbody>{{range .Groups}}<tr class="g"><td colspan="11">{{.Title}}</td></tr>{{range .Rows}}{{$n := .Name}}<tr><td class="nm"><a class="link" style="color:inherit" href="#health/{{.Name}}">{{.Name}}</a></td>{{range .Cells}}<td class="{{if eq .Class "ok"}}p{{else if eq .Class "bad"}}f{{else if eq .Class "warn"}}w{{else}}na{{end}}"{{if .Title}} title="{{.Title}}"{{end}}><a href="#health/{{$n}}" style="color:inherit;text-decoration:none;display:block">{{.Mark}}</a></td>{{end}}</tr>{{end}}{{end}}</tbody></table></div>
+<table class="mxs"><thead><tr><th>System</th>{{range .Cols}}<th>{{.}}</th>{{end}}</tr></thead><tbody>{{range .Groups}}<tr class="g"><td colspan="12">{{.Title}}</td></tr>{{range .Rows}}{{$n := .Name}}<tr><td class="nm"><a class="link" style="color:inherit" href="#health/{{.Name}}">{{.Name}}</a></td>{{range .Cells}}<td class="{{if eq .Class "ok"}}p{{else if eq .Class "bad"}}f{{else if eq .Class "warn"}}w{{else}}na{{end}}"{{if .Title}} title="{{.Title}}"{{end}}><a href="#health/{{$n}}" style="color:inherit;text-decoration:none;display:block">{{.Mark}}</a></td>{{end}}</tr>{{end}}{{end}}</tbody></table></div>
 <div class="panel" style="align-self:start"><div class="ph"><h2>{{icon "triangle-alert" 17}}Gaps · {{len .Gaps}}</h2><span class="pm">Click a system for its settings</span></div>{{if .Gaps}}<div class="dl">{{range $i, $g := .Gaps}}{{if eq $i 4}}</div><details class="more"><summary class="pm link">All {{len $.Gaps}} →</summary><div class="dl">{{end}}{{template "gapcard" $g}}{{end}}</div>{{if gt (len .Gaps) 4}}</details>{{end}}{{else}}<p class="pm" style="margin:0">No gaps: every system matches the STIG, and no logs were cleared or lost.</p>{{end}}</div></div></div>
 <div data-a3 hidden><div class="md2" style="grid-template-columns:280px 1fr"><div class="panel slist" data-picklist>
 <label class="search">{{icon "search" 14}}<input type="search" placeholder="Find a system" data-find></label>

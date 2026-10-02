@@ -474,3 +474,11 @@ func Contents(path string) ([]Info, error) {
 	sort.Slice(out, func(i, j int) bool { return out[i].From.Before(out[j].From) })
 	return out, nil
 }
+
+// Export saves this computer's logs for [from, to) into dir, as the daily
+// archive does, without zipping them: Windows .evtx files, or the Linux
+// audit and system log lines. It returns the files and notes on any log
+// that could not be saved.
+func Export(dir string, from, to time.Time) ([]Source, []string) {
+	return export(dir, from, to)
+}

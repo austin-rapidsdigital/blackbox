@@ -28,7 +28,8 @@ type CheckSet struct {
 	Host             string
 	Time             time.Time
 	Results          []check.Result
-	Pass, Fail, Warn int
+	Pass, Fail, Warn int    // audit settings
+	AVFail           int    // antivirus checks failing (counted apart from audit settings)
 	Baseline         string // the STIG compared with, e.g. "Windows 11 STIG V2R8"
 }
 
@@ -163,6 +164,9 @@ func (r *Report) buildSystems(runs []*store.Run, events []*event.Event) {
 		case s.Problems > 0:
 			s.Status = "warn"
 			s.StatusMsg = "Collection problems in this period; see Audit health."
+		case s.Checks != nil && s.Checks.AVFail > 0 && s.Checks.Fail == 0:
+			s.Status = "warn"
+			s.StatusMsg = "Antivirus definitions are out of date, or real-time protection is off."
 		case s.Checks != nil && s.Checks.Fail > 0:
 			s.Status = "warn"
 			s.StatusMsg = fmt.Sprintf("%d audit settings need attention.", s.Checks.Fail)
@@ -217,7 +221,17 @@ func (r *Report) SystemsNeedingAttention() int {
 // NewCheckSet summarises one computer's audit settings check.
 func NewCheckSet(host string, at time.Time, rs []check.Result) CheckSet {
 	cs := CheckSet{Host: host, Time: at, Results: rs}
-	cs.Pass, cs.Fail, cs.Warn = check.Summary(rs)
+	var audit []check.Result
+	for _, r := range rs {
+		if r.Area == "Antivirus" {
+			if r.Status == check.Fail {
+				cs.AVFail++
+			}
+			continue
+		}
+		audit = append(audit, r)
+	}
+	cs.Pass, cs.Fail, cs.Warn = check.Summary(audit)
 	for _, r := range rs {
 		if r.Area == "Baseline" {
 			cs.Baseline = r.Have

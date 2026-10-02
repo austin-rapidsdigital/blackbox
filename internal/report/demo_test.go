@@ -244,6 +244,13 @@ func demoChecks(os, baseline, name string) []check.Result {
 			ps.Have, ps.Status = "Not set", check.Warn
 			ps.Fix = "Group Policy: Administrative Templates > Windows Components > Windows PowerShell > Turn on PowerShell Script Block Logging"
 		}
+		av := check.Result{Area: "Antivirus", Item: "Defender security intelligence", Want: "Version created within the last 7 days",
+			Have: "1.419.231.0 · version created on 29 Sep 2026 03:12 (1 day old) · engine 4.18.25080.5", Status: check.Pass}
+		if name == "WS-05" {
+			av.Have, av.Status = "1.417.88.0 · version created on 12 Sep 2026 02:40 (18 days old) · engine 4.18.25080.5", check.Fail
+			av.Fix = "Import the latest security intelligence update (mpam-fe.exe) from your update source onto this system."
+		}
+		res = append(res, av, check.Result{Area: "Antivirus", Item: "Defender real-time protection", Want: "On", Have: "On", Status: check.Pass})
 		res = append(res, ps, check.Result{Area: "Event log size", Item: "Security log", Want: "Holds a week", Have: "Holds 9 days (1 GB)", STIG: "WN11-AU-000505", Status: check.Pass})
 		return res
 	}

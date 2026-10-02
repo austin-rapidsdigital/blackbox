@@ -46,6 +46,7 @@ type pageData struct {
 // headData is a page's heading.
 type headData struct {
 	Crumb, Title, Range string
+	Index               bool // the date range links to the list of all reports
 }
 
 // IsLAN says whether this is a network report (a collector's, or more
@@ -185,7 +186,7 @@ func funcs(loc *time.Location) template.FuncMap {
 				crumb = p.Crumb()
 			}
 			rng := p.PeriodStart().In(loc).Format("2 Jan") + " – " + p.WindowEnd.In(loc).Format("2 Jan 2006")
-			return headData{Crumb: crumb, Title: title, Range: rng}
+			return headData{Crumb: crumb, Title: title, Range: rng, Index: p.InReportsDir}
 		},
 		"brandName": func() string { return brand.Name },
 		"fontCSS":   func() template.CSS { return template.CSS(brand.FontCSS()) },

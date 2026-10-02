@@ -109,7 +109,7 @@ type PrintOut struct {
 }
 
 func (r *Report) printOut(o *Overview, hp *HealthPage) PrintOut {
-	p := PrintOut{Kicker: "GE Aerospace Blackbox · " + strings.Replace(r.Kind(), "report", "audit report", 1)}
+	p := PrintOut{Kicker: "Blackbox · " + strings.Replace(r.Kind(), "report", "audit report", 1)}
 	name := r.Site
 	if name == "" {
 		name = r.MainSystem()

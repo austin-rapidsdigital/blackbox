@@ -95,7 +95,7 @@ jobs:
           $entry = Get-ItemProperty $key
           if ($entry.DisplayVersion -ne "0.0.0-ci") { throw "Programs and Features entry missing" }
           if ($entry.Publisher -ne "Austin Case") { throw "wrong publisher: $($entry.Publisher)" }
-          if ($entry.DisplayName -ne "GE Aerospace Blackbox") { throw "wrong name in Settings > Apps: $($entry.DisplayName)" }
+          if ($entry.DisplayName -ne "Blackbox") { throw "wrong name in Settings > Apps: $($entry.DisplayName)" }
           # The Apps list shows the icon embedded in the program (DisplayIcon).
           Add-Type -Namespace W -Name Shell -MemberDefinition '[DllImport("shell32.dll", CharSet=CharSet.Unicode)] public static extern uint ExtractIconEx(string f, int i, IntPtr[] l, IntPtr[] s, uint n);'
           $icons = [W.Shell]::ExtractIconEx($entry.DisplayIcon, -1, $null, $null, 0)

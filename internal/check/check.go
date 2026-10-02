@@ -123,14 +123,7 @@ func EvaluateAuditpol(b Baseline, have map[string][2]bool) []Result {
 				r.Status = Info
 				r.Want += " (recommended for this report; not a STIG requirement for this system)"
 			}
-			var flags []string
-			if wantS && !h[0] {
-				flags = append(flags, "/success:enable")
-			}
-			if wantF && !h[1] {
-				flags = append(flags, "/failure:enable")
-			}
-			r.Fix = fmt.Sprintf(`auditpol /set /subcategory:"%s" %s  (or set it in Group Policy: Advanced Audit Policy Configuration)`, q.guid, strings.Join(flags, " "))
+			r.Fix = auditGPO(q.name, settingText(wantS, wantF))
 		}
 		out = append(out, r)
 	}
@@ -191,7 +184,7 @@ func EvaluateRegistry(b Baseline, query func(key, value string) (string, error))
 			r.Status, r.Have = Fail, "Not set"
 		}
 		if r.Status == Fail {
-			r.Fix = fmt.Sprintf(`reg add "%s" /v %s /t REG_DWORD /d 1 /f  (or %s)`, q.key, q.value, q.why)
+			r.Fix = q.why
 		}
 		out = append(out, r)
 	}
@@ -238,7 +231,7 @@ func EvaluateLogs(b Baseline, get func(string) (winevt.LogSettings, error), hist
 		} else {
 			r.Status = Fail
 			r.Affects = "Events may be overwritten before collection on busy systems"
-			r.Fix = fmt.Sprintf("wevtutil sl %s /ms:%d  (or Group Policy: Event Log Service > %s > Specify the maximum log file size (KB): %d)", q.name, q.minKB*1024, q.name, q.minKB)
+			r.Fix = logSizeGPO(q.name, q.minKB)
 		}
 		out = append(out, r)
 	}
@@ -252,10 +245,10 @@ func EvaluateLogs(b Baseline, get func(string) (winevt.LogSettings, error), hist
 			r.Status, r.Have = Pass, "Enabled"
 		case l.required:
 			r.Status, r.Have = Fail, "Disabled"
-			r.Fix = fmt.Sprintf(`wevtutil sl "%s" /e:true`, l.name)
+			r.Fix = enableLogFix(l.name)
 		default:
 			r.Status, r.Have, r.Want = Info, "Disabled", "Optional"
-			r.Fix = fmt.Sprintf(`wevtutil sl "%s" /e:true`, l.name)
+			r.Fix = enableLogFix(l.name)
 		}
 		out = append(out, r)
 	}
@@ -267,4 +260,69 @@ func mb(b uint64) string {
 		return fmt.Sprintf("%.1f GB", float64(b)/(1024*1024*1024))
 	}
 	return fmt.Sprintf("%d MB", b/(1024*1024))
+}
+
+// Group Policy locations, for "How to fix": sites set audit policy in
+// Group Policy, not with auditpol or the registry.
+const (
+	gpSecurity = "Computer Configuration > Policies > Windows Settings > Security Settings"
+	gpAdmin    = "Computer Configuration > Policies > Administrative Templates"
+)
+
+// auditCategories maps each advanced audit subcategory to its Group Policy
+// category and setting name.
+var auditCategories = map[string][2]string{
+	"Credential Validation":           {"Account Logon", "Audit Credential Validation"},
+	"Security Group Management":       {"Account Management", "Audit Security Group Management"},
+	"User Account Management":         {"Account Management", "Audit User Account Management"},
+	"Other Account Management Events": {"Account Management", "Audit Other Account Management Events"},
+	"Plug and Play Events":            {"Detailed Tracking", "Audit PNP Activity"},
+	"Process Creation":                {"Detailed Tracking", "Audit Process Creation"},
+	"Account Lockout":                 {"Logon/Logoff", "Audit Account Lockout"},
+	"Group Membership":                {"Logon/Logoff", "Audit Group Membership"},
+	"Logoff":                          {"Logon/Logoff", "Audit Logoff"},
+	"Logon":                           {"Logon/Logoff", "Audit Logon"},
+	"Special Logon":                   {"Logon/Logoff", "Audit Special Logon"},
+	"Other Logon/Logoff Events":       {"Logon/Logoff", "Audit Other Logon/Logoff Events"},
+	"File Share":                      {"Object Access", "Audit File Share"},
+	"Detailed File Share":             {"Object Access", "Audit Detailed File Share"},
+	"Other Object Access Events":      {"Object Access", "Audit Other Object Access Events"},
+	"Removable Storage":               {"Object Access", "Audit Removable Storage"},
+	"File System":                     {"Object Access", "Audit File System"},
+	"Handle Manipulation":             {"Object Access", "Audit Handle Manipulation"},
+	"Registry":                        {"Object Access", "Audit Registry"},
+	"Audit Policy Change":             {"Policy Change", "Audit Audit Policy Change"},
+	"Authentication Policy Change":    {"Policy Change", "Audit Authentication Policy Change"},
+	"Authorization Policy Change":     {"Policy Change", "Audit Authorization Policy Change"},
+	"MPSSVC Rule-Level Policy Change": {"Policy Change", "Audit MPSSVC Rule-Level Policy Change"},
+	"Other Policy Change Events":      {"Policy Change", "Audit Other Policy Change Events"},
+	"Sensitive Privilege Use":         {"Privilege Use", "Audit Sensitive Privilege Use"},
+	"IPsec Driver":                    {"System", "Audit IPsec Driver"},
+	"Other System Events":             {"System", "Audit Other System Events"},
+	"Security State Change":           {"System", "Audit Security State Change"},
+	"Security System Extension":       {"System", "Audit Security System Extension"},
+	"System Integrity":                {"System", "Audit System Integrity"},
+}
+
+// auditGPO is where to set an advanced audit subcategory in Group Policy.
+func auditGPO(subcategory, want string) string {
+	c, ok := auditCategories[subcategory]
+	if !ok {
+		c = [2]string{"…", "Audit " + subcategory}
+	}
+	return fmt.Sprintf("%s > Advanced Audit Policy Configuration > Audit Policies > %s > %s: Configure the following audit events: %s",
+		gpSecurity, c[0], c[1], want)
+}
+
+// logSizeGPO is where to set an event log's maximum size in Group Policy.
+func logSizeGPO(log string, kb uint64) string {
+	return fmt.Sprintf("%s > Windows Components > Event Log Service > %s > Specify the maximum log file size (KB): Enabled, %d",
+		gpAdmin, log, kb)
+}
+
+// enableLogFix is how to turn on an operational log, which has no Group
+// Policy setting of its own.
+func enableLogFix(log string) string {
+	return fmt.Sprintf("No Group Policy setting turns this log on. In Event Viewer: Applications and Services Logs > %s > right-click > Enable Log (or once, as administrator: wevtutil sl \"%s\" /e:true)",
+		strings.ReplaceAll(log, "/", " > "), log)
 }
