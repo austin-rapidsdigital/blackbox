@@ -5,7 +5,11 @@
 //
 //	go run ./scripts/winres -version 0.1.2 -o cmd/blackbox/rsrc_windows_amd64.syso
 //
-// scripts/build.sh runs this before building for Windows.
+// scripts/build.sh runs this before building for Windows. With -windowed it
+// instead writes a copy of a built program marked windowed (no console),
+// which is how the setup file is made:
+//
+//	go run ./scripts/winres -windowed blackbox.exe -o Blackbox-Setup.exe
 package main
 
 import (
@@ -22,6 +26,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/casea1/blackbox/internal/brand"
+	"github.com/casea1/blackbox/internal/winexe"
 )
 
 // Details shown in the file's Properties and in Settings > Apps.
@@ -37,7 +42,23 @@ func main() {
 	out := flag.String("o", "cmd/blackbox/rsrc_windows_amd64.syso", "output .syso file")
 	arch := flag.String("arch", "amd64", "amd64 or 386")
 	preview := flag.String("png", "", "also write a 256px PNG preview of the icon here")
+	windowed := flag.String("windowed", "", "write a copy of this program marked windowed to -o, and do nothing else")
 	flag.Parse()
+
+	if *windowed != "" {
+		b, err := os.ReadFile(*windowed)
+		if err == nil {
+			b, err = winexe.SetSubsystem(b, true)
+		}
+		if err == nil {
+			err = os.WriteFile(*out, b, 0o755)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "winres:", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	obj, err := Object(*arch, Resources(*version))
 	if err == nil {
@@ -57,6 +78,7 @@ const (
 	rtIcon      = 3
 	rtGroupIcon = 14
 	rtVersion   = 16
+	rtManifest  = 24
 	langEnUS    = 0x0409
 )
 
@@ -67,7 +89,7 @@ type Resource struct {
 }
 
 // Resources returns the icon images, the icon group that points at them,
-// and the version information.
+// the version information and the manifest.
 func Resources(version string) []Resource {
 	sizes := []int{16, 24, 32, 48, 64, 256}
 	var res []Resource
@@ -93,8 +115,42 @@ func Resources(version string) []Resource {
 	}
 	res = append(res, Resource{rtGroupIcon, 1, group.Bytes()})
 	res = append(res, Resource{rtVersion, 1, versionInfo(version)})
+	res = append(res, Resource{rtManifest, 1, []byte(Manifest)})
 	return res
 }
+
+// Manifest tells Windows how to run the program: with the rights of
+// whoever starts it (setup asks for administrator rights itself, so the
+// tray and the command line never prompt), with the current look of
+// buttons and other controls, and sharp at any display scaling.
+const Manifest = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity type="win32" name="Blackbox" version="1.0.0.0" processorArchitecture="*"/>
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0" processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
+    </dependentAssembly>
+  </dependency>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor</dpiAwareness>
+    </windowsSettings>
+  </application>
+</assembly>
+`
 
 // Icon is the program icon at size×size pixels: the GE Aerospace logo.
 func Icon(size int) *image.NRGBA { return brand.Logo(size) }

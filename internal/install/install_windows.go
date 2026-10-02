@@ -5,7 +5,6 @@ package install
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,9 +47,12 @@ func Install(opt Options) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	if !samePath(self, dst) {
-		if err := copyFile(self, dst); err != nil {
-			return fmt.Errorf("copy program to %s: %w (if upgrading, make sure Blackbox is not running)", dst, err)
+	if err := placePrograms(self); err != nil {
+		return fmt.Errorf("copy program to %s: %w", filepath.Dir(dst), err)
+	}
+	if opt.Version != "" {
+		if err := checkPrograms(opt.Version); err != nil {
+			return err
 		}
 	}
 	logf("Installed program:   %s", dst)
@@ -96,7 +98,12 @@ func Install(opt Options) error {
 	}
 	logf("Scheduled task:      \"%s\" — collects %s as SYSTEM; %s reports", TaskName, EveryText(opt.CollectEvery), opt.ReportEvery)
 
-	// 5. Entry in Settings > Apps and Control Panel > Programs and Features.
+	// 5. The status icon, for administrators on a collector or standalone computer.
+	if err := setupTray(opt.Tray && opt.SendTo == "", logf); err != nil {
+		return err
+	}
+
+	// 6. Entry in Settings > Apps and Control Panel > Programs and Features.
 	if err := registerUninstall(dst, opt.Version); err != nil {
 		logf("Note: could not add Blackbox to Programs and Features: %v", err)
 	} else {
@@ -122,7 +129,8 @@ func registerUninstall(exe, version string) error {
 		{"UninstallString", "REG_SZ", `"` + exe + `" uninstall`},
 		{"QuietUninstallString", "REG_SZ", `"` + exe + `" uninstall`},
 		{"URLInfoAbout", "REG_SZ", "https://github.com/casea1/blackbox"},
-		{"NoModify", "REG_DWORD", "1"},
+		{"ModifyPath", "REG_SZ", `"` + WindowedPath() + `" setup`},
+		{"NoModify", "REG_DWORD", "0"},
 		{"NoRepair", "REG_DWORD", "1"},
 		{"EstimatedSize", "REG_DWORD", size},
 	}
@@ -160,6 +168,7 @@ func Uninstall(logf func(string, ...any)) error {
 	} else {
 		logf("Removed scheduled task \"%s\".", TaskName)
 	}
+	setupTray(false, logf)
 	exec.Command("reg.exe", "delete", uninstallKey, "/f").Run()
 	removeInbox(logf)
 	share.SaveSecret(config.DefaultDataDir(), "") // removes the stored share password
@@ -206,34 +215,6 @@ func isAdmin() bool {
 	}
 	f.Close()
 	return true
-}
-
-func samePath(a, b string) bool {
-	aa, err1 := filepath.Abs(a)
-	bb, err2 := filepath.Abs(b)
-	return err1 == nil && err2 == nil && strings.EqualFold(aa, bb)
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	tmp := dst + ".new"
-	out, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		os.Remove(tmp)
-		return err
-	}
-	if err := out.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp, dst)
 }
 
 // utf16LE encodes s with a byte order mark, as schtasks expects.

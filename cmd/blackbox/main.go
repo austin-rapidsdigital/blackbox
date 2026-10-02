@@ -20,6 +20,7 @@ import (
 	"github.com/casea1/blackbox/internal/config"
 	"github.com/casea1/blackbox/internal/install"
 	"github.com/casea1/blackbox/internal/report"
+	"github.com/casea1/blackbox/internal/setup"
 	"github.com/casea1/blackbox/internal/store"
 )
 
@@ -155,6 +156,7 @@ environment variable (so it is not shown in the process list).
 	fs.Var(&writers, "inbox-writer", "Windows collector: an account allowed to deliver to the inbox, e.g. the user who runs VirtualBox (repeatable)")
 	yes := fs.Bool("yes", false, "do not ask questions; use the options given and current or default settings")
 	noReport := fs.Bool("no-first-report", false, "do not produce a report (or send) straight away")
+	tray := fs.Bool("tray", true, "Windows collector or standalone: show Blackbox's status in the notification area for administrators")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -170,13 +172,18 @@ environment variable (so it is not shown in the process list).
 	_, statErr := os.Stat(config.DefaultPath())
 	reinstall := statErr == nil
 	ans := install.Answers{Site: cur.SiteName, ReportEvery: cur.ReportEvery, ReportAt: cur.ReportAt, ReportDir: cur.ReportDir, CollectEvery: cur.CollectEvery,
-		SendTo: cur.SendTo, ShareUser: cur.ShareUser, Inbox: cur.Inbox, ShareInbox: install.InboxShared()}
+		SendTo: cur.SendTo, ShareUser: cur.ShareUser, Inbox: cur.Inbox, ShareInbox: install.InboxShared(), Tray: install.TrayWanted()}
 	defaultReports := filepath.Join(config.DefaultDataDir(), "reports")
 
 	given := 0
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name != "no-first-report" && f.Name != "yes" {
+		if f.Name != "no-first-report" && f.Name != "yes" && f.Name != "tray" {
 			given++
+		}
+	})
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "tray" {
+			ans.Tray = *tray
 		}
 	})
 	if given == 0 && !*yes && install.IsTerminal(os.Stdin) {
@@ -239,62 +246,15 @@ environment variable (so it is not shown in the process list).
 		ans.InboxWriters = writers
 	}
 	ans.Role = install.RoleOf(ans.SendTo, ans.Inbox)
+	ans = install.ForRole(ans)
 	if err := validateInstall(ans); err != nil {
 		return err
 	}
 
-	fmt.Println("Installing Blackbox", version)
-	err = install.Install(install.Options{Answers: ans, Version: version, Logf: printf})
-	if err != nil {
+	interactive := given == 0 && !*yes && install.IsTerminal(os.Stdin)
+	if _, err := setup.Run(setup.Options{Answers: ans, Version: version, Reinstall: reinstall, NoReport: *noReport,
+		StartTray: interactive, Logf: printf}); err != nil {
 		return err
-	}
-
-	fmt.Println("\nChecking audit settings against the DISA STIG (nothing will be changed)...")
-	printChecks(check.Run(), false)
-
-	cfg, err := config.Load(config.DefaultPath())
-	if err != nil {
-		return err
-	}
-	a := newApp(cfg, printf)
-	switch {
-	case !cfg.MakesReports():
-		if *noReport {
-			fmt.Println("\nDone. Events will be collected and sent at the next scheduled run.")
-			break
-		}
-		fmt.Println("\nCollecting events and sending them to the collector (the first run reads the whole log and can take a few minutes)...")
-		r, err := a.SendNow()
-		if err != nil {
-			fmt.Printf("\nDone, but the collector could not be reached yet: %v\n", err)
-			fmt.Printf("The events are kept safely on this computer (%d batch%s waiting) and are sent at the next scheduled run that can reach it.\n", r.Waiting, map[bool]string{true: "es"}[r.Waiting != 1])
-			fmt.Println("Check with: blackbox status")
-		} else {
-			fmt.Printf("\nDone. Sent %d batch%s to %s.\n", r.Delivered, map[bool]string{true: "es"}[r.Delivered != 1], cfg.SendTo)
-			fmt.Println("This computer's events will appear in the collector's reports.")
-		}
-	case *noReport:
-		fmt.Println("\nDone. The first report will be produced at the next scheduled run.")
-		fmt.Printf("Reports will be saved in %s\n", cfg.ReportsDir())
-	case reinstall && reported(a):
-		// An upgrade or a settings change keeps the report schedule: the
-		// next scheduled report covers the whole period as usual.
-		_, next, _ := a.NextScheduled()
-		fmt.Printf("\nDone. No report was produced now, so the schedule is unchanged (reports %s).\n", cfg.ReportAt.Describe(cfg.ReportEvery))
-		fmt.Printf("Next scheduled report: %s\n", app.NextText(next))
-		fmt.Println("For an interim report now, run: blackbox report")
-	default:
-		fmt.Println("\nCollecting events and producing the first report (the first run reads the whole log and can take a few minutes)...")
-		dir, err := a.ReportNow(true)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("\nDone. First report: %s\n", filepath.Join(dir, "report.html"))
-		fmt.Printf("All reports:        %s\n", filepath.Join(a.ReportsDir(), "index.html"))
-	}
-	if cfg.Inbox != "" {
-		fmt.Printf("\nOther computers can now send to this collector's inbox: %s\n", cfg.Inbox)
-		fmt.Println("Their events appear in reports after their first collection. See: blackbox status")
 	}
 	fmt.Println("\nTo change settings later, run the installer again (it shows the current settings),")
 	fmt.Println("or use: blackbox config set <setting> <value>")
@@ -495,6 +455,7 @@ func cmdRun(args []string) error {
 	defer closeLog()
 	a := newApp(cfg, logf)
 	logf("run started (blackbox %s)", version)
+	install.RemoveOld() // programs replaced by an upgrade, once nothing runs them
 	dir, err := a.Scheduled()
 	if err != nil {
 		logf("run failed: %v", err)
@@ -594,12 +555,6 @@ func cmdReport(args []string) error {
 	return nil
 }
 
-// reported says whether this computer has produced a scheduled report.
-func reported(a *app.App) bool {
-	last, _, err := a.NextScheduled()
-	return err == nil && !last.IsZero()
-}
-
 func cmdCheck(args []string) error {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	all := fs.Bool("all", false, "also list settings that pass")
@@ -643,32 +598,9 @@ func cmdCheck(args []string) error {
 }
 
 func printChecks(rs []check.Result, all bool) {
-	pass, fail, warn := check.Summary(rs)
-	for _, r := range rs {
-		if r.Area == "Baseline" {
-			fmt.Printf("  Compared with the %s.\n", r.Have)
-			continue
-		}
-		if r.Status == check.Pass && !all {
-			continue
-		}
-		stig := ""
-		if r.STIG != "" {
-			stig = " [" + r.STIG + "]"
-		}
-		fmt.Printf("  [%-5s] %s: %s%s — have %s, need %s\n", strings.ToUpper(string(r.Status)), r.Area, r.Item, stig, r.Have, r.Want)
-		if r.Affects != "" && r.Status != check.Pass {
-			fmt.Printf("           Affects: %s\n", r.Affects)
-		}
-		if r.Fix != "" {
-			fmt.Printf("           Fix:     %s\n", r.Fix)
-		}
+	for _, l := range setup.CheckLines(rs, all) {
+		fmt.Println(l)
 	}
-	fmt.Printf("  %d settings pass, %d need attention", pass, fail)
-	if warn > 0 {
-		fmt.Printf(", %d warnings", warn)
-	}
-	fmt.Println(".")
 }
 
 func cmdVerify(args []string) error {
