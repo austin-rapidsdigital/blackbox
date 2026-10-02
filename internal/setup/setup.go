@@ -6,6 +6,7 @@ package setup
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -46,7 +47,7 @@ func Run(o Options) (Result, error) {
 	}
 
 	if o.StartTray && o.Answers.Tray && o.Answers.Role != install.RoleSender && runtime.GOOS == "windows" {
-		install.QuitTrays() // an icon from before an upgrade, or a previous run
+		// An icon already running restarts itself into the new version.
 		if err := install.StartTray(); err != nil {
 			logf("Note: the status icon could not be started now (%v); it appears at the next logon.", err)
 		}
@@ -159,4 +160,19 @@ func es(n int) string {
 		return ""
 	}
 	return "es"
+}
+
+// Current returns the settings setup starts from: the installed ones on a
+// re-install (reinstall is true), otherwise the defaults. defaultReports
+// is the reports folder used when none is chosen.
+func Current() (a install.Answers, defaultReports string, reinstall bool, err error) {
+	cur, err := config.Load(config.DefaultPath())
+	if err != nil {
+		return a, "", false, fmt.Errorf("%w\n(fix or remove the file, then run setup again)", err)
+	}
+	_, statErr := os.Stat(config.DefaultPath())
+	a = install.Answers{Site: cur.SiteName, ReportEvery: cur.ReportEvery, ReportAt: cur.ReportAt, ReportDir: cur.ReportDir,
+		CollectEvery: cur.CollectEvery, SendTo: cur.SendTo, ShareUser: cur.ShareUser, Inbox: cur.Inbox,
+		ShareInbox: install.InboxShared(), Tray: install.TrayWanted()}
+	return a, filepath.Join(config.DefaultDataDir(), "reports"), statErr == nil, nil
 }

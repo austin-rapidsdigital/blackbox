@@ -67,3 +67,6 @@ func QuitTrays() {}
 
 // RemoveOld is Windows only.
 func RemoveOld() {}
+
+// InstalledVersion is only used by the Windows setup window.
+func InstalledVersion() string { return "" }

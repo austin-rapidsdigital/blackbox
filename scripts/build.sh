@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds release packages into dist/:
-#   blackbox-VERSION-windows-amd64.zip   blackbox.exe + Install.cmd + Uninstall.cmd
+#   Blackbox-Setup-VERSION.exe           Windows: the one file to carry over (blackbox.exe marked windowed)
 #   blackbox-VERSION-linux-amd64.tar.gz  blackbox + install.sh + uninstall.sh
 #   blackbox-VERSION-linux-arm64.tar.gz
 #   SHA256SUMS
@@ -28,11 +28,9 @@ package() { # os arch
 	CGO_ENABLED=0 GOOS="$1" GOARCH="$2" go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$dir/$exe" ./cmd/blackbox
 	if [ "$1" = windows ]; then
 		rm -f "$syso"
-		cp packaging/windows/* "$dir/"
-		cp LICENSE NOTICE "$dir/"
-		# Windows line endings for the batch files and readme.
-		for f in "$dir"/*.cmd "$dir"/README.txt; do sed -i 's/$/\r/' "$f"; done
-		(cd dist/stage && if command -v zip >/dev/null; then zip -qr "../$name.zip" "$name"; else python3 -m zipfile -c "../$name.zip" "$name"; fi)
+		# Double-clicking it opens the setup window without a console;
+		# setup installs blackbox.exe (console) and blackboxw.exe from it.
+		go run ./scripts/winres -windowed "$dir/$exe" -o "dist/Blackbox-Setup-${VERSION}.exe"
 	else
 		cp packaging/linux/* "$dir/"
 		cp LICENSE NOTICE "$dir/"
@@ -44,5 +42,5 @@ package windows amd64
 package linux amd64
 package linux arm64
 rm -rf dist/stage
-(cd dist && sha256sum -- *.zip *.tar.gz > SHA256SUMS)
+(cd dist && sha256sum -- *.exe *.tar.gz > SHA256SUMS)
 cat dist/SHA256SUMS

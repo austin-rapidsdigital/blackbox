@@ -20,7 +20,10 @@ jobs:
       - name: Test
         run: go test -race ./...
       - name: Build release binaries
-        run: scripts/build.sh
+        run: |
+          scripts/build.sh
+          # The Windows setup file opens no console: it is marked windowed.
+          python3 -c "import struct,glob,sys; b=open(glob.glob('dist/Blackbox-Setup-*.exe')[0],'rb').read(); pe=struct.unpack_from('<I',b,0x3c)[0]; sys.exit(struct.unpack_from('<H',b,pe+92)[0]!=2)"
       - name: Report pages work in a browser (LAN and standalone demo reports)
         run: |
           npm i --no-save --prefix "$RUNNER_TEMP/pw" playwright-core@1.48.2
@@ -62,6 +65,22 @@ jobs:
           $ErrorActionPreference = "Stop"
           go run ./scripts/winres -version 0.0.0-ci
           go build -ldflags "-X main.version=0.0.0-ci" -o blackbox.exe ./cmd/blackbox
+          # The setup window builds every page, and the status icon its menu.
+          ./blackbox.exe setup --selftest
+          if ($LASTEXITCODE -ne 0) { throw "setup window self-test failed" }
+          ./blackbox.exe tray --selftest
+          if ($LASTEXITCODE -ne 0) { throw "status icon self-test failed" }
+          # The setup file is the same program marked windowed; run from a
+          # script with a command it still answers on standard output.
+          go run ./scripts/winres -windowed blackbox.exe -o Blackbox-Setup.exe
+          $v = & .\Blackbox-Setup.exe version | Out-String
+          if ($v.Trim() -ne "blackbox 0.0.0-ci") { throw "setup file answered '$v'" }
+          function Test-Windowed($f) {
+            $b = [IO.File]::ReadAllBytes((Resolve-Path $f).Path); $pe = [BitConverter]::ToInt32($b, 0x3c)
+            return [BitConverter]::ToUInt16($b, $pe + 24 + 68) -eq 2
+          }
+          if (-not (Test-Windowed "Blackbox-Setup.exe")) { throw "setup file is not windowed" }
+          if (Test-Windowed "blackbox.exe") { throw "blackbox.exe must stay a console program" }
           $r1 = Join-Path $env:RUNNER_TEMP "bb-reports"
           $r2 = Join-Path $env:RUNNER_TEMP "bb-reports-2"
           # An account other computers send as (a workgroup has no domain accounts).
@@ -91,11 +110,21 @@ jobs:
           if (-not (Test-Path $exe)) { throw "program not installed" }
           schtasks /Query /TN "Blackbox Audit Collection" | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "scheduled task missing" }
+          # The status icon: its logon task, and the windowed copy it runs.
+          $w = "C:\Program Files\Blackbox\blackboxw.exe"
+          if (-not (Test-Path $w) -or -not (Test-Windowed $w)) { throw "blackboxw.exe missing or not windowed" }
+          if (Test-Windowed $exe) { throw "the installed blackbox.exe must be a console program" }
+          $trayXml = schtasks /Query /TN "Blackbox Status" /XML | Out-String
+          if ($LASTEXITCODE -ne 0) { throw "status icon task missing" }
+          $tray = [xml]($trayXml -replace '<\?xml[^>]*\?>', '')
+          if ($tray.Task.Principals.Principal.GroupId -ne "S-1-5-32-544") { throw "status icon task is not for Administrators" }
+          if ($tray.Task.Actions.Exec.Command -ne $w) { throw "status icon task runs $($tray.Task.Actions.Exec.Command)" }
           $key = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Blackbox"
           $entry = Get-ItemProperty $key
           if ($entry.DisplayVersion -ne "0.0.0-ci") { throw "Programs and Features entry missing" }
           if ($entry.Publisher -ne "Austin Case") { throw "wrong publisher: $($entry.Publisher)" }
           if ($entry.DisplayName -ne "Blackbox") { throw "wrong name in Settings > Apps: $($entry.DisplayName)" }
+          if ($entry.ModifyPath -notmatch "blackboxw.exe`" setup") { throw "no Modify button: $($entry.ModifyPath)" }
           # The Apps list shows the icon embedded in the program (DisplayIcon).
           Add-Type -Namespace W -Name Shell -MemberDefinition '[DllImport("shell32.dll", CharSet=CharSet.Unicode)] public static extern uint ExtractIconEx(string f, int i, IntPtr[] l, IntPtr[] s, uint n);'
           $icons = [W.Shell]::ExtractIconEx($entry.DisplayIcon, -1, $null, $null, 0)
@@ -144,6 +173,15 @@ jobs:
           & $exe verify $dir
           if ($LASTEXITCODE -ne 0) { throw "report folder does not match its manifest" }
           & $exe status
+          # Upgrade in place with a newer build, turning the status icon off:
+          # the running programs are renamed, not overwritten.
+          go build -ldflags "-X main.version=0.0.1-ci" -o blackbox-new.exe ./cmd/blackbox
+          ./blackbox-new.exe install --yes --tray=false --no-first-report
+          if ($LASTEXITCODE -ne 0) { throw "upgrade failed" }
+          if ((& $exe version) -ne "blackbox 0.0.1-ci") { throw "upgrade did not replace the program" }
+          if ((Get-ItemProperty $key).DisplayVersion -ne "0.0.1-ci") { throw "Programs and Features still shows the old version" }
+          schtasks /Query /TN "Blackbox Status" 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw "status icon task not removed when turned off" }
           & $exe uninstall
           $deadline = (Get-Date).AddSeconds(60)
           while (Test-Path "C:\Program Files\Blackbox") {

@@ -49,7 +49,7 @@ folder, so no networking is needed.
 
 **On the Windows PC:**
 
-1. Run `Install.cmd` and choose **This is the collector**.
+1. Run `Blackbox-Setup-<version>.exe` and choose **This is the collector**.
 2. Accept the inbox folder, `C:\BlackboxInbox`.
 3. Answer **yes** to "Will virtual machines on this PC send to it?" and
    give the Windows account that runs VirtualBox. That account is added
@@ -105,7 +105,7 @@ VM does not have to be on at a particular time:
 
 **On the collector** (a Windows PC or Windows Server):
 
-1. Run `Install.cmd` and choose **This is the collector**.
+1. Run `Blackbox-Setup-<version>.exe` and choose **This is the collector**.
 2. Answer **yes** to "Share it on the network". Setup then:
    - shares `C:\BlackboxInbox` as `\\COLLECTOR\BlackboxInbox`
    - gives the local group **Blackbox Senders** permission to write to
@@ -126,7 +126,7 @@ Senders sign in to the share with an account on the collector. Choose how:
 
 **On each Windows sender:**
 
-1. Run `Install.cmd` and choose **Send to a collector**.
+1. Run `Blackbox-Setup-<version>.exe` and choose **Send to a collector**.
 2. Enter `\\COLLECTOR\BlackboxInbox`.
 3. Enter the account and its password. On a domain, leave the account
    blank.

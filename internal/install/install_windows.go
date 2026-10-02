@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/casea1/blackbox/internal/brand"
 	"github.com/casea1/blackbox/internal/config"
+	"github.com/casea1/blackbox/internal/hidden"
 	"github.com/casea1/blackbox/internal/share"
 )
 
@@ -93,7 +93,7 @@ func Install(opt Options) error {
 		return err
 	}
 	defer os.Remove(tmp)
-	if out, err := exec.Command("schtasks.exe", "/Create", "/TN", TaskName, "/XML", tmp, "/F").CombinedOutput(); err != nil {
+	if out, err := hidden.Command("schtasks.exe", "/Create", "/TN", TaskName, "/XML", tmp, "/F").CombinedOutput(); err != nil {
 		return fmt.Errorf("create scheduled task: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	logf("Scheduled task:      \"%s\" — collects %s as SYSTEM; %s reports", TaskName, EveryText(opt.CollectEvery), opt.ReportEvery)
@@ -135,7 +135,7 @@ func registerUninstall(exe, version string) error {
 		{"EstimatedSize", "REG_DWORD", size},
 	}
 	for _, v := range values {
-		if out, err := exec.Command("reg.exe", "add", uninstallKey, "/v", v[0], "/t", v[1], "/d", v[2], "/f").CombinedOutput(); err != nil {
+		if out, err := hidden.Command("reg.exe", "add", uninstallKey, "/v", v[0], "/t", v[1], "/d", v[2], "/f").CombinedOutput(); err != nil {
 			return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 		}
 	}
@@ -149,7 +149,7 @@ func afterReportDirChange(func(string, ...any)) error { return nil }
 // restrictDir limits a folder Blackbox created to Administrators and
 // SYSTEM (by SID, so it works on any language version of Windows).
 func restrictDir(dir string) error {
-	if out, err := exec.Command("icacls.exe", dir, "/inheritance:r",
+	if out, err := hidden.Command("icacls.exe", dir, "/inheritance:r",
 		"/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F").CombinedOutput(); err != nil {
 		return fmt.Errorf("restrict permissions on %s: %v: %s", dir, err, out)
 	}
@@ -162,14 +162,14 @@ func Uninstall(logf func(string, ...any)) error {
 	if !isAdmin() {
 		return errors.New("uninstall must be run from an elevated (Run as administrator) prompt")
 	}
-	exec.Command("schtasks.exe", "/End", "/TN", TaskName).Run() // stop a run in progress
-	if out, err := exec.Command("schtasks.exe", "/Delete", "/TN", TaskName, "/F").CombinedOutput(); err != nil {
+	hidden.Command("schtasks.exe", "/End", "/TN", TaskName).Run() // stop a run in progress
+	if out, err := hidden.Command("schtasks.exe", "/Delete", "/TN", TaskName, "/F").CombinedOutput(); err != nil {
 		logf("Scheduled task: %s", strings.TrimSpace(string(out)))
 	} else {
 		logf("Removed scheduled task \"%s\".", TaskName)
 	}
 	setupTray(false, logf)
-	exec.Command("reg.exe", "delete", uninstallKey, "/f").Run()
+	hidden.Command("reg.exe", "delete", uninstallKey, "/f").Run()
 	removeInbox(logf)
 	share.SaveSecret(config.DefaultDataDir(), "") // removes the stored share password
 	logf("Removed Blackbox from Programs and Features.")
@@ -195,7 +195,7 @@ func Uninstall(logf func(string, ...any)) error {
 func removeAfterExit(dir string) error {
 	script := `ping -n 3 127.0.0.1 >nul & for /l %i in (1,1,30) do @(rmdir /s /q "` + dir +
 		`" 2>nul & if not exist "` + dir + `" (exit /b 0) & ping -n 2 127.0.0.1 >nul)`
-	cmd := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"))
+	cmd := hidden.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"))
 	// Set the command line directly: Go's argument quoting (\") is not
 	// understood by cmd.exe and breaks paths containing spaces.
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -232,7 +232,7 @@ func utf16LE(s string) []byte {
 // RequireAdmin returns an error unless running elevated.
 func RequireAdmin() error {
 	if !isAdmin() {
-		return errors.New("run this as an administrator (right-click Command Prompt > Run as administrator, or double-click Install.cmd)")
+		return errors.New("run this as an administrator (right-click Command Prompt > Run as administrator, or double-click the setup file)")
 	}
 	return nil
 }

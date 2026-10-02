@@ -7,54 +7,32 @@ there is no .NET, Go or other runtime to install.
 
 ## Install
 
-1. Download `blackbox-<version>-windows-amd64.zip` from
+1. Download `Blackbox-Setup-<version>.exe` from
    [Releases](https://github.com/casea1/blackbox/releases/latest) and copy
-   it to the system.
-2. Extract it and double-click **`Install.cmd`**, then approve the
-   administrator prompt.
-3. Answer the questions. Press Enter to accept a default. For a single
-   computer:
+   that one file to the system.
+2. Double-click it and approve the administrator prompt.
+3. Answer the questions in the setup window. Each page shows a default you
+   can keep by clicking **Next**. For a single computer the pages are:
+
+| Page | Asks |
+|---|---|
+| This computer | How will this computer's audit events be reviewed? On this computer, send to a collector, or this is the collector |
+| Reports | Site name; daily, weekly or monthly; when each report is ready (default Wednesday 00:00); where reports are saved, with **Browse…** |
+| Collection | How often events are collected (every hour is recommended), and whether to show the status icon to administrators |
+| Ready to install | A summary of your answers, and **Install** |
+
+The last page shows each step as it happens: the install, the audit
+settings check, then the first report. When it is done, **Open report**
+opens it.
+
+The window asks exactly the same questions as `blackbox install` at a
+command prompt, which still works and is what scripts use:
 
 ```
-1. How will this computer's audit events be reviewed?
-     1) On this computer            (it produces its own reports)
-     2) Send to a collector         (for a virtual machine, or a workstation on a LAN)
-     3) This is the collector       (its reports cover it and every computer that sends to it)
-   Choose 1-3 [1]:
-
-2. Site or system name, shown at the top of each report
-   [none]: Lab 3
-
-3. How often should a report be produced?
-     1) Daily
-     2) Weekly
-     3) Monthly (each period ends on the 1st)
-   Choose 1-3 [2]:
-
-4. Which day and time should each weekly report be ready?
-   The week ends then. "Wednesday 00:00" covers the week up to Tuesday night,
-   so auditors have a fresh report on Wednesday morning.
-   [Wednesday 00:00]:
-
-5. Where should reports be saved?
-   Use a folder you have locked down if you like; Blackbox only needs to write to it.
-   [C:\ProgramData\Blackbox\reports]: D:\AuditReports
-
-6. How often should events be collected from the logs?
-     1) Every hour        (recommended)
-     2) Every 30 minutes
-     3) Every 15 minutes  (for busy systems whose logs fill up within a few hours)
-   Choose 1-3 [1]:
-
-Summary
-   This computer:    standalone: reports on itself
-   Site name:        Lab 3
-   Reports:          weekly, ready Wednesday 00:00 (each covers the week to Tuesday night)
-   Saved in:         D:\AuditReports
-   Collect events:   every hour
-
-Install these settings? (Y/n):
+Blackbox-Setup-<version>.exe install --yes --site "Lab 3" --report-dir D:\AuditReports
 ```
+
+(From cmd.exe, put `start /wait` in front so the prompt waits for it.)
 
 For a PC with Linux VMs, or a LAN, see [Several computers](lan.md): the
 other choices ask where the inbox is, or where to send.
@@ -69,7 +47,9 @@ that Blackbox can write to:
 
 Setup then:
 
-- copies `blackbox.exe` to `C:\Program Files\Blackbox\`
+- copies `blackbox.exe` (the command-line program) and `blackboxw.exe`
+  (the same program for the setup window and the status icon, which opens
+  no console) to `C:\Program Files\Blackbox\`
 - creates `C:\ProgramData\Blackbox\`, readable only by Administrators and
   SYSTEM, which holds the settings, reports and collected events
 - registers the scheduled task **Blackbox Audit Collection**, which runs as
@@ -78,6 +58,8 @@ Setup then:
 - adds **Blackbox** to Settings → Apps (and Programs and Features), with
   its version, so it can be inventoried and uninstalled like any other
   program
+- on a collector or standalone computer, registers **Blackbox Status**,
+  which shows the [status icon](#status-icon) to administrators
 - checks the audit settings against the DISA STIG (Windows 11 or Windows
   Server 2025, whichever the computer is) and lists what is missing (it
   changes nothing)
@@ -86,10 +68,15 @@ Setup then:
 
 ## Changing settings later
 
-**Double-click `Install.cmd` again.** It shows the current settings as the
-defaults, so press Enter through everything except what you want to
-change. Running a newer version's `Install.cmd` the same way upgrades
-Blackbox and keeps your settings.
+Open **Settings → Apps**, find **Blackbox** and choose **Modify**, or pick
+**Change settings…** on the status icon. The setup window opens with your
+current settings filled in, so change only what you need.
+
+**To upgrade,** double-click the newer `Blackbox-Setup-<version>.exe`. It
+says which version is installed, keeps your settings, and doesn't move
+the report schedule. A collection running at that moment, or an open
+status icon, doesn't block it. Setup then checks the new program starts,
+and puts the previous one back if it doesn't.
 
 To change a single setting from a script, use `blackbox config`:
 
@@ -123,6 +110,39 @@ blackbox.exe install --yes --site "Lab 3" --report-dir D:\AuditReports
 which reaches network shares as the computer account (`DOMAIN\COMPUTER$`).
 Grant that account write access to the share and folder. On a workgroup
 system with no domain, use a local folder.
+
+## Status icon
+
+On a collector or standalone computer, members of **Administrators** see a
+Blackbox icon by the clock when they log on. It is started by the
+scheduled task **Blackbox Status**, with full rights, so there is no UAC
+prompt. Untick the box on the Collection page of setup to turn it off.
+
+| Dot | Means |
+|---|---|
+| Green | Collecting on schedule; nothing needs attention |
+| Amber | Something to look at: audit settings to fix, Defender intelligence out of date, a computer that has stopped sending, or files set aside in the inbox |
+| Red | Collection has stopped (no run for twice the interval plus 15 minutes), or the last run failed |
+| Grey (no dot) | The status can't be read |
+
+Click it for the menu:
+- the status, and anything to look at;
+- **Open latest report** and **Open all reports**;
+- **Make an interim report…**, for a chosen period (the schedule doesn't change);
+- **Collect now**;
+- **Status details…**, the same as `blackbox status`;
+- **Change settings…**;
+- **Close this icon**.
+
+It shows a notification when a scheduled report is ready, when collection
+stops, when a computer stops sending, when audit settings stop matching
+the STIG, and after an upgrade. Each is shown once.
+
+Reports open in your normal browser without administrator rights. The
+default reports folder is readable only by administrators with full
+rights. If your account can't open it, the icon asks before giving your
+account read access to that folder. This is the same as Explorer's
+**Continue** button.
 
 ## Where things are
 
@@ -233,6 +253,7 @@ On Windows, saved `.evtx` files work too: `blackbox report --evtx Security.evtx`
 
 ## Uninstall
 
-Use **Settings → Apps → Blackbox → Uninstall**, or double-click
-`Uninstall.cmd`. This removes the scheduled task, the program and the Apps
-entry. Reports, settings and collected events are kept.
+Use **Settings → Apps → Blackbox → Uninstall**, or run
+`"C:\Program Files\Blackbox\blackbox.exe" uninstall` as an administrator.
+This removes the scheduled tasks, the status icon, the program and the
+Apps entry. Reports, settings and collected events are kept.

@@ -18,6 +18,7 @@ import (
 	"github.com/casea1/blackbox/internal/app"
 	"github.com/casea1/blackbox/internal/check"
 	"github.com/casea1/blackbox/internal/config"
+	"github.com/casea1/blackbox/internal/gui"
 	"github.com/casea1/blackbox/internal/install"
 	"github.com/casea1/blackbox/internal/report"
 	"github.com/casea1/blackbox/internal/setup"
@@ -31,6 +32,8 @@ const usage = `Blackbox — audit log review for air-gapped systems
 
 Usage:
   blackbox install               Set up (or change) scheduled collection and reporting; asks each setting
+  blackbox setup                 Windows: the same, in a window (also what double-clicking blackbox.exe does)
+  blackbox tray                  Windows: show Blackbox's status in the notification area (administrators)
   blackbox config                Show settings; "blackbox config set report_dir D:\Reports" changes one
   blackbox status                Show what this computer does, when it last collected, and what is waiting
   blackbox run                   Collect new events; send them or produce a report if one is due (what the schedule runs)
@@ -52,14 +55,33 @@ Run "blackbox <command> -h" for a command's options.
 
 func main() {
 	if len(os.Args) < 2 {
+		// Double-clicked (the setup file, or blackbox.exe in Explorer):
+		// open the setup window.
+		if gui.Launched() {
+			if gui.Setup(version, false) != nil {
+				os.Exit(1)
+			}
+			return
+		}
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
+	gui.AttachConsole() // the setup file run from a prompt with a command
 	cmd, args := os.Args[1], os.Args[2:]
 	var err error
 	switch cmd {
 	case "install":
 		err = cmdInstall(args)
+	case "setup", "tray":
+		fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
+		selftest := fs.Bool("selftest", false, "build the window, then close it (for testing)")
+		if err = fs.Parse(args); err == nil {
+			if cmd == "setup" {
+				err = gui.Setup(version, *selftest)
+			} else {
+				err = gui.Tray(version, *selftest)
+			}
+		}
 	case "run":
 		err = cmdRun(args)
 	case "report":
@@ -165,15 +187,10 @@ environment variable (so it is not shown in the process list).
 	}
 
 	// Current settings (or defaults on a first install) are the starting point.
-	cur, err := config.Load(config.DefaultPath())
+	ans, defaultReports, reinstall, err := setup.Current()
 	if err != nil {
-		return fmt.Errorf("%w\n(fix or remove the file, then run install again)", err)
+		return err
 	}
-	_, statErr := os.Stat(config.DefaultPath())
-	reinstall := statErr == nil
-	ans := install.Answers{Site: cur.SiteName, ReportEvery: cur.ReportEvery, ReportAt: cur.ReportAt, ReportDir: cur.ReportDir, CollectEvery: cur.CollectEvery,
-		SendTo: cur.SendTo, ShareUser: cur.ShareUser, Inbox: cur.Inbox, ShareInbox: install.InboxShared(), Tray: install.TrayWanted()}
-	defaultReports := filepath.Join(config.DefaultDataDir(), "reports")
 
 	given := 0
 	fs.Visit(func(f *flag.Flag) {
@@ -459,8 +476,12 @@ func cmdRun(args []string) error {
 	dir, err := a.Scheduled()
 	if err != nil {
 		logf("run failed: %v", err)
+		if !errors.Is(err, store.ErrBusy) { // another run is working; not a failure
+			a.RecordRun(err)
+		}
 		return err
 	}
+	a.RecordRun(nil)
 	if dir != "" {
 		logf("report written: %s", filepath.Join(dir, "report.html"))
 	}

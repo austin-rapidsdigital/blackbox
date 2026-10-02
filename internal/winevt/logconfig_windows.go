@@ -4,12 +4,13 @@ package winevt
 
 import (
 	"fmt"
-	"os/exec"
+
+	"github.com/casea1/blackbox/internal/hidden"
 )
 
 // GetLogSettings reads a log's configuration with wevtutil.
 func GetLogSettings(channel string) (LogSettings, error) {
-	out, err := exec.Command("wevtutil.exe", "gl", channel).Output()
+	out, err := hidden.Command("wevtutil.exe", "gl", channel).Output()
 	if err != nil {
 		return LogSettings{}, fmt.Errorf("wevtutil gl %s: %w", channel, err)
 	}
@@ -19,7 +20,7 @@ func GetLogSettings(channel string) (LogSettings, error) {
 // GetLogHistory reads how full a log is and the times of its oldest and
 // newest events.
 func GetLogHistory(channel string) (LogHistory, error) {
-	out, err := exec.Command("wevtutil.exe", "gli", channel).Output()
+	out, err := hidden.Command("wevtutil.exe", "gli", channel).Output()
 	if err != nil {
 		return LogHistory{}, fmt.Errorf("wevtutil gli %s: %w", channel, err)
 	}

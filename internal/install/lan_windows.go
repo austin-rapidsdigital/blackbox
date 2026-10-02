@@ -6,13 +6,13 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"syscall"
 	"unsafe"
 
 	"github.com/casea1/blackbox/internal/collect"
 	"github.com/casea1/blackbox/internal/config"
+	"github.com/casea1/blackbox/internal/hidden"
 	"github.com/casea1/blackbox/internal/lan"
 	"github.com/casea1/blackbox/internal/share"
 )
@@ -58,8 +58,8 @@ func prepareInbox(opt Options, logf func(string, ...any)) error {
 	if err := lan.PrepareInbox(dir, collect.LocalHost()); err != nil {
 		return err
 	}
-	if out, err := exec.Command("net.exe", "localgroup", SendersGroup).CombinedOutput(); err != nil {
-		if out, err := exec.Command("net.exe", "localgroup", SendersGroup, "/add",
+	if out, err := hidden.Command("net.exe", "localgroup", SendersGroup).CombinedOutput(); err != nil {
+		if out, err := hidden.Command("net.exe", "localgroup", SendersGroup, "/add",
 			"/comment:Accounts that may deliver Blackbox audit data to this collector's inbox").CombinedOutput(); err != nil {
 			return fmt.Errorf("create the %q group: %v: %s", SendersGroup, err, strings.TrimSpace(string(out)))
 		}
@@ -69,13 +69,13 @@ func prepareInbox(opt Options, logf func(string, ...any)) error {
 	}
 	// Folder permissions: full control for Administrators and SYSTEM (by
 	// SID, so any language works), and modify for the senders group.
-	if out, err := exec.Command("icacls.exe", dir, "/inheritance:r",
+	if out, err := hidden.Command("icacls.exe", dir, "/inheritance:r",
 		"/grant:r", "*S-1-5-32-544:(OI)(CI)F", "/grant:r", "*S-1-5-18:(OI)(CI)F",
 		"/grant:r", SendersGroup+":(OI)(CI)M").CombinedOutput(); err != nil {
 		return fmt.Errorf("set permissions on %s: %v: %s", dir, err, strings.TrimSpace(string(out)))
 	}
 	for _, u := range opt.InboxWriters {
-		out, err := exec.Command("net.exe", "localgroup", SendersGroup, u, "/add").CombinedOutput()
+		out, err := hidden.Command("net.exe", "localgroup", SendersGroup, u, "/add").CombinedOutput()
 		if err != nil && !strings.Contains(string(out), "1378") { // 1378: already a member
 			return fmt.Errorf("add %s to %q: %v: %s", u, SendersGroup, err, strings.TrimSpace(string(out)))
 		}
@@ -83,10 +83,10 @@ func prepareInbox(opt Options, logf func(string, ...any)) error {
 	}
 	logf("Inbox:               %s (Administrators, SYSTEM and %q)", dir, SendersGroup)
 
-	shared := exec.Command("net.exe", "share", ShareName).Run() == nil
+	shared := hidden.Command("net.exe", "share", ShareName).Run() == nil
 	switch {
 	case opt.ShareInbox && !shared:
-		if out, err := exec.Command("net.exe", "share", ShareName+"="+dir, "/GRANT:"+SendersGroup+",CHANGE",
+		if out, err := hidden.Command("net.exe", "share", ShareName+"="+dir, "/GRANT:"+SendersGroup+",CHANGE",
 			"/REMARK:Blackbox collector inbox").CombinedOutput(); err != nil {
 			return fmt.Errorf("share %s: %v: %s", dir, err, strings.TrimSpace(string(out)))
 		}
@@ -95,7 +95,7 @@ func prepareInbox(opt Options, logf func(string, ...any)) error {
 		host, _ := os.Hostname()
 		logf("Network share:       \\\\%s\\%s (members of %q may deliver)", host, ShareName, SendersGroup)
 	case shared:
-		exec.Command("net.exe", "share", ShareName, "/delete", "/y").Run()
+		hidden.Command("net.exe", "share", ShareName, "/delete", "/y").Run()
 		logf("Network share:       %s removed", ShareName)
 	}
 	return nil
@@ -104,12 +104,12 @@ func prepareInbox(opt Options, logf func(string, ...any)) error {
 // removeInbox undoes prepareInbox's share and group (the folder and any
 // data in it are kept).
 func removeInbox(logf func(string, ...any)) {
-	if exec.Command("net.exe", "share", ShareName).Run() == nil {
-		exec.Command("net.exe", "share", ShareName, "/delete", "/y").Run()
+	if hidden.Command("net.exe", "share", ShareName).Run() == nil {
+		hidden.Command("net.exe", "share", ShareName, "/delete", "/y").Run()
 		logf("Removed the %s network share (the folder was kept).", ShareName)
 	}
-	if exec.Command("net.exe", "localgroup", SendersGroup).Run() == nil {
-		exec.Command("net.exe", "localgroup", SendersGroup, "/delete").Run()
+	if hidden.Command("net.exe", "localgroup", SendersGroup).Run() == nil {
+		hidden.Command("net.exe", "localgroup", SendersGroup, "/delete").Run()
 		logf("Removed the %q group.", SendersGroup)
 	}
 }
@@ -162,4 +162,4 @@ func readPassword(r *bufio.Reader) (string, error) {
 }
 
 // InboxShared reports whether the collector's inbox is shared on the network.
-func InboxShared() bool { return exec.Command("net.exe", "share", ShareName).Run() == nil }
+func InboxShared() bool { return hidden.Command("net.exe", "share", ShareName).Run() == nil }

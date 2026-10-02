@@ -5,13 +5,13 @@ package install
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 	"unsafe"
 
+	"github.com/casea1/blackbox/internal/hidden"
 	"github.com/casea1/blackbox/internal/winexe"
 )
 
@@ -84,7 +84,7 @@ func RemoveOld() {
 // checkPrograms runs the installed program and confirms it is the version
 // just installed. If it isn't, the previous program is put back.
 func checkPrograms(version string) error {
-	out, err := exec.Command(ProgramPath(), "version").Output()
+	out, err := hidden.Command(ProgramPath(), "version").Output()
 	got := strings.TrimSpace(string(out))
 	if err == nil && got == "blackbox "+version {
 		return nil
@@ -109,7 +109,7 @@ func checkPrograms(version string) error {
 // exists, and by default when upgrading from a version without it. It is
 // off only when it was turned off.
 func TrayWanted() bool {
-	if exec.Command("schtasks.exe", "/Query", "/TN", TrayTaskName).Run() == nil {
+	if hidden.Command("schtasks.exe", "/Query", "/TN", TrayTaskName).Run() == nil {
 		return true
 	}
 	_, err := os.Stat(WindowedPath())
@@ -119,8 +119,8 @@ func TrayWanted() bool {
 // setupTray registers or removes the task that starts the status icon.
 func setupTray(on bool, logf func(string, ...any)) error {
 	if !on {
-		if exec.Command("schtasks.exe", "/Query", "/TN", TrayTaskName).Run() == nil {
-			exec.Command("schtasks.exe", "/Delete", "/TN", TrayTaskName, "/F").Run()
+		if hidden.Command("schtasks.exe", "/Query", "/TN", TrayTaskName).Run() == nil {
+			hidden.Command("schtasks.exe", "/Delete", "/TN", TrayTaskName, "/F").Run()
 			logf("Status icon:         removed")
 		}
 		QuitTrays()
@@ -131,7 +131,7 @@ func setupTray(on bool, logf func(string, ...any)) error {
 		return err
 	}
 	defer os.Remove(tmp)
-	if out, err := exec.Command("schtasks.exe", "/Create", "/TN", TrayTaskName, "/XML", tmp, "/F").CombinedOutput(); err != nil {
+	if out, err := hidden.Command("schtasks.exe", "/Create", "/TN", TrayTaskName, "/XML", tmp, "/F").CombinedOutput(); err != nil {
 		return fmt.Errorf("create status icon task: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	logf("Status icon:         shown to administrators when they log on (task \"%s\")", TrayTaskName)
@@ -159,10 +159,25 @@ func QuitTrays() {
 
 // StartTray starts the status icon for the person running setup.
 func StartTray() error {
-	cmd := exec.Command(WindowedPath(), "tray")
+	cmd := hidden.Command(WindowedPath(), "tray")
 	cmd.Dir = filepath.Dir(WindowedPath())
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	return cmd.Process.Release()
+}
+
+// IsAdmin reports whether this process has full administrator rights.
+func IsAdmin() bool { return isAdmin() }
+
+// InstalledVersion is the version of the installed program, or "".
+func InstalledVersion() string {
+	if _, err := os.Stat(ProgramPath()); err != nil {
+		return ""
+	}
+	out, err := hidden.Command(ProgramPath(), "version").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(strings.TrimSpace(string(out)), "blackbox ")
 }

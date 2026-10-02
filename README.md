@@ -46,9 +46,10 @@ whole air-gapped LAN can be covered by one report.
 Nothing else needs to be installed first: no Go, no .NET, no runtime of any
 kind.
 
-**Windows:** download `blackbox-<version>-windows-amd64.zip` from
-[Releases](https://github.com/casea1/blackbox/releases/latest), extract it,
-and double-click **`Install.cmd`**.
+**Windows:** download `Blackbox-Setup-<version>.exe` from
+[Releases](https://github.com/casea1/blackbox/releases/latest), double-click
+it, and answer the questions in the setup window. The same file upgrades
+an installed Blackbox.
 
 **Linux:**
 
@@ -70,7 +71,9 @@ For a single computer it then asks:
 
 It then schedules collection, checks your audit settings against the DISA
 STIG (it never changes them), and produces the first report. Run
-`blackbox status` as an administrator at any time to check it is working.
+`blackbox status` as an administrator at any time to check it is working. On
+Windows, administrators also get a status icon by the clock that shows
+whether collection is on schedule and what needs looking at.
 
 **To change settings later**, such as moving reports to another folder,
 run the installer again. It shows your current settings as the defaults.

@@ -4,6 +4,8 @@ These choices were made with the product owner between 29 Sep and 1 Oct 2026, an
 **Build to this document and the mockups in `mockups/`.** Don't change a layout, add a page, or drop a section during the build without asking first.
 If something can't be built as shown, stop and ask.
 
+The Windows setup window and status icon are designed in [`SETUP-SPEC.md`](SETUP-SPEC.md), under the same rules.
+
 `source/` holds the Python scripts that generated the mockups. They are the reference for exact colors, spacing and chart construction.
 
 ## Visual style ("G2 Arctic")
