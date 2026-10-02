@@ -111,7 +111,7 @@ var Windows11 = Baseline{
 		scriptBlockLogging("WN11-CC-000326"),
 		{`HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription`, "EnableTranscripting",
 			"PowerShell transcription", "",
-			"Group Policy: Administrative Templates > Windows Components > Windows PowerShell > Turn on PowerShell Transcription", "WN11-CC-000327"},
+			gpAdmin + " > Windows Components > Windows PowerShell > Turn on PowerShell Transcription: Enabled", "WN11-CC-000327"},
 	},
 	Logs: []logReq{
 		{"Security", 0, true, "WN11-AU-000505"},
@@ -166,19 +166,19 @@ var WindowsServer2025 = Baseline{
 func forceSubcategories(id string) regReq {
 	return regReq{`HKLM\SYSTEM\CurrentControlSet\Control\Lsa`, "SCENoApplyLegacyAuditPolicy",
 		"Force audit policy subcategory settings", "All sections (advanced audit policy may be ignored without it)",
-		"Group Policy: Security Options > Audit: Force audit policy subcategory settings", id}
+		gpSecurity + " > Local Policies > Security Options > Audit: Force audit policy subcategory settings (Windows Vista or later) to override audit policy category settings: Enabled", id}
 }
 
 func commandLine(id string) regReq {
 	return regReq{`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit`, "ProcessCreationIncludeCmdLine_Enabled",
 		"Include command line in process creation events", "Privileged Activity (full commands, not just program names)",
-		"Group Policy: Administrative Templates > System > Audit Process Creation", id}
+		gpAdmin + " > System > Audit Process Creation > Include command line in process creation events: Enabled", id}
 }
 
 func scriptBlockLogging(id string) regReq {
 	return regReq{`HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging`, "EnableScriptBlockLogging",
 		"PowerShell script block logging", "",
-		"Group Policy: Administrative Templates > Windows Components > Windows PowerShell > Turn on PowerShell Script Block Logging", id}
+		gpAdmin + " > Windows Components > Windows PowerShell > Turn on PowerShell Script Block Logging: Enabled", id}
 }
 
 // BaselineFor picks the STIG for a Windows installation type ("Client",
@@ -215,7 +215,7 @@ func holdsWeek(r Result, s winevt.LogSettings, history func(string) (winevt.LogH
 		need := uint64(float64(s.MaxSize)*float64(weekNeeded)/float64(held))/1024 + 1
 		need = (need + 1023) / 1024 * 1024 // round up to a whole MB
 		r.Affects = "Events may be overwritten before collection, and the log does not hold a week of evidence"
-		r.Fix = fmt.Sprintf("raise it to about %d KB: wevtutil sl Security /ms:%d  (or Group Policy: Event Log Service > Security > Specify the maximum log file size (KB))", need, need*1024)
+		r.Fix = logSizeGPO("Security", need)
 	}
 	return r
 }

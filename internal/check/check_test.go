@@ -26,10 +26,10 @@ func TestAuditpol(t *testing.T) {
 		t.Errorf("Logon: %+v", byName["Logon"])
 	}
 	rs := byName["Removable Storage"]
-	if rs.Status != Fail || !strings.Contains(rs.Fix, "/success:enable /failure:enable") || !strings.Contains(rs.Affects, "USB") {
+	if rs.Status != Fail || !strings.Contains(rs.Fix, "Audit Removable Storage: Configure the following audit events: Success and Failure") || !strings.Contains(rs.Affects, "USB") {
 		t.Errorf("Removable Storage: %+v", rs)
 	}
-	if al := byName["Account Lockout"]; al.Status != Fail || strings.Contains(al.Fix, "/success") {
+	if al := byName["Account Lockout"]; al.Status != Fail || !strings.HasSuffix(al.Fix, "Audit Account Lockout: Configure the following audit events: Failure") {
 		t.Errorf("Account Lockout needs failure only on Windows 11: %+v", al)
 	}
 	for _, name := range []string{"File System", "Handle Manipulation", "Registry"} {
@@ -103,7 +103,7 @@ func TestRegistryAndLogs(t *testing.T) {
 		return Result{}
 	}
 	sec := find(EvaluateLogs(Windows11, settings, full(3*24*time.Hour)), "Security log")
-	if sec.Status != Fail || !strings.Contains(sec.Have, "holds about 3 days") || !strings.Contains(sec.Fix, "about 48128 KB") {
+	if sec.Status != Fail || !strings.Contains(sec.Have, "holds about 3 days") || !strings.Contains(sec.Fix, "Event Log Service > Security > Specify the maximum log file size (KB): Enabled, 48128") {
 		t.Errorf("a full 20 MB log holding 3 days fails the one-week rule: %+v", sec)
 	}
 	if sec := find(EvaluateLogs(Windows11, settings, full(9*24*time.Hour)), "Security log"); sec.Status != Pass {
@@ -259,5 +259,31 @@ func TestNotInRulesDFindsRulesAugenrulesWouldDrop(t *testing.T) {
 	d := []string{"-w /etc/sudoers/ -p aw -k other_key\n", "-a always,exit -F arch=b64 -S execve -F euid=0\n"}
 	if n := NotInRulesD(auditRules, d); n != 0 {
 		t.Errorf("all in rules.d: %d, want 0", n)
+	}
+}
+
+// Sites set audit policy in Group Policy, so "How to fix" names the
+// Group Policy setting.
+func TestFixesAreGroupPolicy(t *testing.T) {
+	rs := EvaluateAuditpol(Windows11, map[string][2]bool{})
+	for _, r := range rs {
+		if r.Status == Fail && !strings.Contains(r.Fix, "Advanced Audit Policy Configuration > Audit Policies > ") {
+			t.Errorf("%s: %s", r.Item, r.Fix)
+		}
+	}
+	for _, r := range rs {
+		if r.Item == "Removable Storage" && !strings.HasSuffix(r.Fix, "Object Access > Audit Removable Storage: Configure the following audit events: Success and Failure") {
+			t.Errorf("removable storage fix: %s", r.Fix)
+		}
+	}
+	for _, r := range EvaluateRegistry(Windows11, func(k, v string) (string, error) { return "", nil }) {
+		if !strings.HasPrefix(r.Fix, "Computer Configuration > Policies > ") {
+			t.Errorf("%s: %s", r.Item, r.Fix)
+		}
+	}
+	for _, q := range append(Windows11.Audit, WindowsServer2025.Audit...) {
+		if _, ok := auditCategories[q.name]; !ok {
+			t.Errorf("no Group Policy location for %s", q.name)
+		}
 	}
 }

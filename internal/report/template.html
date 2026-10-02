@@ -65,7 +65,7 @@
 {{end}}
 
 {{define "head"}}<div class="head"><div><div class="crumb">{{.Crumb}}</div><h1>{{.Title}}</h1></div>
-<div class="tools"><span class="btn">{{icon "calendar-range" 16}}{{.Range}}</span><button class="btn verified" data-open="verified">{{icon "fingerprint" 16}}<span>Verified</span></button><button class="btn primary" data-open="export">Export</button></div></div>{{end}}
+<div class="tools">{{if .Index}}<a class="btn" href="../index.html" title="All reports">{{icon "calendar-range" 16}}{{.Range}}</a>{{else}}<span class="btn">{{icon "calendar-range" 16}}{{.Range}}</span>{{end}}<button class="btn verified" data-open="verified">{{icon "fingerprint" 16}}<span>Verified</span></button><button class="btn primary" data-open="export">Export</button></div></div>{{end}}
 
 {{define "soon"}}<div class="panel"><p class="pm" style="margin:0">{{.}}</p></div>{{end}}
 
