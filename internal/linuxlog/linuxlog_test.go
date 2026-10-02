@@ -413,3 +413,50 @@ func TestUSBGuardBlock(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 }
+
+// D1: failed logons for different accounts from one address are kept
+// apart, so "one source tried several accounts" can see them.
+func TestFailedLogonsKeepTheAccount(t *testing.T) {
+	var lines []string
+	for i, acct := range []string{"root", "admin", "oracle"} {
+		lines = append(lines, fmt.Sprintf(`type=USER_AUTH msg=audit(1790730000.%03d:%d): pid=5000 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:authentication grantors=? acct="%s" exe="/usr/sbin/sshd" hostname=10.1.1.99 addr=10.1.1.99 terminal=ssh res=failed'`, i, 10+i, acct))
+	}
+	tr := NewTranslator("ws12", nil)
+	keys := map[string]bool{}
+	ParseAuditStream(strings.NewReader(strings.Join(lines, "\n")), func(ev *Event) error {
+		if e := tr.Audit(ev); e != nil && e.Action == "logon_failed" {
+			keys[e.DedupeKey] = true
+		}
+		return nil
+	})
+	if len(keys) != 3 {
+		t.Errorf("want 3 separate failed logons, got merge keys %v", keys)
+	}
+}
+
+// Review item: two sudo commands of the same program are two rows, so
+// "systemctl stop rsyslog" is not hidden behind "systemctl status cron";
+// a command's own record and its program's still merge.
+func TestSudoCommandsKeepTheirArguments(t *testing.T) {
+	if cmdKey("/usr/bin/systemctl stop rsyslog") != cmdKey("systemctl stop rsyslog") {
+		t.Error("the sudo record and the program it ran should merge")
+	}
+	if cmdKey("systemctl stop rsyslog") == cmdKey("systemctl status cron") {
+		t.Error("different systemctl commands merged")
+	}
+	var lines []string
+	for i, cmd := range []string{"systemctl status cron", "systemctl stop rsyslog"} {
+		lines = append(lines, fmt.Sprintf(`type=USER_CMD msg=audit(1790730000.%03d:%d): pid=600%d uid=1001 auid=1001 ses=3 msg='cwd="/home/jsmith" cmd="%s" exe="/usr/bin/sudo" terminal=pts/0 res=success'`, i, 20+i, i, cmd))
+	}
+	tr := NewTranslator("ws12", Users{1001: "jsmith"})
+	keys := map[string]bool{}
+	ParseAuditStream(strings.NewReader(strings.Join(lines, "\n")), func(ev *Event) error {
+		if e := tr.Audit(ev); e != nil && e.DedupeKey != "" {
+			keys[e.DedupeKey] = true
+		}
+		return nil
+	})
+	if len(keys) != 2 {
+		t.Errorf("want 2 commands kept apart, got %v", keys)
+	}
+}

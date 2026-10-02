@@ -164,3 +164,20 @@ func TestPerson(t *testing.T) {
 		}
 	}
 }
+
+// D9: commands and scripts that clear logs or weaken auditing, and
+// Defender being switched off (its events name no user), complete
+// "Possible covering of tracks" like a log clear does.
+func TestCoverTracksByCommandsAndDefender(t *testing.T) {
+	setup := ev(-30, "WS-01", "account_created", event.CatAccount, event.SevMedium, "mallory", "helper")
+	for _, tamper := range []*event.Event{
+		ev(10, "WS-01", "audit_tamper_command", event.CatPrivileged, event.SevHigh, "mallory", ""),
+		ev(10, "WS-01", "powershell_tamper", event.CatIntegrity, event.SevHigh, "mallory", ""),
+		ev(10, "WS-01", "powershell_av_tamper", event.CatIntegrity, event.SevHigh, "mallory", ""),
+		ev(10, "WS-01", "av_disabled", event.CatOther, event.SevHigh, "", ""),
+	} {
+		if f := findings(detectOnly([]*event.Event{setup, tamper}, nil, Options{}))["Possible covering of tracks"]; len(f) != 1 {
+			t.Errorf("%s did not complete covering of tracks", tamper.Action)
+		}
+	}
+}

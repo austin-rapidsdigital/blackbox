@@ -101,6 +101,37 @@ installing Blackbox does not flag everyone. Something not seen for a year
 counts as new again. Service and computer accounts, and SYSTEM, are left
 out.
 
+**One row per action.** Windows and Linux often record one action more
+than once (a failed logon as 4625 and 4776; a service install as 7045 and
+4697; a USB stick in up to four logs). These are merged into one row, the
+most informative, and a service is shown with both of its names. Two
+records of the *same* kind are two actions: five failed logons in one
+second are five rows, so fast password guessing is detected. Removing a
+deleted account from its primary group ("None" or "Domain Users") is not
+shown as a separate change.
+
+**Computer accounts.** An account whose name ends in `$` is treated as a
+computer account, and its routine activity is left out, only when it is
+this computer's own account or comes from a domain. A local account named
+like one (for example `helper$`) is always shown.
+
+**Hidden PowerShell.** PowerShell started with two or more of a hidden
+window, a bypassed execution policy, no prompts (`-NonInteractive`) and an
+encoded command is flagged Medium, whatever the script does: that is how
+scripts are run unseen. A command that clears logs or changes auditing is
+High however it is written, including with the program's path in quotes.
+
+**Process starts.** Programs started with administrator rights are
+listed. Programs a standard user starts are not, to keep reports
+readable; their logons and anything they change still are.
+
+**Exclusions.** `exclude_users` and `exclude_processes` leave out routine
+activity only. Failed logons against an excluded account, changes to it,
+log clears and audit changes by it, and anything of Medium severity or
+above are always shown. An entry with a domain (`CORP\svc_backup`)
+matches that account only; one without matches the local account. The
+Overview and Audit health say how many events were left out, and by whom.
+
 ## Original logs
 
 Reports show what Blackbox found in the logs. The original logs are kept

@@ -92,12 +92,12 @@ func TestDedupeMergesSameDevice(t *testing.T) {
 func TestExclusions(t *testing.T) {
 	r := build(t, Options{ExcludeUsers: []string{"JSMITH"}, ExcludeProcesses: []string{"excel.exe"}})
 	for _, e := range r.Events {
-		if strings.EqualFold(e.User, "jsmith") {
-			t.Fatalf("excluded user still present: %s", e.Summary)
+		if strings.EqualFold(e.User, "jsmith") && routine(e) {
+			t.Fatalf("routine event of an excluded user still present: %s", e.Summary)
 		}
 	}
-	if r.Excluded == 0 {
-		t.Error("nothing counted as excluded")
+	if r.Excluded == 0 || r.ExcludedBy["JSMITH"] == 0 {
+		t.Errorf("nothing counted as excluded: %d %v", r.Excluded, r.ExcludedBy)
 	}
 }
 

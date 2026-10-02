@@ -166,7 +166,7 @@ func (t *Translator) security(r *Raw) *event.Event {
 func (t *Translator) logonSuccess(r *Raw) *event.Event {
 	lt := r.Get("LogonType")
 	user := t.account(r, "TargetUserSid", "TargetDomainName", "TargetUserName")
-	if lt == "0" || lt == "5" || t.isServiceAccount(r.Get("TargetUserSid"), r.Get("TargetUserName")) {
+	if lt == "0" || lt == "5" || t.ignoredAccount(r, "Target") {
 		return nil
 	}
 	e := &event.Event{Category: event.CatLogon, Action: "logon", User: user, Outcome: "success",
@@ -215,7 +215,8 @@ func (t *Translator) logonFailure(r *Raw) *event.Event {
 		User: user, Target: user, Outcome: "failure", SourceIP: cleanIP(r.Get("IpAddress")),
 		Process: r.Get("ProcessName"),
 		// 4776 is logged alongside 4625 for local accounts; keep this one.
-		DedupeKey: "authfail|" + strings.ToLower(user), Priority: 2}
+		// 4776 names the account without a domain.
+		DedupeKey: "authfail|" + strings.ToLower(accountName(user)), Priority: 2}
 	how, name := logonHow(r, lt)
 	e.Summary = fmt.Sprintf("Failed logon for %s %s%s — %s.", user, how, fromWhere(r, e.SourceIP), reason)
 	e.AddDetail("Reason", reason)
@@ -230,7 +231,7 @@ func (t *Translator) logonFailure(r *Raw) *event.Event {
 
 func (t *Translator) logoff(r *Raw) *event.Event {
 	user := t.account(r, "TargetUserSid", "TargetDomainName", "TargetUserName")
-	if t.isServiceAccount(r.Get("TargetUserSid"), r.Get("TargetUserName")) {
+	if t.ignoredAccount(r, "Target") {
 		return nil
 	}
 	e := &event.Event{Category: event.CatLogon, Action: "logoff", User: user, Outcome: "success",
@@ -245,7 +246,7 @@ func (t *Translator) logoff(r *Raw) *event.Event {
 // means the session was ended for them (logged off by an administrator,
 // or an idle or disconnect time limit).
 func (t *Translator) sessionEnded(r *Raw) *event.Event {
-	if !interactiveLogon(r.Get("LogonType")) || t.isServiceAccount(r.Get("TargetUserSid"), r.Get("TargetUserName")) {
+	if !interactiveLogon(r.Get("LogonType")) || t.ignoredAccount(r, "Target") {
 		return nil
 	}
 	user := t.account(r, "TargetUserSid", "TargetDomainName", "TargetUserName")
@@ -293,7 +294,7 @@ func (t *Translator) rdpSession(r *Raw) *event.Event {
 
 func (t *Translator) explicitCreds(r *Raw) *event.Event {
 	subj := t.subject(r)
-	if t.isServiceAccount(r.Get("SubjectUserSid"), r.Get("SubjectUserName")) {
+	if t.ignoredAccount(r, "Subject") {
 		return nil
 	}
 	target := joinAccount(r.Get("TargetDomainName"), r.Get("TargetUserName"), r.Computer)
@@ -322,7 +323,7 @@ func (t *Translator) explicitCreds(r *Raw) *event.Event {
 }
 
 func (t *Translator) specialPrivileges(r *Raw) *event.Event {
-	if t.isServiceAccount(r.Get("SubjectUserSid"), r.Get("SubjectUserName")) {
+	if t.ignoredAccount(r, "Subject") {
 		return nil
 	}
 	user := t.subject(r)
@@ -360,13 +361,41 @@ var auditTamper = []string{
 	"bcdedit /set", "bcdedit.exe /set", "fsutil usn deletejournal",
 }
 
+var (
+	psHidden = regexp.MustCompile(`(^|\s)[-/]w[a-z]*\s+(hidden|1)\b`)
+	psBypass = regexp.MustCompile(`(^|\s)[-/](ex[a-z]*|ep)\s+(bypass|unrestricted)\b`)
+	psNonInt = regexp.MustCompile(`(^|\s)[-/]noni[a-z]*\b`)
+)
+
+// hiddenPowerShell counts the ways a PowerShell command line keeps itself
+// out of sight: a hidden window, bypassing the execution policy, no
+// prompts, an encoded command. PowerShell accepts any prefix of a
+// parameter name (-w, -win, -WindowStyle).
+func hiddenPowerShell(proc, cmd, decoded string) int {
+	b := strings.ToLower(filepath.Base(strings.ReplaceAll(proc, `\`, "/")))
+	if b != "powershell.exe" && b != "pwsh.exe" {
+		return 0
+	}
+	c := strings.ToLower(cmd)
+	n := 0
+	for _, re := range []*regexp.Regexp{psHidden, psBypass, psNonInt} {
+		if re.MatchString(c) {
+			n++
+		}
+	}
+	if decoded != "" {
+		n++
+	}
+	return n
+}
+
 func (t *Translator) processCreated(r *Raw) *event.Event {
 	elev := r.Get("TokenElevationType")
 	label := r.Get("MandatoryLabel")
 	// %%1937 = elevated via UAC. %%1936 ("default") is also used for
 	// standard users, so it only counts when the integrity label is High.
 	elevated := elev == "%%1937" || label == "S-1-16-12288" || label == "S-1-16-16384"
-	if !elevated || t.isServiceAccount(r.Get("SubjectUserSid"), r.Get("SubjectUserName")) {
+	if !elevated || t.ignoredAccount(r, "Subject") {
 		return nil
 	}
 	user := t.subject(r)
@@ -385,7 +414,13 @@ func (t *Translator) processCreated(r *Raw) *event.Event {
 		shown = proc + " (encoded command): " + decoded
 	}
 	e.Summary = fmt.Sprintf("%s ran with administrator rights: %s", user, shown)
-	lc := strings.Join(strings.Fields(strings.ToLower(cmd+" "+decoded)), " ")
+	// Quotes removed: PowerShell records "C:\...\wevtutil.exe" cl Security.
+	lc := strings.Join(strings.Fields(strings.ReplaceAll(strings.ToLower(cmd+" "+decoded), `"`, "")), " ")
+	if n := hiddenPowerShell(proc, cmd, decoded); n >= 2 {
+		e.Severity, e.Action = event.SevMedium, "hidden_powershell"
+		e.Summary = fmt.Sprintf("%s ran PowerShell hidden from view and around the script policy: %s", user, shown)
+		e.AddDetail("Why flagged", "A hidden window, bypassing the execution policy, no prompts and an encoded command are how scripts are run unseen; this run used "+fmt.Sprint(n)+" of them together.")
+	}
 	for _, frag := range auditTamper {
 		if strings.Contains(lc, frag) {
 			e.Severity = event.SevHigh
@@ -407,7 +442,10 @@ func (t *Translator) processCreated(r *Raw) *event.Event {
 
 func (t *Translator) serviceInstalled(r *Raw, name, path, account, by string) *event.Event {
 	e := &event.Event{Category: event.CatOther, Severity: event.SevMedium, Action: "service_installed",
-		User: by, Target: name, Process: path, DedupeKey: "svc|" + strings.ToLower(name), Priority: 1}
+		User: by, Target: name, Process: path, Priority: 1,
+		// 7045 names the service by its display name and 4697 by its
+		// service name: the program path is what they share.
+		DedupeKey: "svc|" + strings.ToLower(strings.Trim(strings.TrimSpace(path), `"`))}
 	e.Summary = fmt.Sprintf("A new service was installed: %s (%s)", name, path)
 	if by != "" {
 		e.Summary += " by " + by
@@ -420,7 +458,7 @@ func (t *Translator) serviceInstalled(r *Raw, name, path, account, by string) *e
 }
 
 func (t *Translator) scheduledTask(r *Raw) *event.Event {
-	if t.isServiceAccount(r.Get("SubjectUserSid"), r.Get("SubjectUserName")) && r.EventID != 4698 {
+	if t.ignoredAccount(r, "Subject") && r.EventID != 4698 {
 		return nil // Windows updates its own tasks constantly
 	}
 	user := t.subject(r)
@@ -462,9 +500,14 @@ func (t *Translator) auditPolicyChanged(r *Raw) *event.Event {
 	changes := expandTokens(r.Get("AuditPolicyChanges"))
 	sev := event.SevHigh
 	by := user
-	if t.isServiceAccount(r.Get("SubjectUserSid"), r.Get("SubjectUserName")) {
-		sev = event.SevMedium // normally Group Policy being applied
+	// Group Policy applies audit policy as SYSTEM, so a change by SYSTEM
+	// that turns auditing on is routine. One that turns it off stays
+	// High: anyone running auditpol as SYSTEM looks the same.
+	if t.ignoredAccount(r, "Subject") && !strings.Contains(strings.ToLower(changes), "removed") {
+		sev = event.SevMedium
 		by = "the system (usually Group Policy)"
+	} else if t.ignoredAccount(r, "Subject") {
+		by = "the system (Group Policy, or someone running a command as SYSTEM)"
 	}
 	e := &event.Event{Category: event.CatIntegrity, Severity: sev, Action: "audit_policy_changed",
 		User: user, Target: sub,
@@ -478,7 +521,7 @@ func (t *Translator) auditPolicyChanged(r *Raw) *event.Event {
 func (t *Translator) timeChanged(r *Raw) *event.Event {
 	prev, err1 := time.Parse(time.RFC3339Nano, r.Get("PreviousTime"))
 	next, err2 := time.Parse(time.RFC3339Nano, r.Get("NewTime"))
-	svc := t.isServiceAccount(r.Get("SubjectUserSid"), r.Get("SubjectUserName"))
+	svc := t.ignoredAccount(r, "Subject")
 	var delta time.Duration
 	if err1 == nil && err2 == nil {
 		delta = next.Sub(prev)
@@ -570,6 +613,11 @@ func (t *Translator) groupMembership(r *Raw) *event.Event {
 	group := r.Get("TargetUserName")
 	member := t.memberName(r.Get("MemberName"), r.Get("MemberSid"))
 	added := r.EventID == 4728 || r.EventID == 4732 || r.EventID == 4756
+	// Deleting an account also removes it from its primary group, "None"
+	// (or "Domain Users"), RID 513. That says nothing new.
+	if !added && strings.HasSuffix(r.Get("TargetSid"), "-513") {
+		return nil
+	}
 	priv := isPrivilegedGroup(group, r.Get("TargetSid"))
 	e := &event.Event{Category: event.CatAccount, User: by, Target: member}
 	if added {
@@ -619,7 +667,7 @@ func (t *Translator) ntlmValidation(r *Raw) *event.Event {
 	reason := failureReason(status, "")
 	e := &event.Event{Category: event.CatFailedLogon, Severity: event.SevLow, Action: "logon_failed",
 		User: user, Target: user, Outcome: "failure",
-		DedupeKey: "authfail|" + strings.ToLower(user), Priority: 1}
+		DedupeKey: "authfail|" + strings.ToLower(accountName(user)), Priority: 1}
 	e.Summary = fmt.Sprintf("Password check failed for %s", user)
 	if ws != "" && !strings.EqualFold(ws, shortHost(r.Computer)) {
 		e.Summary += " from workstation " + ws
@@ -1205,14 +1253,33 @@ func (t *Translator) isServiceAccount(sid, name string) bool {
 		}
 	}
 	n := strings.ToUpper(name)
-	if strings.HasSuffix(n, "$") {
-		return true
-	}
 	switch n {
 	case "SYSTEM", "LOCAL SERVICE", "NETWORK SERVICE", "ANONYMOUS LOGON":
 		return true
 	}
 	return strings.HasPrefix(n, "DWM-") || strings.HasPrefix(n, "UMFD-")
+}
+
+// ignoredAccount reports whether an event's Target or Subject account is
+// one whose routine activity is left out: a built-in or service account,
+// or a computer account. A name ending in "$" is a computer account only
+// when it is this computer's own, or comes from a domain: a local account
+// can be named "x$" to hide among computer accounts, so it is always kept.
+func (t *Translator) ignoredAccount(r *Raw, who string) bool {
+	sid, name, domain := r.Get(who+"UserSid"), r.Get(who+"UserName"), strings.TrimSpace(r.Get(who+"DomainName"))
+	if t.isServiceAccount(sid, name) {
+		return true
+	}
+	if !strings.HasSuffix(name, "$") {
+		return false
+	}
+	host := shortHost(r.Computer)
+	if strings.EqualFold(strings.TrimSuffix(name, "$"), host) {
+		return true
+	}
+	local := domain == "" || domain == "-" || strings.EqualFold(domain, host) ||
+		strings.EqualFold(domain, "Builtin") || strings.EqualFold(domain, "NT AUTHORITY")
+	return !local
 }
 
 // qualifiedAccount normalizes a "DOMAIN\user" string.
@@ -1236,6 +1303,14 @@ func joinAccount(domain, user, computer string) string {
 		return user
 	}
 	return domain + `\` + user
+}
+
+// accountName is an account without its domain.
+func accountName(a string) string {
+	if i := strings.LastIndex(a, `\`); i >= 0 {
+		return a[i+1:]
+	}
+	return a
 }
 
 func shortHost(fqdn string) string {
