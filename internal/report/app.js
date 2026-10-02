@@ -68,7 +68,7 @@
     if (t) t.open();
     var view = document.querySelector('.view[data-view="' + id + '"]');
     if (id === 'search' && search) search.open(decodeURIComponent(location.hash.split('/').slice(1).join('/')));
-    if (id === 'health') showHealth(view, decodeURIComponent(location.hash.split('/').slice(1).join('/')));
+    if (id === 'health' || id === 'logs') showHealth(view, decodeURIComponent(location.hash.split('/').slice(1).join('/')));
     else if (view.querySelector('[data-pick]')) showPick(view, decodeURIComponent(location.hash.split('/').slice(1).join('/')));
     window.scrollTo(0, 0);
   }
@@ -510,6 +510,15 @@
         }
       }
     };
+  })();
+
+  // The report folder, as it was opened (a share shows as \\server\…).
+  (function () {
+    var p = decodeURIComponent(location.pathname).replace(/[^/]*$/, '');
+    if (location.protocol !== 'file:') return;
+    if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1).replace(/\//g, '\\');
+    else if (location.host) p = '\\\\' + location.host + p.replace(/\//g, '\\');
+    document.querySelectorAll('[data-folder]').forEach(function (el) { el.textContent = p; });
   })();
 
   window.addEventListener('hashchange', show);

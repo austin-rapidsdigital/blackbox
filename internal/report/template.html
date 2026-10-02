@@ -52,7 +52,7 @@
 {{end}}
 <section class="view" data-view="health">{{template "head" (head . "Audit health" (healthCrumb .))}}{{with .HealthPage}}{{template "health" .}}{{else}}<div class="panel"><p class="pm" style="margin:0">No systems in this report.</p></div>{{end}}</section>
 <section class="view" data-view="trends">{{with .TrendsPage}}{{template "head" (head $ "Trends" .Crumb)}}{{template "trends" .}}{{end}}</section>
-<section class="view" data-view="logs">{{template "head" (head . "Original logs" "")}}{{template "soon" "Original logs (design O1 + O3) is built in step 4."}}</section>
+<section class="view" data-view="logs">{{template "head" (head . "Original logs" (printf "%s · the raw Windows and Linux logs this report was built from, saved in this report's folder" .Kind))}}{{with .LogsPage}}{{template "logs" .}}{{end}}</section>
 </main>
 <div class="ov" hidden></div>
 <div class="drawer" hidden></div>
@@ -131,6 +131,28 @@
 <div class="ph" style="margin-bottom:10px"><h2>{{icon "trending-up" 17}}This week against the last {{len .Weeks}}</h2><span class="pm">Dashed line = average of earlier weeks · red bar = well above average</span></div>
 <div class="sm">{{range .Cards}}<div class="panel smc"><div class="t"><b>{{.Title}}</b><span>{{.Avg}}</span></div><div class="v">{{.Value}}{{if .Delta}}<small class="{{.Class}}">{{.Delta}}</small>{{end}}</div>{{.Chart}}</div>{{end}}</div>
 <div class="panel" style="margin-top:12px"><div class="ph"><h2>{{icon "server" 17}}Detections per system, by week</h2><span class="pm">Darker = more</span></div>{{if .Rows}}<div style="overflow-x:auto"><table class="wk"><thead><tr><th></th>{{range .Weeks}}<th>{{.}}</th>{{end}}</tr></thead><tbody>{{range .Rows}}<tr><td class="nm"><a class="link" style="color:inherit" href="#systems/{{.Name}}">{{.Name}}</a></td>{{range .Cells}}<td style="{{.Style}}">{{if .N}}{{.N}}{{end}}</td>{{end}}</tr>{{end}}</tbody></table></div>{{else}}<p class="pm" style="margin:0">No detections in these weeks.</p>{{end}}</div>{{end}}
+
+{{define "howlogs"}}<div class="how"><div><i>1</i><span>Open the report folder. Each system has a <code>logs-SYSTEM.zip</code> next to <code>report.html</code>.</span></div>
+<div><i>2</i><span>Windows logs are <code>.evtx</code>: double-click to open in Event Viewer. Linux logs are plain text.</span></div>
+<div><i>3</i><span>To prove nothing was changed: <code>blackbox verify</code> checks every file against <code>manifest.sha256</code>.</span></div></div>
+<div class="path" data-folder>This report's folder</div>{{end}}
+
+{{define "logs"}}<div class="ev6" style="grid-template-columns:repeat(4,1fr)">{{range .Stats}}<div class="panel ec {{.Level}}"><div class="l">{{icon .Icon 15}}{{.Label}}</div><div class="v">{{.Value}}</div><div class="d">{{.Note}}</div></div>{{end}}</div>
+{{if not .Archives}}<div class="panel"><p class="pm" style="margin:0">{{if .Kept}}No original logs were archived for this period.{{else}}This report was made without keeping the original logs.{{end}}</p></div>{{else}}
+<div data-a1><div class="row" style="grid-template-columns:1fr 360px">
+<div class="panel" style="overflow-x:auto"><div class="ph"><h2>{{icon "hard-drive" 17}}Archives in this report</h2><span class="pm">{{.Range}}</span></div>
+<table class="ar"><thead><tr><th>System</th><th>OS</th><th>Logs inside</th><th class="n">Size</th><th>SHA-256</th><th>Check</th></tr></thead><tbody>{{range .Archives}}<tr><td><a class="link" style="color:inherit" href="#logs/{{.Host}}"><b>{{.Host}}</b></a></td><td>{{.OS}}</td><td class="mute" style="font-size:12.5px;white-space:normal">{{.Logs}}</td><td class="n">{{.Size}}</td><td class="h" title="{{.SHA256}}">{{.Short}}</td><td>{{if eq .Class "ok"}}<span class="vok">{{icon "circle-check" 14}}{{.Status}}</span>{{else}}<span class="vbad">{{.Status}}</span>{{end}}</td></tr>{{end}}</tbody></table></div>
+<div class="panel" style="align-self:start"><div class="ph"><h2>{{icon "circle-check" 17}}How to use them</h2></div>{{template "howlogs"}}</div></div></div>
+<div data-a3 hidden><div class="md2" style="grid-template-columns:280px 1fr"><div class="panel slist" data-picklist>
+<label class="search">{{icon "search" 14}}<input type="search" placeholder="Find a system" data-find></label>
+{{range .Groups}}<div class="grp2">{{.Title}} · {{len .Archives}}</div>{{range .Archives}}<a data-pick="{{.Host}}" href="#logs/{{.Host}}"><i class="{{if eq .Class "bad"}}bad{{else}}ok{{end}}"></i><span>{{.Host}}</span><small>{{if eq .Status "Missing"}}missing{{else}}{{.Size}}{{end}}</small></a>{{end}}{{end}}
+<a class="pm link" href="#logs" style="display:block;padding:12px 16px 4px">← All archives</a></div>
+<div style="min-width:0">{{range .Archives}}<div data-pane="{{.Host}}" hidden><div class="panel" style="margin-bottom:12px"><div class="dh"><div class="ph2"><div class="av" style="background:rgba(11,95,255,.08)">{{icon "hard-drive" 20}}</div><div><h3>{{if .Name}}{{.Name}}{{else}}{{.Host}}{{end}}</h3><p>{{if .OS}}{{.OS}} · {{end}}{{.Size}} · {{.Covers}}</p></div></div>{{if eq .Class "ok"}}<span class="vok">{{icon "circle-check" 14}}Hash verified</span>{{else}}<span class="vbad">{{.Status}}</span>{{end}}</div>
+{{if .SHA256}}<div class="path">SHA-256 {{.SHA256}}</div>{{else}}<p class="pm" style="margin:0">No archive of this system's logs is in this report.</p>{{end}}</div>
+{{if .Files}}<div class="panel" style="margin-bottom:12px;overflow-x:auto"><div class="ph"><h2>{{icon "scroll-text" 17}}Inside the zip</h2><span class="pm">{{len .Files}} files</span></div>
+<table class="fl"><thead><tr><th>File</th><th>Log</th><th>Covers</th><th class="n">Events</th><th class="n">Size</th><th>Hash</th><th>Note</th></tr></thead><tbody>{{range .Files}}<tr><td class="mono">{{.File}}</td><td>{{.Log}}</td><td class="mono mute">{{.Covers}}</td><td class="n">{{.Events}}</td><td class="n">{{.Size}}</td><td class="mono mute">{{.Hash}}</td><td{{if .NoteBad}} class="vbad" style="font-weight:500"{{else}} class="mute"{{end}}>{{.Note}}</td></tr>{{end}}</tbody></table></div>{{end}}
+<div class="panel"><div class="ph"><h2>{{icon "circle-check" 17}}How to use them</h2></div>{{template "howlogs"}}</div>
+</div>{{end}}</div></div></div>{{end}}{{end}}
 
 {{define "detections"}}{{if not .Detections}}<div class="panel"><p class="pm" style="margin:0">No detections in this report.</p></div>{{else}}
 <div class="md2" style="grid-template-columns:300px 1fr"><div class="panel dlist" data-picklist style="padding:4px 0 10px"><div class="chips" data-detsev style="padding:12px 16px 0"><span class="on" data-sev="">All<i>{{len .Detections}}</i></span><span data-sev="high">High<i>{{sevCount .Detections "high"}}</i></span><span data-sev="medium">Medium<i>{{sevCount .Detections "medium"}}</i></span></div>

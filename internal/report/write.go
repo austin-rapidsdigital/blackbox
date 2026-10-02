@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/casea1/blackbox/internal/archive"
 	"html/template"
 	"io"
 	"os"
@@ -123,13 +124,21 @@ func (r *Report) Write(dir string) error {
 		return err
 	}
 	var manifest strings.Builder
+	r.archiveState = map[string]archiveState{}
 	for _, a := range r.Archives {
-		if a.Path == "" {
-			continue
+		dst := filepath.Join(dir, a.Name)
+		st := archiveState{}
+		if a.Path != "" {
+			sum, err := copyIn(a.Path, dst)
+			if err != nil {
+				return fmt.Errorf("add the original logs %s: %w", a.Name, err)
+			}
+			st.Verified = a.SHA256 != "" && sum == a.SHA256
+		} else if sum, err := archive.FileSHA256(dst); err == nil {
+			st.Verified = a.SHA256 != "" && sum == a.SHA256
 		}
-		if err := copyIn(a.Path, filepath.Join(dir, a.Name)); err != nil {
-			return fmt.Errorf("add the original logs %s: %w", a.Name, err)
-		}
+		st.Contents, _ = archive.Contents(dst)
+		r.archiveState[a.Name] = st
 	}
 	pages, data, err := r.buildData()
 	if err != nil {
@@ -398,34 +407,41 @@ func fileSHA256(path string) (string, error) {
 // rename: on Windows a renamed file keeps the permissions of the folder it
 // came from (the data folder, Administrators and SYSTEM only), while a new
 // file takes the report folder's, like the rest of the report.
-func copyIn(src, dst string) error {
+func copyIn(src, dst string) (string, error) {
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer in.Close()
 	part := dst + ".partial"
 	out, err := os.OpenFile(part, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if _, err := io.Copy(out, in); err != nil {
+	h := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(out, h), in); err != nil {
 		out.Close()
 		os.Remove(part)
-		return err
+		return "", err
 	}
 	if err := out.Sync(); err != nil {
 		out.Close()
 		os.Remove(part)
-		return err
+		return "", err
 	}
 	if err := out.Close(); err != nil {
 		os.Remove(part)
-		return err
+		return "", err
 	}
 	if err := os.Rename(part, dst); err != nil {
-		return err
+		return "", err
 	}
 	in.Close()
-	return os.Remove(src)
+	return hex.EncodeToString(h.Sum(nil)), os.Remove(src)
+}
+
+// archiveState is what Write found about one original-log zip.
+type archiveState struct {
+	Verified bool // its SHA-256 matches the one recorded when it was made
+	Contents []archive.Info
 }

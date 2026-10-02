@@ -228,6 +228,8 @@ type Report struct {
 	Silent     []SystemRow          // computers with no collection in this period
 
 	rows []*Row // one per event, in the order of Events
+
+	archiveState map[string]archiveState // set by Write
 }
 
 // Build assembles a report from events (already filtered to the period)

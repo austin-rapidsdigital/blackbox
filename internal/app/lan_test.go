@@ -270,6 +270,12 @@ func TestReportFolderHoldsTheOriginalLogs(t *testing.T) {
 	if !strings.Contains(readFile(t, dir, "manifest.sha256"), "logs-WS-07.zip") {
 		t.Error("the logs are not in the manifest")
 	}
+	html := readFile(t, dir, "report.html")
+	for _, want := range []string{`href="#logs/WS-07"`, "Security.evtx", "2 / 2"} { // Original logs: listed, inside, hashes verified
+		if !strings.Contains(html, want) {
+			t.Errorf("Original logs page missing %q", want)
+		}
+	}
 	left, _ := archive.List(a.pendingLogsDir())
 	if len(left) != 1 || left[0].Path != later {
 		t.Errorf("pending after the report: %+v (want only the one for the next report)", left)

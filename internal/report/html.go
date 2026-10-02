@@ -37,6 +37,7 @@ type pageData struct {
 	PeoplePage  *PeoplePage
 	HealthPage  *HealthPage
 	TrendsPage  *TrendsPage
+	LogsPage    *LogsPage
 	Meta        template.JS // settings for app.js, as JSON
 }
 
@@ -360,7 +361,7 @@ func (r *Report) WriteHTML(w io.Writer, pages []*EventPage) error {
 		return err
 	}
 	return t.ExecuteTemplate(w, "layout", pageData{Report: r, Pages: pages, Overview: r.overview(pages),
-		Detections: r.detectionViews(), SystemsPage: r.systemsPage(), PeoplePage: people, HealthPage: r.healthPage(), TrendsPage: r.trendsPage(), Meta: template.JS(b)})
+		Detections: r.detectionViews(), SystemsPage: r.systemsPage(), PeoplePage: people, HealthPage: r.healthPage(), TrendsPage: r.trendsPage(), LogsPage: r.logsPage(), Meta: template.JS(b)})
 }
 
 func zoneName(t time.Time, loc *time.Location) string {

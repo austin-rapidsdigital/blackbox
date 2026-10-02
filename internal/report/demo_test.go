@@ -1,9 +1,12 @@
 package report
 
 import (
+	"bytes"
 	"fmt"
+	"github.com/casea1/blackbox/internal/archive"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -125,13 +128,50 @@ func TestDemoReport(t *testing.T) {
 			Metrics: map[string]int{MHighEvents: rnd.Intn(5), MFailedLogons: 110 + rnd.Intn(40), MPrivileged: 11000 + rnd.Intn(2000),
 				MSystems: 23 + rnd.Intn(2), MLockouts: rnd.Intn(2), MUSB: 2000 + rnd.Intn(600), MAccountChanges: 3 + rnd.Intn(4)}})
 	}
+	// Original logs: a week of daily archives per system, bundled, as the
+	// collector files them. The silent system has none.
+	var archives []ArchiveRef
+	tmp := t.TempDir()
+	for _, sy := range systems {
+		if sy.silent {
+			continue
+		}
+		var days []archive.Stored
+		for d := 0; d < 7; d++ {
+			from, to := start.AddDate(0, 0, d), start.AddDate(0, 0, d+1)
+			var srcs []archive.Source
+			names := map[string]string{"Security.evtx": "Security", "System.evtx": "System", "Application.evtx": "Application",
+				"PowerShell-Operational.evtx": "Microsoft-Windows-PowerShell/Operational"}
+			if sy.os == "linux" {
+				names = map[string]string{"audit.log": "audit", "auth.log": "auth", "syslog": "syslog"}
+			}
+			for n, src := range names {
+				f := filepath.Join(tmp, fmt.Sprintf("%s-%d-%s", sy.name, d, n))
+				os.WriteFile(f, bytes.Repeat([]byte(sy.name+n), 2000+rnd.Intn(4000)), 0o600)
+				srcs = append(srcs, archive.Source{Name: n, Source: src, Path: f})
+			}
+			path := filepath.Join(tmp, fmt.Sprintf("%s-%d.zip", sy.name, d))
+			if _, err := archive.Write(path, archive.Info{Host: sy.name, OS: sy.os, From: from, To: to, Created: to}, srcs); err != nil {
+				t.Fatal(err)
+			}
+			days = append(days, archive.Stored{Host: sy.name, From: from, To: to, Path: path})
+		}
+		dst := filepath.Join(tmp, "logs-"+sy.name+".zip")
+		from, to, sum, err := archive.Bundle(dst, days)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fi, _ := os.Stat(dst)
+		archives = append(archives, ArchiveRef{Host: sy.name, From: from, To: to, Name: "logs-" + sy.name + ".zip", Path: dst, Bytes: uint64(fi.Size()), SHA256: sum})
+	}
 	site := "Lab 3 LAN"
 	if standalone {
 		site = ""
 	}
 	r := Build(events, runs, Options{Site: site, WindowStart: start, WindowEnd: end, Generated: end.Add(5 * time.Minute), Location: time.UTC,
 		Source: "Live collection", Collector: !standalone, Systems: infos, CheckSets: checks, History: history, Period: "weekly",
-		KnownDevices: map[string]time.Time{}, WorkingHours: mustHours("Mon-Fri 06:00-18:00")})
+		KnownDevices: map[string]time.Time{}, WorkingHours: mustHours("Mon-Fri 06:00-18:00"),
+		Archives: archives, ArchivesKept: true})
 	os.RemoveAll(out)
 	if err := r.Write(out); err != nil {
 		t.Fatal(err)

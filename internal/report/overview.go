@@ -92,7 +92,11 @@ func osLabel(s SystemRow) string {
 	if s.Checks != nil && s.Checks.Baseline != "" {
 		b := s.Checks.Baseline
 		if i := strings.Index(b, " STIG"); i > 0 {
-			return b[:i]
+			b = b[:i]
+			if j := strings.Index(b, " ("); j > 0 && !strings.Contains(b[j:], ")") {
+				b = b[:j] // "Alma 8 (RHEL 8 STIG)" → "Alma 8"
+			}
+			return b
 		}
 		return b
 	}
