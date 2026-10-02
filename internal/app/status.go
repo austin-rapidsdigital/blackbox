@@ -187,18 +187,24 @@ func (a *App) RemoveSystem(name string) error {
 }
 
 // NextScheduled returns when the last scheduled report period ended (zero
-// if no report has been produced yet) and when the next one is due.
+// if no report has been produced yet) and when the next one is due (zero
+// if it is due now: at the next scheduled run).
 func (a *App) NextScheduled() (lastEnd, next time.Time, err error) {
 	st, err := store.Open(a.Cfg.DataDir)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
 	lastEnd = st.State.LastWindowEnd
-	next, due := nextReport(a.Cfg.ReportEvery, a.Cfg.ReportAt, lastEnd, a.now(), a.loc())
-	if due {
-		next = a.now()
-	}
+	next, _ = nextReport(a.Cfg.ReportEvery, a.Cfg.ReportAt, lastEnd, a.now(), a.loc())
 	return lastEnd, next, nil
+}
+
+// NextText says when the next scheduled report is due, in words.
+func NextText(next time.Time) string {
+	if next.IsZero() {
+		return "at the next scheduled run"
+	}
+	return next.In(time.Local).Format("Monday 2 Jan 2006 15:04")
 }
 
 func nextReport(every string, at config.ReportAt, lastEnd, now time.Time, loc *time.Location) (time.Time, bool) {

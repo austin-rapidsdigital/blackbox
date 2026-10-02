@@ -197,7 +197,7 @@ jobs:
           echo "All expected events found."
           # The event pages read their events from compressed data files.
           sudo sh -c "ls $dir/data/*.js" | head -5
-          sudo grep -q 'BB.put("privileged/' "$dir"/data/privileged-*.js || { echo "no event data files"; exit 1; }
+          sudo sh -c "grep -q 'BB.put(\"privileged/' $dir/data/privileged-*.js" || { echo "no event data files"; exit 1; }
       - name: Install, change report folder, run the scheduled job, uninstall
         run: |
           sudo ./blackbox install --yes --site CI --report-dir /srv/bb-reports --no-first-report

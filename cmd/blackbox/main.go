@@ -279,7 +279,7 @@ environment variable (so it is not shown in the process list).
 		// next scheduled report covers the whole period as usual.
 		_, next, _ := a.NextScheduled()
 		fmt.Printf("\nDone. No report was produced now, so the schedule is unchanged (reports %s).\n", cfg.ReportAt.Describe(cfg.ReportEvery))
-		fmt.Printf("Next scheduled report: %s\n", next.In(time.Local).Format("Monday 2 Jan 2006 15:04"))
+		fmt.Printf("Next scheduled report: %s\n", app.NextText(next))
 		fmt.Println("For an interim report now, run: blackbox report")
 	default:
 		fmt.Println("\nCollecting events and producing the first report (the first run reads the whole log and can take a few minutes)...")
@@ -562,7 +562,7 @@ func cmdReport(args []string) error {
 	fmt.Println("Report written:", filepath.Join(dir, "report.html"))
 	if in.Empty() {
 		if _, next, err := a.NextScheduled(); err == nil {
-			fmt.Printf("This is an interim report; the schedule is unchanged. Next scheduled report: %s\n", next.In(time.Local).Format("Monday 2 Jan 2006 15:04"))
+			fmt.Printf("This is an interim report; the schedule is unchanged. Next scheduled report: %s\n", app.NextText(next))
 		}
 	}
 	return nil
