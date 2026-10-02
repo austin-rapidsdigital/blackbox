@@ -15,6 +15,7 @@ import (
 // TrendCard is one small chart.
 type TrendCard struct {
 	Title, Value, Avg, Delta, Class string
+	Href                            string
 	Chart                           template.HTML
 }
 
@@ -42,10 +43,12 @@ type TrendsPage struct {
 var trendMetrics = []struct {
 	Title, Metric string
 	BadUp         bool
+	Href          string
 }{
-	{"Detections", MDetections, true}, {"High-severity events", MHighEvents, true}, {"Failed logons", MFailedLogons, true},
-	{"Privileged actions", MPrivileged, true}, {"USB events", MUSB, true}, {"After-hours admin", MAfterHours, true},
-	{"Account changes", MAccountChanges, true}, {"Systems reporting", MSystems, false},
+	{"Detections", MDetections, true, "#detections"}, {"High-severity events", MHighEvents, true, "#detections"},
+	{"Failed logons", MFailedLogons, true, "#failed"}, {"Privileged actions", MPrivileged, true, "#privileged"},
+	{"USB events", MUSB, true, "#usb"}, {"After-hours admin", MAfterHours, true, searchLink("page", "privileged", "when", "@after")},
+	{"Account changes", MAccountChanges, true, "#accounts"}, {"Systems reporting", MSystems, false, "#systems"},
 }
 
 func weekLabel(end time.Time) string {
@@ -72,7 +75,7 @@ func (r *Report) trendsPage() *TrendsPage {
 	for _, t := range trendMetrics {
 		vals := r.series(t.Metric, m[t.Metric])
 		now := vals[len(vals)-1]
-		c := TrendCard{Title: t.Title, Value: commas(now), Class: "flat"}
+		c := TrendCard{Title: t.Title, Value: commas(now), Class: "flat", Href: t.Href}
 		if avg := average(vals); avg >= 0 {
 			c.Avg = "avg " + commas(int(math.Round(avg)))
 			if avg > 0 {

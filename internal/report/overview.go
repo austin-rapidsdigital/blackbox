@@ -13,9 +13,9 @@ import (
 
 // KPI is one of the four main stat cards.
 type KPI struct {
-	Label, Value, Note string
-	Bad                bool
-	Spark              template.HTML
+	Label, Value, Note, Href string
+	Bad                      bool
+	Spark                    template.HTML
 }
 
 // EventCard is one of the important-event cards.
@@ -33,6 +33,8 @@ type CheckLine struct {
 	Who   string // the system named, if one fails
 	What  string
 	Count string // e.g. "23/24"
+	Href  string // where it leads
+	Ev    string // or: an event to open (see evRef)
 }
 
 // MapTile is one system on the system map.
@@ -168,7 +170,7 @@ func (r *Report) overview(pages []*EventPage) *Overview {
 	// Main stat cards.
 	total := len(systems)
 	rep := m[MSystems]
-	o.KPIs = append(o.KPIs, KPI{Label: "Systems reporting", Value: fmt.Sprintf("%d / %d", rep, total), Bad: rep < total,
+	o.KPIs = append(o.KPIs, KPI{Label: "Systems reporting", Href: "#systems", Value: fmt.Sprintf("%d / %d", rep, total), Bad: rep < total,
 		Note: silentNote(systems), Spark: sparkline(r.series(MSystems, rep), rep < total, 120, 34)})
 	high, med := 0, 0
 	for _, f := range r.Findings {
@@ -179,12 +181,12 @@ func (r *Report) overview(pages []*EventPage) *Overview {
 		}
 	}
 	o.High, o.Med = high, med
-	o.KPIs = append(o.KPIs, KPI{Label: "Detections", Value: commas(len(r.Findings)), Bad: len(r.Findings) > 0,
+	o.KPIs = append(o.KPIs, KPI{Label: "Detections", Href: "#detections", Value: commas(len(r.Findings)), Bad: len(r.Findings) > 0,
 		Note: map[bool]string{true: "none this " + map[bool]string{true: "week", false: "period"}[r.Period == "weekly" || r.Period == ""], false: fmt.Sprintf("%d high · %d medium", high, med)}[len(r.Findings) == 0], Spark: sparkline(r.series(MDetections, len(r.Findings)), len(r.Findings) > 0, 120, 34)})
 	ev := r.series(MEvents, len(r.Events))
-	o.KPIs = append(o.KPIs, KPI{Label: "Events collected", Value: shortCount(len(r.Events)), Note: vsAverage(ev),
+	o.KPIs = append(o.KPIs, KPI{Label: "Events collected", Href: "#search", Value: shortCount(len(r.Events)), Note: vsAverage(ev),
 		Spark: sparkline(ev, false, 120, 34)})
-	o.KPIs = append(o.KPIs, KPI{Label: "Privileged actions", Value: commas(m[MPrivileged]),
+	o.KPIs = append(o.KPIs, KPI{Label: "Privileged actions", Href: "#privileged", Value: commas(m[MPrivileged]),
 		Note:  fmt.Sprintf("by %d %s", len(people), map[bool]string{true: "person", false: "people"}[len(people) == 1]),
 		Spark: sparkline(r.series(MPrivileged, m[MPrivileged]), false, 120, 34)})
 
@@ -392,6 +394,9 @@ func (r *Report) checklist(systems []SystemRow, cleared map[string]int) []CheckL
 	} else {
 		lines = append(lines, CheckLine{Level: "ok", Icon: "hard-drive", Title: "Original logs archived", What: "Kept with the scheduled report", Count: ""})
 	}
+	for i := range lines {
+		lines[i].Href = checklistLink(lines[i])
+	}
 	return lines
 }
 
@@ -568,4 +573,33 @@ func digits(s string) string {
 		i++
 	}
 	return s[:i]
+}
+
+// checklistLink is where a health checklist line leads: the system named,
+// or the page with the detail.
+func checklistLink(l CheckLine) string {
+	first := strings.SplitN(l.Who, ", ", 2)[0]
+	switch l.Title {
+	case "Logs intact":
+		if first != "" {
+			return searchLink("page", "integrity", "host", first)
+		}
+		return "#integrity"
+	case "Every system reporting":
+		if first != "" {
+			return "#systems/" + first
+		}
+		return "#systems"
+	case "Audit settings match STIG":
+		if first != "" && !strings.Contains(l.Who, ", ") {
+			return "#health/" + first
+		}
+		return "#health"
+	case "Original logs archived":
+		if first != "" {
+			return "#logs/" + first
+		}
+		return "#logs"
+	}
+	return "#health"
 }

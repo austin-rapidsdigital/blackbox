@@ -70,14 +70,18 @@
   // ---- Pages ----
   var views = document.querySelectorAll('.view');
   function show() {
-    var id = (location.hash || '#overview').slice(1).split('/')[0];
+    var id = (location.hash || '#overview').slice(1).split(/[/?]/)[0];
     if (!document.querySelector('.view[data-view="' + id + '"]')) id = 'overview';
     views.forEach(function (v) { v.hidden = v.getAttribute('data-view') !== id; });
     document.querySelectorAll('[data-nav]').forEach(function (a) { a.classList.toggle('on', a.getAttribute('data-nav') === id); });
     var t = tables[id];
     if (t) t.open();
     var view = document.querySelector('.view[data-view="' + id + '"]');
-    if (id === 'search' && search) search.open(decodeURIComponent(location.hash.split('/').slice(1).join('/')));
+    if (id === 'search' && search) {
+      var h = location.hash;
+      if (h.indexOf('#search?') === 0) search.query(h.slice(8));
+      else search.open(decodeURIComponent(h.split('/').slice(1).join('/')));
+    }
     if (id === 'health' || id === 'logs') showHealth(view, decodeURIComponent(location.hash.split('/').slice(1).join('/')));
     else if (view.querySelector('[data-pick]')) showPick(view, decodeURIComponent(location.hash.split('/').slice(1).join('/')));
     window.scrollTo(0, 0);
@@ -513,6 +517,22 @@
     });
     return {
       // From a link: #search/<text>
+      // From a link: #search?page=…&user=…&host=…&when=…&text=…
+      query: function (qs) {
+        var params = {};
+        qs.split('&').forEach(function (kv) {
+          var i = kv.indexOf('=');
+          if (i > 0) params[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1).replace(/\+/g, ' '));
+        });
+        ['page', 'user', 'host', 'when', 'text'].forEach(function (k) {
+          var el = q[k], v = params[k] || '';
+          if (el.tagName === 'SELECT' && v && !Array.prototype.some.call(el.options, function (o) { return o.value === v; })) {
+            var o = document.createElement('option'); o.value = v; o.textContent = v; el.appendChild(o); // e.g. an account not on People
+          }
+          el.value = v;
+        });
+        extra = null; setSort('new'); run();
+      },
       open: function (text) {
         if (text) {
           ['page', 'user', 'host', 'when'].forEach(function (k) { q[k].value = ''; });
@@ -575,6 +595,28 @@
     var l = document.querySelector('[data-vlist]');
     if (l) l.insertAdjacentHTML('afterbegin', '<li class="bad"><span>✕</span><span>data/' + esc(file) + ' was changed after the report was written</span></li>');
   }
+
+  // ---- Links that open one event's panel (data-ev="page:index"), and
+  // links to a part of the same page (data-scroll="id") ----
+  function openEventAt(ref) {
+    var parts = ref.split(':'), p = pageByID[parts[0]], idx = +parts[1];
+    if (!p || tooOld) return;
+    loadRows(p).then(function (rows) {
+      for (var k = 0; k < rows.length; k++) {
+        if (rows[k][0] === idx) { openEvent({ shown: [rows[k]], page: p }, 0); return; }
+      }
+    });
+  }
+  document.addEventListener('click', function (e) {
+    var ev = e.target.closest('[data-ev]');
+    if (ev && !e.target.closest('a[href]:not([href="#"])')) { e.preventDefault(); openEventAt(ev.getAttribute('data-ev')); return; }
+    var sc = e.target.closest('[data-scroll]');
+    if (sc) {
+      e.preventDefault();
+      var el = document.getElementById(sc.getAttribute('data-scroll'));
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
 
   window.addEventListener('hashchange', show);
   show();

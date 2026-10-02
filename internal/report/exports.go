@@ -146,7 +146,7 @@ func (r *Report) printOut(o *Overview, hp *HealthPage) PrintOut {
 		if l.Count != "" {
 			v = strings.Replace(l.Count, "/", " of ", 1) + " · " + v
 		}
-		p.Trail = append(p.Trail, KV{l.Title, v})
+		p.Trail = append(p.Trail, KV{Label: l.Title, Value: v})
 	}
 	return p
 }

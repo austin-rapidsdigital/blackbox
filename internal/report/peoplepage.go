@@ -28,6 +28,7 @@ type PersonView struct {
 	NotableCount        int
 	Heat                template.HTML
 	Used                []TopItem
+	Detections          []DetectionCard
 	group               int
 }
 
@@ -173,6 +174,7 @@ func (r *Report) peoplePage() *PeoplePage {
 	}
 
 	pp := &PeoplePage{Count: len(people)}
+	cards := r.detectionCards()
 	groups := []*PeopleGroup{{Title: "Needs a look"}, {Title: "Administrators"}, {Title: "Service accounts"}, {Title: "Users"}}
 	for k, p := range people {
 		v := &PersonView{Key: k, Name: p.name, Initials: initials(p.name), Systems: len(p.hosts)}
@@ -220,11 +222,16 @@ func (r *Report) peoplePage() *PeoplePage {
 			det = strings.Join(l, " · ")
 		}
 		v.Facts = []Fact{
-			{Label: "Systems used", Value: commas(len(p.hosts))},
-			{Label: "Logons", Value: commas(p.logons)},
-			{Label: "Admin actions", Value: commas(p.admin)},
-			{Label: "After hours", Value: commas(p.afterHours), Bad: p.afterHours > 0},
-			{Label: "Detections", Value: det, Bad: p.high+p.med > 0},
+			{Label: "Systems used", Value: commas(len(p.hosts)), Scroll: "pused-" + k},
+			{Label: "Logons", Value: commas(p.logons), Href: searchLink("page", "logons", "user", k)},
+			{Label: "Admin actions", Value: commas(p.admin), Href: searchLink("page", "privileged", "user", k)},
+			{Label: "After hours", Value: commas(p.afterHours), Bad: p.afterHours > 0, Href: searchLink("user", k, "when", "@after")},
+			{Label: "Detections", Value: det, Bad: p.high+p.med > 0, Scroll: "pdet-" + k},
+		}
+		for _, c := range cards {
+			if findingsOf[k][c.Index] {
+				v.Detections = append(v.Detections, c)
+			}
 		}
 		v.Notable, v.NotableCount = r.notable(p.notable)
 		v.Heat = heatmap(p.heat, p.hot)
@@ -343,7 +350,7 @@ func (r *Report) notable(rows []*Row) ([]CheckLine, int) {
 		if x.Severity == event.SevHigh {
 			lv = "bad"
 		}
-		out = append(out, CheckLine{Level: lv, Icon: actionIcon(x.Action), Title: title, What: when})
+		out = append(out, CheckLine{Level: lv, Icon: actionIcon(x.Action), Title: title, What: when, Ev: r.evRef(x)})
 	}
 	return out, len(order)
 }

@@ -234,6 +234,7 @@ type Report struct {
 
 	archiveState map[string]archiveState // set by Write
 	dataSums     map[string]string       // data file → SHA-256 of its payload
+	evPages      []string                // event index → the event page listing it (see evRef)
 }
 
 // Build assembles a report from events (already filtered to the period)

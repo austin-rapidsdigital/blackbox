@@ -25,6 +25,8 @@ type SystemGroup struct {
 type Fact struct {
 	Label, Value string
 	Bad          bool
+	Href         string // where it leads
+	Scroll       string // or: an element on the same page to scroll to
 }
 
 // ActivityBar is one line of "Activity vs. typical system".
@@ -35,6 +37,7 @@ type ActivityBar struct {
 	Median  int // where the median line sits, as a percentage
 	Above   bool
 	PageID  string
+	Href    string
 	Missing bool // no events of this kind on the network
 }
 
@@ -187,15 +190,25 @@ func (r *Report) systemsPage() *SystemsPage {
 			last = s.LastRun.In(r.Location).Format("2 Jan 15:04")
 		}
 		v.Facts = []Fact{
-			{Label: "Events", Value: commas(s.Events)},
-			{Label: "Detections", Value: det, Bad: high+med > 0},
-			{Label: "Collected", Value: collected, Bad: s.Status == "silent" || (s.Via == "" && days < total)},
-			{Label: "Audit settings", Value: settings, Bad: settingsBad},
-			{Label: "Last report", Value: last, Bad: s.Status != "ok" && s.Status != "warn"},
+			{Label: "Events", Value: commas(s.Events), Href: searchLink("host", s.Name)},
+			{Label: "Detections", Value: det, Bad: high+med > 0, Scroll: "sysdet-" + s.Name},
+			{Label: "Collected", Value: collected, Bad: s.Status == "silent" || (s.Via == "" && days < total), Href: "#logs/" + s.Name},
+			{Label: "Audit settings", Value: settings, Bad: settingsBad, Href: "#health/" + s.Name},
+			{Label: "Last report", Value: last, Bad: s.Status != "ok" && s.Status != "warn", Href: "#logs/" + s.Name},
 		}
 
 		v.Bar = r.collectionBar(s, cleared[h])
 		v.Health = r.systemHealth(s, cleared[h], on)
+		for i := range v.Health {
+			switch v.Health[i].Title {
+			case "Logs intact":
+				v.Health[i].Href = searchLink("page", "integrity", "host", s.Name)
+			case "Reporting":
+				v.Health[i].Href = "#logs/" + s.Name
+			default:
+				v.Health[i].Href = "#health/" + s.Name
+			}
+		}
 		if s.Checks != nil {
 			for _, res := range s.Checks.Results {
 				if res.Status == check.Fail && res.Area != "Antivirus" {
@@ -211,7 +224,8 @@ func (r *Report) systemsPage() *SystemsPage {
 				m = 0
 			}
 			top := max(n, 2*m, 1)
-			a := ActivityBar{Label: k.Label, N: n, Pct: n * 100 / top, Median: m * 100 / top, PageID: k.Page}
+			a := ActivityBar{Label: k.Label, N: n, Pct: n * 100 / top, Median: m * 100 / top, PageID: k.Page,
+				Href: searchLink("page", k.Page, "host", s.Name)}
 			a.Above = r.IsLAN() && float64(n) > float64(m)*1.5 && n >= m+5
 			v.Activity = append(v.Activity, a)
 		}
