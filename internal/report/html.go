@@ -35,6 +35,7 @@ type pageData struct {
 	Detections  []DetectionView
 	SystemsPage *SystemsPage
 	PeoplePage  *PeoplePage
+	HealthPage  *HealthPage
 	Meta        template.JS // settings for app.js, as JSON
 }
 
@@ -104,6 +105,9 @@ func funcs(loc *time.Location) template.FuncMap {
 			return "Overview"
 		},
 		"dayBefore": func(ds []DetectionCard, i int) string { return ds[i-1].Day },
+		"healthCrumb": func(p pageData) string {
+			return p.Kind() + " · audit settings compared with the STIG for each system's OS · Blackbox only reports, it never changes settings"
+		},
 		"searchCrumb": func(p pageData) string {
 			return fmt.Sprintf("%s · %s events from %s · searched in your browser, nothing leaves this report", p.Kind(), commas(len(p.Events)), plural(len(p.Hosts), "system"))
 		},
@@ -355,7 +359,7 @@ func (r *Report) WriteHTML(w io.Writer, pages []*EventPage) error {
 		return err
 	}
 	return t.ExecuteTemplate(w, "layout", pageData{Report: r, Pages: pages, Overview: r.overview(pages),
-		Detections: r.detectionViews(), SystemsPage: r.systemsPage(), PeoplePage: people, Meta: template.JS(b)})
+		Detections: r.detectionViews(), SystemsPage: r.systemsPage(), PeoplePage: people, HealthPage: r.healthPage(), Meta: template.JS(b)})
 }
 
 func zoneName(t time.Time, loc *time.Location) string {

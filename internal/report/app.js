@@ -68,7 +68,8 @@
     if (t) t.open();
     var view = document.querySelector('.view[data-view="' + id + '"]');
     if (id === 'search' && search) search.open(decodeURIComponent(location.hash.split('/').slice(1).join('/')));
-    if (view.querySelector('[data-pick]')) showPick(view, decodeURIComponent(location.hash.split('/').slice(1).join('/')));
+    if (id === 'health') showHealth(view, decodeURIComponent(location.hash.split('/').slice(1).join('/')));
+    else if (view.querySelector('[data-pick]')) showPick(view, decodeURIComponent(location.hash.split('/').slice(1).join('/')));
     window.scrollTo(0, 0);
   }
 
@@ -83,6 +84,15 @@
     }
     links.forEach(function (a) { a.classList.toggle('sel', a.getAttribute('data-pick') === key); });
     view.querySelectorAll('[data-pane]').forEach(function (d) { d.hidden = d.getAttribute('data-pane') !== key; });
+  }
+  // Audit health: the grid of every system (A1), or one system's settings
+  // (A3) when one is named; a report of one system opens its settings.
+  function showHealth(view, key) {
+    var a1 = view.querySelector('[data-a1]'), a3 = view.querySelector('[data-a3]');
+    if (!a1) return;
+    key = key || a1.getAttribute('data-single') || '';
+    a1.hidden = !!key; a3.hidden = !key;
+    if (key) showPick(a3, key);
   }
   // Hide group headings with nothing left under them.
   function tidyHeads(list, head) {

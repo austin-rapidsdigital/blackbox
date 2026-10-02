@@ -64,10 +64,7 @@ func TestDemoReport(t *testing.T) {
 		for h := start.Add(time.Hour); !h.After(last); h = h.Add(time.Hour) {
 			runs = append(runs, &store.Run{Time: h, Host: s.name, OS: s.os, Version: "0.9.0"})
 		}
-		res := []check.Result{{Area: "Audit policy", Item: "Logon", Status: check.Pass}, {Area: "Baseline", Item: s.baseline, Status: check.Info}}
-		if s.name == "WS-13" || s.name == "alma-db01" {
-			res = append(res, check.Result{Area: "Audit policy", Item: "Removable storage", Status: check.Fail})
-		}
+		res := demoChecks(s.os, s.baseline, s.name)
 		cs := NewCheckSet(s.name, end.Add(-time.Hour), res)
 		cs.Baseline = s.baseline
 		checks = append(checks, cs)
@@ -147,4 +144,45 @@ func mustHours(v string) config.WorkingHours {
 		panic(err)
 	}
 	return w
+}
+
+// demoChecks is a realistic audit settings check: everything matching,
+// except a few gaps on named systems.
+func demoChecks(os, baseline, name string) []check.Result {
+	sf := "Success and Failure"
+	res := []check.Result{{Area: "Baseline", Item: "Compared with", Status: check.Info, Have: baseline, Want: baseline}}
+	if os == "windows" {
+		for _, x := range [][3]string{{"Logon", sf, "WN11-AU-000070, -075"}, {"Logoff", "Success", "WN11-AU-000065"},
+			{"Credential Validation", sf, "WN11-AU-000005, -010"}, {"User Account Management", sf, "WN11-AU-000035, -040"},
+			{"Security Group Management", "Success", "WN11-AU-000030"}, {"Audit Policy Change", "Success", "WN11-AU-000100"},
+			{"Sensitive Privilege Use", sf, "WN11-AU-000110, -115"}, {"Process Creation", "Success", "WN11-AU-000050"},
+			{"Removable Storage", sf, "WN11-AU-000085, -090"}} {
+			r := check.Result{Area: "Audit policy", Item: x[0], Want: x[1], Have: x[1], STIG: x[2], Status: check.Pass}
+			if x[0] == "Removable Storage" && name == "WS-13" {
+				r.Have, r.Status = "No auditing", check.Fail
+				r.Affects = "USB & Removable Media (files read/written)"
+				r.Fix = "Group Policy: Advanced Audit Policy > Object Access > Audit Removable Storage: Success and Failure"
+			}
+			res = append(res, r)
+		}
+		ps := check.Result{Area: "Audit settings", Item: "PowerShell script block logging", Want: "Enabled (1)", Have: "Enabled (1)", STIG: "WN11-CC-000326", Status: check.Pass}
+		if name == "WS-12" {
+			ps.Have, ps.Status = "Not set", check.Warn
+			ps.Fix = "Group Policy: Administrative Templates > Windows Components > Windows PowerShell > Turn on PowerShell Script Block Logging"
+		}
+		res = append(res, ps, check.Result{Area: "Event log size", Item: "Security log", Want: "Holds a week", Have: "Holds 9 days (1 GB)", STIG: "WN11-AU-000505", Status: check.Pass})
+		return res
+	}
+	for _, x := range []string{"Watch /etc/passwd", "Watch /etc/shadow", "Watch /etc/sudoers and /etc/sudoers.d", "Programs run with raised privileges (execve, uid!=euid)",
+		"Commands run as root by a person (execve, euid=0, auid set)", "Filesystem mounts", "Audit configuration watched (/etc/audit)"} {
+		r := check.Result{Area: "Audit rules", Item: x, Want: "Present", Have: "Present", Status: check.Pass}
+		if x == "Filesystem mounts" && name == "alma-db01" {
+			r.Have, r.Status = "Missing", check.Fail
+			r.Affects = "USB & Removable Media (disks mounted from the command line)"
+			r.Fix = "blackbox check --audit-rules --missing | install -m 0600 /dev/stdin /etc/audit/rules.d/blackbox.rules, then augenrules --load"
+		}
+		res = append(res, r)
+	}
+	return append(res, check.Result{Area: "Audit service", Item: "auditd running", Want: "active", Have: "active", Status: check.Pass},
+		check.Result{Area: "auditd settings", Item: "Audit log space", Want: "a week", Have: "12 days", Status: check.Pass})
 }

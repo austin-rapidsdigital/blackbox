@@ -388,7 +388,8 @@ func TestSystemsPage(t *testing.T) {
 	}
 	h := html.String()
 	for _, want := range []string{`data-view="systems"`, `data-pick="WS-03"`, `data-pane="WS-01"`, "Virtual machine on WS-01",
-		"Audit settings that need attention", "No collection received in this period", "Silent"} {
+		"Audit settings that need attention", "No collection received in this period", "Silent",
+		"No data received", `href="#health/WS-01"`} { // Audit health
 		if !strings.Contains(h, want) {
 			t.Errorf("report HTML missing %q", want)
 		}
@@ -435,8 +436,9 @@ func TestSingleSystemHasNoSystemsPage(t *testing.T) {
 	if !strings.Contains(html.String(), `<span>System</span><b>`) {
 		t.Error("a standalone report names its system in the sidebar")
 	}
-	// Redesign: the single check set shown directly returns with Audit
-	// health in step 4.
+	if !strings.Contains(html.String(), `data-single="WS-07"`) || !strings.Contains(html.String(), "Settings on WS-07") {
+		t.Error("a report of one system opens its audit settings directly")
+	}
 }
 
 // Above MaxListed, routine Info events are counted but not listed; flagged
