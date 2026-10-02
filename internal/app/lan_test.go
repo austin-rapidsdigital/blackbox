@@ -1,7 +1,11 @@
 package app
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,15 +100,19 @@ func TestLANEndToEnd(t *testing.T) {
 	}
 	html := readFile(t, dir, "report.html")
 	for _, want := range []string{
-		`data-view="systems"`,        // Systems page
-		"ubu-ws12", "WS-07", "WS-09", // every system
-		"No collection received in this period", // WS-09 is silent
-		`<option>ubu-ws12</option>`,             // system filter
-		`id="checks-WS-07" open`,                // failing settings shown open
-		">Late<",                                // late arrivals are marked
+		`data-view="systems"`, // Systems page
+		"3 systems",           // every system, including the silent WS-09
+		// Redesign: the Systems page's own content (WS-09 silent, failing
+		// settings shown) returns with step 3.
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("combined report missing %q", want)
+		}
+	}
+	data := reportData(t, dir)
+	for _, want := range []string{"ubu-ws12", `"Late"`} { // late arrivals are marked
+		if !strings.Contains(data, want) {
+			t.Errorf("combined report's event data missing %q", want)
 		}
 	}
 	var sum report.Summary
@@ -195,6 +203,31 @@ func readFile(t *testing.T, dir, name string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// reportData is the decompressed text of a report's event data files.
+func reportData(t *testing.T, dir string) string {
+	t.Helper()
+	files, _ := filepath.Glob(filepath.Join(dir, "data", "*.js"))
+	if len(files) == 0 {
+		t.Fatal("report has no event data files")
+	}
+	var all strings.Builder
+	for _, f := range files {
+		s := readFile(t, filepath.Dir(f), filepath.Base(f))
+		i, j := strings.Index(s, `,"`), strings.LastIndex(s, `");`)
+		raw, err := base64.StdEncoding.DecodeString(s[i+2 : j])
+		if err != nil {
+			t.Fatal(err)
+		}
+		zr, err := gzip.NewReader(bytes.NewReader(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(zr)
+		all.Write(b)
+	}
+	return all.String()
 }
 
 func TestReportFolderHoldsTheOriginalLogs(t *testing.T) {

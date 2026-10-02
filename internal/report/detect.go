@@ -80,7 +80,7 @@ func inPeriod(r *Row) bool { return r.ID != "" }
 
 func (r *Report) addFinding(sev event.Severity, cat event.Category, at *Row, link *Row, title, detail string) {
 	r.Findings = append(r.Findings, Finding{Severity: sev, Category: cat, Host: at.Host, Time: at.Time,
-		RowID: link.ID, Title: title, Detail: detail})
+		RowID: link.ID, RowIDs: rowIDs([]*Row{at, link}), Title: title, Detail: detail})
 }
 
 // detect runs every detection over the rows of this period (rows) and

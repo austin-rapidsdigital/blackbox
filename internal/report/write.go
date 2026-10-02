@@ -128,8 +128,12 @@ func (r *Report) Write(dir string) error {
 			return fmt.Errorf("add the original logs %s: %w", a.Name, err)
 		}
 	}
+	pages, data, err := r.buildData()
+	if err != nil {
+		return fmt.Errorf("event data: %w", err)
+	}
 	var html, csvBuf, jsonl bytes.Buffer
-	if err := r.WriteHTML(&html); err != nil {
+	if err := r.WriteHTML(&html, pages); err != nil {
 		return fmt.Errorf("render report: %w", err)
 	}
 	if err := r.writeCSV(&csvBuf); err != nil {
@@ -151,6 +155,14 @@ func (r *Report) Write(dir string) error {
 		"events.csv":   csvBuf.Bytes(),
 		"events.jsonl": jsonl.Bytes(),
 		"summary.json": append(sum, '\n'),
+	}
+	if len(data) > 0 {
+		if err := os.MkdirAll(filepath.Join(dir, "data"), 0o750); err != nil {
+			return err
+		}
+	}
+	for _, f := range data {
+		contents["data/"+f.Name] = f.Body
 	}
 
 	sums := map[string]string{}
@@ -250,7 +262,9 @@ func Verify(dir string) ([]string, error) {
 			continue
 		}
 		n++
-		if strings.ContainsAny(name, `/\`) || name == ".." {
+		// Files are in the report folder, or (event data) in its data folder.
+		base := strings.TrimPrefix(name, "data/")
+		if strings.ContainsAny(base, `/\`) || base == ".." || base == "." || base == "" {
 			problems = append(problems, fmt.Sprintf("%s: unexpected path in manifest", name))
 			continue
 		}

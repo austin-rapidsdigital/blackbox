@@ -2,6 +2,7 @@ package report
 
 import (
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"github.com/casea1/blackbox/internal/brand"
 	"html/template"
@@ -18,12 +19,28 @@ var reportTemplate string
 //go:embed index.html
 var indexTemplate string
 
+//go:embed style.css
+var styleCSS string
+
+//go:embed app.js
+var appJS string
+
 // pageData is what the report template is rendered from. Section is set
 // while rendering one category's view.
 type pageData struct {
 	*Report
 	Section *Section
+	Pages   []*EventPage
+	Meta    template.JS // settings for app.js, as JSON
 }
+
+// headData is a page's heading.
+type headData struct {
+	Crumb, Title, Range string
+}
+
+// IsLAN says whether the report covers more than one computer.
+func (r *Report) IsLAN() bool { return len(r.Hosts) > 1 || r.Collector }
 
 // PeriodStart is the start of the report period (the oldest event on a
 // first report).
@@ -47,7 +64,39 @@ func funcs(loc *time.Location) template.FuncMap {
 		}
 	}
 	return template.FuncMap{
-		"logo":      func() template.URL { return template.URL(brand.LogoDataURI()) },
+		"logo":  func() template.URL { return template.URL(brand.LogoDataURI()) },
+		"css":   func() template.CSS { return template.CSS(styleCSS) },
+		"js":    func() template.JS { return template.JS(appJS) },
+		"icon":  icon,
+		"lower": strings.ToLower,
+		"plural": func(n int, unit string) string {
+			if n == 1 {
+				return unit
+			}
+			return unit + "s"
+		},
+		"eventsCrumb": func(p pageData, e *EventPage) string {
+			unit := "events"
+			if e.Total == 1 {
+				unit = "event"
+			}
+			s := fmt.Sprintf("%s · Events · %s %s", p.Kind(), commas(e.Total), unit)
+			if n := len(e.Hosts); n > 1 {
+				s += fmt.Sprintf(" on %d systems", n)
+			} else if n == 1 {
+				s += " on " + e.Hosts[0]
+			}
+			return s
+		},
+		// head builds a page heading: the report period and, unless crumb
+		// is given, a line describing the report.
+		"head": func(p pageData, title, crumb string) headData {
+			if crumb == "" {
+				crumb = p.Crumb()
+			}
+			rng := p.PeriodStart().In(loc).Format("2 Jan") + " – " + p.WindowEnd.In(loc).Format("2 Jan 2006")
+			return headData{Crumb: crumb, Title: title, Range: rng}
+		},
 		"brandName": func() string { return brand.Name },
 		"fontCSS":   func() template.CSS { return template.CSS(brand.FontCSS()) },
 		"stamp":     format("02 Jan 2006 15:04"),
@@ -129,11 +178,46 @@ func plural(n int, unit string) string {
 	return fmt.Sprintf("%d %ss", n, unit)
 }
 
-// WriteHTML renders the whole report as one self-contained HTML file.
-func (r *Report) WriteHTML(w io.Writer) error {
+// Crumb is the line above each page title, e.g. "Weekly report · 24
+// systems · generated 29 Sep 2026 00:05".
+func (r *Report) Crumb() string {
+	parts := []string{r.Kind()}
+	if r.IsLAN() {
+		parts = append(parts, fmt.Sprintf("%d systems", len(r.Hosts)))
+	} else if len(r.Hosts) == 1 {
+		parts = append(parts, r.Hosts[0])
+	}
+	parts = append(parts, "generated "+r.Generated.In(r.Location).Format("2 Jan 2006 15:04"))
+	return strings.Join(parts, " · ")
+}
+
+// Kind is "Weekly report", "Interim report" or "Report".
+func (r *Report) Kind() string {
+	switch {
+	case r.Interim:
+		return "Interim report"
+	case r.Period != "":
+		return strings.ToUpper(r.Period[:1]) + r.Period[1:] + " report"
+	}
+	return "Report"
+}
+
+// WriteHTML renders report.html. The event pages read their events from
+// the data files given (see buildData), which go in the data folder.
+func (r *Report) WriteHTML(w io.Writer, pages []*EventPage) error {
 	t, err := template.New("report").Funcs(funcs(r.Location)).Parse(reportTemplate)
 	if err != nil {
 		return err
 	}
-	return t.ExecuteTemplate(w, "layout", pageData{Report: r})
+	meta := map[string]any{"pages": pages, "zone": zoneName(r.Generated, r.Location)}
+	b, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	return t.ExecuteTemplate(w, "layout", pageData{Report: r, Pages: pages, Meta: template.JS(b)})
+}
+
+func zoneName(t time.Time, loc *time.Location) string {
+	name, _ := t.In(loc).Zone()
+	return name
 }
