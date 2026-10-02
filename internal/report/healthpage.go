@@ -399,7 +399,7 @@ func (r *Report) healthPage() *HealthPage {
 	hp.Stats = []EventCard{
 		{Icon: "shield-check", Label: "Systems matching STIG", Value: fmt.Sprintf("%d / %d", matching, total),
 			Note: plural(gaps, "gap") + " · " + plural(warns, "warning"), Level: lvl(matching < total, "bad")},
-		{Icon: "eraser", Label: "Logs cleared", Value: commas(clearedN), Note: short(set(clearedWho), 2), Level: lvl(clearedN > 0, "bad")},
+		{Icon: "eraser", Label: "Logs cleared", Href: searchLink("page", "integrity", "text", "cleared"), Value: commas(clearedN), Note: short(set(clearedWho), 2), Level: lvl(clearedN > 0, "bad")},
 		{Icon: "circle-check", Label: "Events lost to rollover", Value: commas(int(totalLost)), Note: plural(r.Health.Runs, "run"), Level: lvl(totalLost > 0, "bad")},
 		{Icon: "hard-drive", Label: "Logs too small", Value: commas(small), Note: short(set(smallWho), 1), Level: lvl(small > 0, "warn")},
 	}

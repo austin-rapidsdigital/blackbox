@@ -26,6 +26,7 @@ type Column struct {
 // TopItem is one line of a top-six list.
 type TopItem struct {
 	Label   string
+	Href    string
 	N       int
 	Pct     int
 	Flagged bool
@@ -429,7 +430,18 @@ func (r *Report) fillPages(pages []*EventPage) {
 			if i == 6 {
 				break
 			}
-			top.Top = append(top.Top, TopItem{Label: x.k, N: x.n, Pct: x.n * 100 / max(1, tl[0].n), Flagged: flaggedTop[x.k]})
+			item := TopItem{Label: x.k, N: x.n, Pct: x.n * 100 / max(1, tl[0].n), Flagged: flaggedTop[x.k]}
+			switch p.ID {
+			case "privileged", "logons":
+				item.Href = searchLink("page", p.ID, "user", personKey(x.k))
+			case "integrity", "powershell", "other":
+				item.Href = searchLink("page", p.ID, "host", x.k)
+			case "failed":
+				item.Href = searchLink("page", p.ID, "text", strings.TrimSuffix(x.k, " console"))
+			default:
+				item.Href = searchLink("page", p.ID, "text", x.k)
+			}
+			top.Top = append(top.Top, item)
 		}
 		// Flagged this week: the detections with most of this page's events.
 		var fl []int
@@ -564,15 +576,15 @@ func (r *Report) pageStats(p *EventPage, spec pageSpec, count map[string]int, us
 		}
 		return n, who
 	}
-	people := EventCard{Icon: "users", Label: "People", Value: commas(len(users)), Note: "on " + commas(len(hosts)) + " " + map[bool]string{true: "system", false: "systems"}[len(hosts) == 1]}
-	systems := EventCard{Icon: "server", Label: "Systems", Value: commas(len(hosts)), Note: fmt.Sprintf("of %d reporting", len(r.Hosts))}
+	people := EventCard{Icon: "users", Label: "People", Href: "#people", Value: commas(len(users)), Note: "on " + commas(len(hosts)) + " " + map[bool]string{true: "system", false: "systems"}[len(hosts) == 1]}
+	systems := EventCard{Icon: "server", Label: "Systems", Href: "#systems", Value: commas(len(hosts)), Note: fmt.Sprintf("of %d reporting", len(r.Hosts))}
 	switch p.ID {
 	case "failed":
 		bursts, who := titled("guessing", "several accounts", "several computers")
 		locked := count["Locked out"]
 		lockNote := r.normalRange(MLockouts)
 		return []EventCard{total,
-			{Icon: "triangle-alert", Label: "Password-guessing bursts", Value: commas(bursts), Note: short(who, 2), Level: level(bursts, "bad")},
+			{Icon: "triangle-alert", Label: "Password-guessing bursts", Href: "#detections", Value: commas(bursts), Note: short(who, 2), Level: level(bursts, "bad")},
 			{Icon: "lock", Label: "Accounts locked out", Value: commas(locked), Note: lockNote, Level: level(locked, "warn")},
 			{Icon: "server", Label: "Sources", Value: commas(len(sources)), Note: "addresses and consoles"}}
 	case "privileged":
@@ -585,8 +597,8 @@ func (r *Report) pageStats(p *EventPage, spec pageSpec, count map[string]int, us
 			}
 		}
 		return []EventCard{total,
-			{Icon: "moon", Label: "After hours", Value: commas(after), Note: short(who, 2), Level: level(after, "warn")},
-			{Icon: "user-plus", Label: "New admins", Value: commas(admins), Note: short(aw, 2), Level: level(admins, "bad")},
+			{Icon: "moon", Label: "After hours", Href: searchLink("page", "privileged", "when", "@after"), Value: commas(after), Note: short(who, 2), Level: level(after, "warn")},
+			{Icon: "user-plus", Label: "New admins", Href: searchLink("page", "accounts", "text", "privileged group"), Value: commas(admins), Note: short(aw, 2), Level: level(admins, "bad")},
 			people}
 	case "usb":
 		files := count["Files copied"]
@@ -610,7 +622,7 @@ func (r *Report) pageStats(p *EventPage, spec pageSpec, count map[string]int, us
 		}
 		off := count["Disabled"]
 		return []EventCard{total,
-			{Icon: "user-plus", Label: "New admins", Value: commas(added), Note: short(aw, 2), Level: level(added, "bad")},
+			{Icon: "user-plus", Label: "New admins", Href: searchLink("page", "accounts", "text", "privileged group"), Value: commas(added), Note: short(aw, 2), Level: level(added, "bad")},
 			{Icon: "user-check", Label: "Accounts created", Value: commas(created), Note: "", Level: level(created, "warn")},
 			{Icon: "user-x", Label: "Disabled or deleted", Value: commas(off), Note: ""}}
 	case "integrity":
@@ -618,7 +630,7 @@ func (r *Report) pageStats(p *EventPage, spec pageSpec, count map[string]int, us
 		pol := count["Audit policy changed"]
 		stopped := count["Logging stopped"]
 		return []EventCard{
-			{Icon: "eraser", Label: "Logs cleared", Value: commas(cleared), Note: short(cw, 2), Level: level(cleared, "bad")},
+			{Icon: "eraser", Label: "Logs cleared", Href: searchLink("page", "integrity", "text", "cleared"), Value: commas(cleared), Note: short(cw, 2), Level: level(cleared, "bad")},
 			{Icon: "settings", Label: "Audit policy changes", Value: commas(pol), Level: level(pol, "warn")},
 			{Icon: "circle-x", Label: "Logging stopped", Value: commas(stopped), Level: level(stopped, "warn")},
 			systems}
@@ -634,7 +646,7 @@ func (r *Report) pageStats(p *EventPage, spec pageSpec, count map[string]int, us
 			}
 		}
 		return []EventCard{total,
-			{Icon: "triangle-alert", Label: "Suspicious", Value: commas(sus), Level: level(sus, "bad")},
+			{Icon: "triangle-alert", Label: "Suspicious", Href: searchLink("page", "powershell", "text", "suspicious"), Value: commas(sus), Level: level(sus, "bad")},
 			systems,
 			{Icon: "circle-x", Label: "Logging off", Value: commas(off), Note: "systems not logging scripts", Level: level(off, "warn")}}
 	case "other":
@@ -649,7 +661,7 @@ func (r *Report) pageStats(p *EventPage, spec pageSpec, count map[string]int, us
 		remote := count["Remote Desktop"] + count["SSH"]
 		return []EventCard{total, people,
 			{Icon: "monitor-smartphone", Label: "Remote", Value: commas(remote), Note: "Remote Desktop and SSH"},
-			{Icon: "moon", Label: "Outside working hours", Value: commas(after), Note: short(who, 2), Level: level(after, "warn")}}
+			{Icon: "moon", Label: "Outside working hours", Href: searchLink("page", "logons", "when", "@after"), Value: commas(after), Note: short(who, 2), Level: level(after, "warn")}}
 	}
 	return []EventCard{total, people, systems}
 }

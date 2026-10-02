@@ -53,6 +53,19 @@ try { pw = require('playwright-core'); } catch (e) { pw = require('playwright');
   await page.click('.view[data-view="health"] [data-open="verified"]');
   if (await page.$eval('[data-vhead]', h => h.classList.contains('bad'))) fail('Verified is red');
 
+  // Every link inside the report leads to a page that exists, and a link
+  // to one event opens its panel.
+  await page.goto(url + '#overview');
+  const bad = await page.$$eval('a[href^="#"]', (as, views) => as.map(a => a.getAttribute('href'))
+    .filter(h => h.length > 1 && views.indexOf(h.slice(1).split(/[/?]/)[0]) < 0), views);
+  if (bad.length) fail('links to pages that do not exist: ' + Array.from(new Set(bad)).slice(0, 10).join(', '));
+  await page.goto(url + '#detections');
+  const ev = await page.$('.view[data-view="detections"] [data-pane]:not([hidden]) [data-ev]');
+  if (ev) {
+    await ev.click();
+    await page.waitForSelector('.drawer:not([hidden]) h3', { timeout: 10000 }).catch(() => fail('a link to an event did not open its panel'));
+  }
+
   if (errors.length) fail('script errors:\n  ' + errors.join('\n  '));
   if (!process.exitCode) console.log('OK: ' + views.length + ' pages');
   await browser.close();

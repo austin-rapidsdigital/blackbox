@@ -32,15 +32,23 @@ var whyFlagged = map[string]string{
 // Step is one event in a detection's "what happened".
 type Step struct {
 	Time, Text, Sub string
+	Ev              string // opens the event (see evRef)
 	Key             bool // the events the detection is about
 }
 
 // KV is a labelled value.
-type KV struct{ Label, Value string }
+type KV struct {
+	Label, Value string
+	Links        []KVLink // the value's parts, each linked
+}
+
+// KVLink is one linked part of a value.
+type KVLink struct{ Text, Href string }
 
 // EventLine is one event in a detection's events table.
 type EventLine struct {
 	Time, ID, Event, Account, Details string
+	Ev                                string
 }
 
 // DetectionView is one detection on the Detections page.
@@ -100,7 +108,7 @@ func (r *Report) detectionViews() []DetectionView {
 					sub = x.Source + " · " + x.RecordType
 				}
 				v.Steps = append(v.Steps, Step{Time: x.Time.In(r.Location).Format("15:04:05"), Text: x.Summary, Sub: sub,
-					Key: anyKey && keyStep(x)})
+					Key: anyKey && keyStep(x), Ev: r.evRef(x)})
 			}
 			if len(v.Events) < 50 {
 				id := ""
@@ -112,7 +120,7 @@ func (r *Report) detectionViews() []DetectionView {
 					who = x.Target
 				}
 				v.Events = append(v.Events, EventLine{Time: x.Time.In(r.Location).Format("2 Jan 15:04:05"), ID: id,
-					Event: actionLabel(x.Action), Account: who, Details: x.Summary})
+					Event: actionLabel(x.Action), Account: who, Details: x.Summary, Ev: r.evRef(x)})
 			}
 			hosts[x.Host] = true
 			if anyKey && !keyStep(x) {
@@ -137,10 +145,28 @@ func (r *Report) detectionViews() []DetectionView {
 				l = append(l, k)
 			}
 			sort.Strings(l)
+			more := ""
 			if len(l) > 4 {
-				l = append(l[:4], fmt.Sprintf("and %d more", len(l)-4))
+				l, more = l[:4], fmt.Sprintf("and %d more", len(l)-4)
 			}
-			v.Involved = append(v.Involved, KV{label, strings.Join(l, ", ")})
+			kv := KV{Label: label, Value: strings.Join(l, ", ")}
+			for _, x := range l {
+				href := ""
+				switch label {
+				case "System":
+					href = systemLink(strings.SplitN(x, " · ", 2)[0])
+				case "Done by", "Affected":
+					href = personLink(x)
+				case "Source":
+					href = searchLink("text", x)
+				}
+				kv.Links = append(kv.Links, KVLink{Text: x, Href: href})
+			}
+			if more != "" {
+				kv.Links = append(kv.Links, KVLink{Text: more})
+				kv.Value += ", " + more
+			}
+			v.Involved = append(v.Involved, kv)
 		}
 		if len(hosts) == 1 {
 			for _, sr := range r.SystemRows {
