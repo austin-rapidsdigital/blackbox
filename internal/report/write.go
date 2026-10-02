@@ -1,6 +1,7 @@
 package report
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"crypto/sha256"
@@ -8,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/casea1/blackbox/internal/archive"
 	"html/template"
 	"io"
 	"os"
@@ -42,6 +44,8 @@ type Summary struct {
 	Systems     []SystemStatus `json:"systems,omitempty"`
 	Detections  []Detection    `json:"detections,omitempty"`
 	Archives    []ArchiveJSON  `json:"log_archives,omitempty"`
+	// Metrics are the counts the Trends page charts (see metrics.go).
+	Metrics map[string]int `json:"metrics,omitempty"`
 }
 
 // ArchiveJSON is one archive of original logs in summary.json.
@@ -77,7 +81,7 @@ type SystemStatus struct {
 func (r *Report) summary() Summary {
 	s := Summary{Site: r.Site, WindowStart: r.WindowStart, WindowEnd: r.WindowEnd,
 		Generated: r.Generated, Hosts: r.Hosts, Events: len(r.Events), ByCategory: map[string]int{}, Interim: r.Interim,
-		LogClears: r.Health.LogClears, Version: r.Version, Source: r.Source}
+		LogClears: r.Health.LogClears, Version: r.Version, Source: r.Source, Metrics: r.metrics()}
 	if s.WindowStart.IsZero() {
 		s.WindowStart = r.FirstEvent
 	}
@@ -120,27 +124,29 @@ func (r *Report) Write(dir string) error {
 		return err
 	}
 	var manifest strings.Builder
+	r.archiveState = map[string]archiveState{}
 	for _, a := range r.Archives {
-		if a.Path == "" {
-			continue
+		dst := filepath.Join(dir, a.Name)
+		st := archiveState{}
+		if a.Path != "" {
+			sum, err := copyIn(a.Path, dst)
+			if err != nil {
+				return fmt.Errorf("add the original logs %s: %w", a.Name, err)
+			}
+			st.Verified = a.SHA256 != "" && sum == a.SHA256
+		} else if sum, err := archive.FileSHA256(dst); err == nil {
+			st.Verified = a.SHA256 != "" && sum == a.SHA256
 		}
-		if err := copyIn(a.Path, filepath.Join(dir, a.Name)); err != nil {
-			return fmt.Errorf("add the original logs %s: %w", a.Name, err)
-		}
+		st.Contents, _ = archive.Contents(dst)
+		r.archiveState[a.Name] = st
 	}
-	var html, csvBuf, jsonl bytes.Buffer
-	if err := r.WriteHTML(&html); err != nil {
+	pages, data, err := r.buildData()
+	if err != nil {
+		return fmt.Errorf("event data: %w", err)
+	}
+	var html bytes.Buffer
+	if err := r.WriteHTML(&html, pages); err != nil {
 		return fmt.Errorf("render report: %w", err)
-	}
-	if err := r.writeCSV(&csvBuf); err != nil {
-		return err
-	}
-	enc := json.NewEncoder(&jsonl)
-	enc.SetEscapeHTML(false)
-	for _, e := range r.Events {
-		if err := enc.Encode(e); err != nil {
-			return err
-		}
 	}
 	sum, err := json.MarshalIndent(r.summary(), "", "  ")
 	if err != nil {
@@ -148,9 +154,15 @@ func (r *Report) Write(dir string) error {
 	}
 	contents := map[string][]byte{
 		"report.html":  html.Bytes(),
-		"events.csv":   csvBuf.Bytes(),
-		"events.jsonl": jsonl.Bytes(),
 		"summary.json": append(sum, '\n'),
+	}
+	if len(data) > 0 {
+		if err := os.MkdirAll(filepath.Join(dir, "data"), 0o750); err != nil {
+			return err
+		}
+	}
+	for _, f := range data {
+		contents["data/"+f.Name] = f.Body
 	}
 
 	sums := map[string]string{}
@@ -159,6 +171,13 @@ func (r *Report) Write(dir string) error {
 			sums[a.Name] = a.SHA256
 		}
 	}
+	// Every event as a spreadsheet, zipped: CSV of a busy week is large,
+	// and Windows opens a zip with a double-click.
+	zsum, err := r.writeEventsZip(filepath.Join(dir, "events.zip"))
+	if err != nil {
+		return fmt.Errorf("events.zip: %w", err)
+	}
+	sums["events.zip"] = zsum
 	for name, b := range contents {
 		if err := store.WriteFileAtomic(filepath.Join(dir, name), b, 0o640); err != nil {
 			return err
@@ -176,6 +195,39 @@ func (r *Report) Write(dir string) error {
 		fmt.Fprintf(&manifest, "%s  %s\n", sums[name], name)
 	}
 	return store.WriteFileAtomic(filepath.Join(dir, "manifest.sha256"), []byte(manifest.String()), 0o440)
+}
+
+// writeEventsZip writes events.zip (events.csv inside), streaming so a
+// large report is not held in memory, and returns its SHA-256.
+func (r *Report) writeEventsZip(path string) (string, error) {
+	tmp := path + ".partial"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	zw := zip.NewWriter(io.MultiWriter(f, h))
+	w, err := zw.CreateHeader(&zip.FileHeader{Name: "events.csv", Method: zip.Deflate, Modified: r.Generated})
+	if err == nil {
+		err = r.writeCSV(w)
+	}
+	if err == nil {
+		err = zw.Close()
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		os.Remove(tmp)
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func (r *Report) writeCSV(w io.Writer) error {
@@ -250,7 +302,9 @@ func Verify(dir string) ([]string, error) {
 			continue
 		}
 		n++
-		if strings.ContainsAny(name, `/\`) || name == ".." {
+		// Files are in the report folder, or (event data) in its data folder.
+		base := strings.TrimPrefix(name, "data/")
+		if strings.ContainsAny(base, `/\`) || base == ".." || base == "." || base == "" {
 			problems = append(problems, fmt.Sprintf("%s: unexpected path in manifest", name))
 			continue
 		}
@@ -278,9 +332,96 @@ type IndexEntry struct {
 	Dir string
 }
 
+// History reads the summaries of the scheduled reports in reportsDir that
+// ended before end, oldest first, keeping the last n.
+func History(reportsDir string, end time.Time, n int) []Summary {
+	matches, _ := filepath.Glob(filepath.Join(reportsDir, "*", "summary.json"))
+	var out []Summary
+	for _, m := range matches {
+		b, err := os.ReadFile(m)
+		if err != nil {
+			continue
+		}
+		var s Summary
+		if json.Unmarshal(b, &s) != nil || s.Interim || !s.WindowEnd.Before(end) {
+			continue
+		}
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].WindowEnd.Before(out[j].WindowEnd) })
+	if len(out) > n {
+		out = out[len(out)-n:]
+	}
+	return out
+}
+
+// IndexRow is one report's line on the index page.
+type IndexRow struct {
+	Week, Dir, Trail, TrailClass, Search string
+	Systems, Events, High, Medium        int
+	Interim, Incomplete                  bool
+}
+
+// indexRow describes one report: its week and whether its audit trail is
+// complete (nothing lost, no log cleared, every system reporting).
+func indexRow(e IndexEntry, loc *time.Location) IndexRow {
+	start := e.WindowStart
+	if start.IsZero() {
+		start = e.WindowEnd.AddDate(0, 0, -7)
+	}
+	a, b := start.In(loc), e.WindowEnd.Add(-time.Second).In(loc)
+	week := a.Format("2") + " – " + b.Format("2 Jan 2006")
+	switch {
+	case a.Year() != b.Year():
+		week = a.Format("2 Jan 2006") + " – " + b.Format("2 Jan 2006")
+	case a.Month() != b.Month():
+		week = a.Format("2 Jan") + " – " + b.Format("2 Jan 2006")
+	}
+	row := IndexRow{Week: week, Dir: e.Dir, Systems: len(e.Hosts), Events: e.Events, Interim: e.Interim}
+	for _, d := range e.Detections { // detections by severity, as in the chart
+		if d.Severity == "high" {
+			row.High++
+		} else {
+			row.Medium++
+		}
+	}
+	var bad, warn []string
+	if e.Lost > 0 {
+		bad = append(bad, plural(int(e.Lost), "event")+" lost")
+	}
+	if e.LogClears > 0 {
+		bad = append(bad, plural(e.LogClears, "log")+" cleared")
+	}
+	if e.AuditOff > 0 {
+		bad = append(bad, "auditing was off")
+	}
+	silent := 0
+	for _, s := range e.Systems {
+		if s.Status == "silent" {
+			silent++
+		}
+	}
+	if silent > 0 {
+		bad = append(bad, fmt.Sprintf("%d silent", silent))
+	}
+	if n := e.Metrics["late_events"]; n > 0 {
+		warn = append(warn, fmt.Sprintf("%d late", n))
+	}
+	switch {
+	case len(bad) > 0:
+		row.Trail, row.TrailClass, row.Incomplete = strings.Join(append(bad, warn...), " · "), "bad", true
+	case len(warn) > 0:
+		row.Trail, row.TrailClass = strings.Join(warn, " · "), "warn"
+	default:
+		row.Trail, row.TrailClass = "Complete", "ok"
+	}
+	row.Search = week + " " + e.Dir + " " + strings.Join(e.Hosts, " ")
+	return row
+}
+
 // WriteIndex rebuilds reportsDir/index.html from every report's
-// summary.json.
-func WriteIndex(reportsDir, site string, loc *time.Location) error {
+// summary.json. schedule describes when reports are made.
+func WriteIndex(reportsDir, site, schedule string, loc *time.Location) error {
 	matches, err := filepath.Glob(filepath.Join(reportsDir, "*", "summary.json"))
 	if err != nil {
 		return err
@@ -304,7 +445,48 @@ func WriteIndex(reportsDir, site string, loc *time.Location) error {
 		return err
 	}
 	var buf bytes.Buffer
-	err = t.Execute(&buf, map[string]any{"Site": site, "Entries": entries})
+	var rows []IndexRow
+	incomplete := 0
+	for _, e := range entries {
+		row := indexRow(e, loc)
+		if row.Incomplete {
+			incomplete++
+		}
+		rows = append(rows, row)
+	}
+	// Detections per week: the last twelve scheduled reports.
+	var weekly []IndexEntry
+	for _, e := range entries {
+		if !e.Interim && len(weekly) < 12 {
+			weekly = append([]IndexEntry{e}, weekly...)
+		}
+	}
+	var chart template.HTML
+	if len(weekly) > 1 {
+		var labels []string
+		hi, md := Series{Name: "High", Color: colBad}, Series{Name: "Medium", Color: colWarn}
+		for i, e := range weekly {
+			l := weekLabel(e.WindowEnd)
+			if i == len(weekly)-1 {
+				l = "Latest"
+			} else if i%2 == 1 {
+				l = ""
+			}
+			labels = append(labels, l)
+			h, m := 0, 0
+			for _, d := range e.Detections {
+				if d.Severity == "high" {
+					h++
+				} else {
+					m++
+				}
+			}
+			hi.Values, md.Values = append(hi.Values, h), append(md.Values, m)
+		}
+		chart = stackedBars(labels, []Series{hi, md}, nil, true, 820, 100)
+	}
+	err = t.Execute(&buf, map[string]any{"Site": site, "Entries": entries, "Rows": rows, "Incomplete": incomplete,
+		"Chart": chart, "Weeks": len(weekly), "Schedule": schedule})
 	if err != nil {
 		return err
 	}
@@ -330,34 +512,41 @@ func fileSHA256(path string) (string, error) {
 // rename: on Windows a renamed file keeps the permissions of the folder it
 // came from (the data folder, Administrators and SYSTEM only), while a new
 // file takes the report folder's, like the rest of the report.
-func copyIn(src, dst string) error {
+func copyIn(src, dst string) (string, error) {
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer in.Close()
 	part := dst + ".partial"
 	out, err := os.OpenFile(part, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if _, err := io.Copy(out, in); err != nil {
+	h := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(out, h), in); err != nil {
 		out.Close()
 		os.Remove(part)
-		return err
+		return "", err
 	}
 	if err := out.Sync(); err != nil {
 		out.Close()
 		os.Remove(part)
-		return err
+		return "", err
 	}
 	if err := out.Close(); err != nil {
 		os.Remove(part)
-		return err
+		return "", err
 	}
 	if err := os.Rename(part, dst); err != nil {
-		return err
+		return "", err
 	}
 	in.Close()
-	return os.Remove(src)
+	return hex.EncodeToString(h.Sum(nil)), os.Remove(src)
+}
+
+// archiveState is what Write found about one original-log zip.
+type archiveState struct {
+	Verified bool // its SHA-256 matches the one recorded when it was made
+	Contents []archive.Info
 }

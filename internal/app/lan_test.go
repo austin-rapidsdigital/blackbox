@@ -1,7 +1,11 @@
 package app
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,15 +100,20 @@ func TestLANEndToEnd(t *testing.T) {
 	}
 	html := readFile(t, dir, "report.html")
 	for _, want := range []string{
-		`data-view="systems"`,        // Systems page
-		"ubu-ws12", "WS-07", "WS-09", // every system
+		`data-view="systems"`, // Systems page
+		"3 systems",           // every system, including the silent WS-09
+		`data-pick="WS-09"`, `data-pick="ubu-ws12"`, `data-pick="WS-07"`,
 		"No collection received in this period", // WS-09 is silent
-		`<option>ubu-ws12</option>`,             // system filter
-		`id="checks-WS-07" open`,                // failing settings shown open
-		">Late<",                                // late arrivals are marked
+		"Audit settings that need attention",    // failing settings shown
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("combined report missing %q", want)
+		}
+	}
+	data := reportData(t, dir)
+	for _, want := range []string{"ubu-ws12", `"Late"`} { // late arrivals are marked
+		if !strings.Contains(data, want) {
+			t.Errorf("combined report's event data missing %q", want)
 		}
 	}
 	var sum report.Summary
@@ -136,7 +145,7 @@ func TestLANEndToEnd(t *testing.T) {
 	if err := json.Unmarshal([]byte(readFile(t, interim, "summary.json")), &isum); err != nil || !isum.Interim {
 		t.Errorf("summary.json interim flag: %+v %v", isum.Interim, err)
 	}
-	if idx := readFile(t, filepath.Dir(interim), "index.html"); !strings.Contains(idx, `class="st int">Interim`) {
+	if idx := readFile(t, filepath.Dir(interim), "index.html"); !strings.Contains(idx, `class="int">Interim`) {
 		t.Error("the list of reports does not mark the interim report")
 	}
 	if out := os.Getenv("BLACKBOX_SAMPLE_OUT"); out != "" {
@@ -197,6 +206,31 @@ func readFile(t *testing.T, dir, name string) string {
 	return string(b)
 }
 
+// reportData is the decompressed text of a report's event data files.
+func reportData(t *testing.T, dir string) string {
+	t.Helper()
+	files, _ := filepath.Glob(filepath.Join(dir, "data", "*.js"))
+	if len(files) == 0 {
+		t.Fatal("report has no event data files")
+	}
+	var all strings.Builder
+	for _, f := range files {
+		s := readFile(t, filepath.Dir(f), filepath.Base(f))
+		i, j := strings.Index(s, `,"`), strings.LastIndex(s, `");`)
+		raw, err := base64.StdEncoding.DecodeString(s[i+2 : j])
+		if err != nil {
+			t.Fatal(err)
+		}
+		zr, err := gzip.NewReader(bytes.NewReader(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(zr)
+		all.Write(b)
+	}
+	return all.String()
+}
+
 func TestReportFolderHoldsTheOriginalLogs(t *testing.T) {
 	winEvents, winRun := windowsSample(t)
 	end := latest(winEvents).Add(time.Hour).Truncate(time.Hour)
@@ -235,6 +269,12 @@ func TestReportFolderHoldsTheOriginalLogs(t *testing.T) {
 	}
 	if !strings.Contains(readFile(t, dir, "manifest.sha256"), "logs-WS-07.zip") {
 		t.Error("the logs are not in the manifest")
+	}
+	html := readFile(t, dir, "report.html")
+	for _, want := range []string{`href="#logs/WS-07"`, "Security.evtx", "2 / 2"} { // Original logs: listed, inside, hashes verified
+		if !strings.Contains(html, want) {
+			t.Errorf("Original logs page missing %q", want)
+		}
 	}
 	left, _ := archive.List(a.pendingLogsDir())
 	if len(left) != 1 || left[0].Path != later {

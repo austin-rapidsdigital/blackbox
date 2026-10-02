@@ -19,7 +19,7 @@ import (
 )
 
 // maxRowsPerSection keeps the HTML file a manageable size; every event
-// is always in events.csv and events.jsonl.
+// is always in events.zip (events.csv).
 const maxRowsPerSection = 5000
 
 // Options describe the report being built.
@@ -37,6 +37,14 @@ type Options struct {
 	// covers the time since the last scheduled report and does not move
 	// the schedule; the next scheduled report covers that time again.
 	Interim bool
+
+	// History is the summaries of earlier scheduled reports, oldest first
+	// (up to eleven), for twelve-week trends.
+	History []Summary
+
+	// Period is how often reports are made ("weekly"), shown as "Weekly
+	// report". Empty for a report from exported files.
+	Period string
 
 	ExcludeUsers     []string
 	ExcludeProcesses []string
@@ -122,7 +130,8 @@ type Finding struct {
 	Time     time.Time
 	Title    string
 	Detail   string
-	RowID    string // first related row, for linking
+	RowID    string   // first related row, for linking
+	RowIDs   []string // every related row
 }
 
 // AttentionGroup summarises medium-severity events by kind.
@@ -217,6 +226,11 @@ type Report struct {
 	BySev      map[string]int       // by severity
 	SystemRows []SystemRow          // Systems page
 	Silent     []SystemRow          // computers with no collection in this period
+
+	rows []*Row // one per event, in the order of Events
+
+	archiveState map[string]archiveState // set by Write
+	dataSums     map[string]string       // data file → SHA-256 of its payload
 }
 
 // Build assembles a report from events (already filtered to the period)
@@ -244,6 +258,7 @@ func Build(events []*event.Event, runs []*store.Run, opt Options) *Report {
 		}
 	}
 	r.Events = events
+	r.rows = rows
 	for h := range hosts {
 		r.Hosts = append(r.Hosts, h)
 	}
@@ -608,7 +623,7 @@ func (r *Report) findPatterns(rows []*Row) {
 				d += " from " + src
 			}
 			r.Findings = append(r.Findings, Finding{Severity: event.SevHigh, Category: event.CatFailedLogon,
-				Host: first.Host, Time: first.Time, RowID: first.ID,
+				Host: first.Host, Time: first.Time, RowID: first.ID, RowIDs: rowIDs(c),
 				Title: "Possible password guessing", Detail: d + "."})
 		}
 	}
@@ -629,7 +644,7 @@ func (r *Report) findPatterns(rows []*Row) {
 			}
 			first := c[0]
 			r.Findings = append(r.Findings, Finding{Severity: event.SevHigh, Category: event.CatFailedLogon,
-				Host: first.Host, Time: first.Time, RowID: first.ID,
+				Host: first.Host, Time: first.Time, RowID: first.ID, RowIDs: rowIDs(c),
 				Title: "One source tried several accounts",
 				Detail: fmt.Sprintf("%s tried %d different accounts on %s (%s) with %d failed logons between %s and %s.",
 					first.SourceIP, len(users), first.Host, strings.Join(users, ", "), len(c),
@@ -655,7 +670,7 @@ func (r *Report) findPatterns(rows []*Row) {
 		if n >= 3 && !reported[firstFail.ID] {
 			reported[firstFail.ID] = true
 			r.Findings = append(r.Findings, Finding{Severity: event.SevMedium, Category: event.CatFailedLogon,
-				Host: row.Host, Time: row.Time, RowID: firstFail.ID,
+				Host: row.Host, Time: row.Time, RowID: firstFail.ID, RowIDs: rowIDs([]*Row{firstFail, row}),
 				Title: "Successful logon after failures",
 				Detail: fmt.Sprintf("%s logged on to %s at %s after %d failed attempts in the previous %d minutes.",
 					row.User, row.Host, r.clock(row.Time), n, int(successWindow.Minutes()))})
@@ -674,8 +689,9 @@ func (r *Report) findPatterns(rows []*Row) {
 			}
 		}
 		f := Finding{Severity: event.SevHigh, Category: event.CatIntegrity, Host: row.Host, Time: row.Time, RowID: row.ID,
-			Title: "Auditing was switched off"}
+			RowIDs: []string{row.ID}, Title: "Auditing was switched off"}
 		if until != nil {
+			f.RowIDs = append(f.RowIDs, until.ID)
 			f.Detail = fmt.Sprintf("The audit service on %s was off for %s (%s to %s). Nothing done in that time was recorded.",
 				row.Host, roughDuration(until.Time.Sub(row.Time)), r.clock(row.Time), r.clock(until.Time))
 			r.Health.AuditOff = append(r.Health.AuditOff, fmt.Sprintf("%s: auditing was off for %s (%s to %s).",
@@ -724,6 +740,20 @@ func clusters(rows []*Row, window time.Duration) [][]*Row {
 		out = append(out, cur)
 	}
 	return out
+}
+
+// rowIDs lists the IDs of rows in this report's period (rows read only
+// for context have none).
+func rowIDs(rows []*Row) []string {
+	var ids []string
+	seen := map[string]bool{}
+	for _, x := range rows {
+		if x.ID != "" && !seen[x.ID] {
+			seen[x.ID] = true
+			ids = append(ids, x.ID)
+		}
+	}
+	return ids
 }
 
 func distinctList(rows []*Row, f func(*Row) string) []string {

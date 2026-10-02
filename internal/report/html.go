@@ -2,6 +2,7 @@ package report
 
 import (
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"github.com/casea1/blackbox/internal/brand"
 	"html/template"
@@ -18,11 +19,51 @@ var reportTemplate string
 //go:embed index.html
 var indexTemplate string
 
+//go:embed style.css
+var styleCSS string
+
+//go:embed app.js
+var appJS string
+
 // pageData is what the report template is rendered from. Section is set
 // while rendering one category's view.
 type pageData struct {
 	*Report
-	Section *Section
+	Section     *Section
+	Pages       []*EventPage
+	Overview    *Overview
+	Detections  []DetectionView
+	SystemsPage *SystemsPage
+	PeoplePage  *PeoplePage
+	HealthPage  *HealthPage
+	TrendsPage  *TrendsPage
+	LogsPage    *LogsPage
+	Verify      Verification
+	Print       PrintOut
+	Meta        template.JS // settings for app.js, as JSON
+}
+
+// headData is a page's heading.
+type headData struct {
+	Crumb, Title, Range string
+}
+
+// IsLAN says whether this is a network report (a collector's, or more
+// than three computers); otherwise it is a standalone computer's, with
+// any virtual machines on it.
+func (r *Report) IsLAN() bool { return r.Collector || len(r.Hosts) > 3 }
+
+// MainSystem is a standalone report's computer (not its VMs).
+func (r *Report) MainSystem() string {
+	for _, s := range r.SystemRows {
+		if s.Via == "" {
+			return s.Name
+		}
+	}
+	if len(r.Hosts) > 0 {
+		return r.Hosts[0]
+	}
+	return ""
 }
 
 // PeriodStart is the start of the report period (the oldest event on a
@@ -47,7 +88,105 @@ func funcs(loc *time.Location) template.FuncMap {
 		}
 	}
 	return template.FuncMap{
-		"logo":      func() template.URL { return template.URL(brand.LogoDataURI()) },
+		"logo":     func() template.URL { return template.URL(brand.LogoDataURI()) },
+		"css":      func() template.CSS { return template.CSS(styleCSS) },
+		"js":       func() template.JS { return template.JS(appJS) },
+		"icon":     icon,
+		"lower":    strings.ToLower,
+		"minus":    func(a, b int) int { return a - b },
+		"gridCols": gridCols,
+		"css2":     func(s string) template.CSS { return template.CSS(s) },
+		"plural": func(n int, unit string) string {
+			if n == 1 {
+				return unit
+			}
+			return unit + "s"
+		},
+		"overviewTitle": func(p pageData) string {
+			if p.IsLAN() && !p.Overview.Standalone {
+				return "Network overview"
+			}
+			return "Overview"
+		},
+		"dayBefore": func(ds []DetectionCard, i int) string { return ds[i-1].Day },
+		"healthCrumb": func(p pageData) string {
+			return p.Kind() + " · audit settings compared with the STIG for each system's OS · Blackbox only reports, it never changes settings"
+		},
+		"searchCrumb": func(p pageData) string {
+			return fmt.Sprintf("%s · %s events from %s · searched in your browser, nothing leaves this report", p.Kind(), commas(len(p.Events)), plural(len(p.Hosts), "system"))
+		},
+		"searchCols": func() template.CSS { return gridCols(searchCols) },
+		"periodDays": func(p pageData) []string { return p.periodDays() },
+		"periodWord": func(p pageData) string {
+			if p.Period == "weekly" || p.Period == "" {
+				return "Week"
+			}
+			return "Period"
+		},
+		"dayName": func(d string) string {
+			t, _ := time.Parse("20060102", d)
+			return t.Format("Mon 2 Jan")
+		},
+		"peopleCrumb": func(p pageData) string {
+			n := 0
+			if p.PeoplePage != nil {
+				n = p.PeoplePage.Count
+			}
+			return fmt.Sprintf("%s · %s active on %s", p.Kind(), plural(n, "account"), plural(len(p.Hosts), "system"))
+		},
+		"detectionsCrumb": func(p pageData) string {
+			high, med := 0, 0
+			for _, d := range p.Detections {
+				if d.Severity == "high" {
+					high++
+				} else {
+					med++
+				}
+			}
+			n := len(p.Detections)
+			c := p.Crumb()
+			c = c[:strings.LastIndex(c, " · generated")]
+			s := fmt.Sprintf("%s · %s %s", c, commas(n), map[bool]string{true: "detection", false: "detections"}[n == 1])
+			if n > 0 {
+				s += fmt.Sprintf(" · %d high, %d medium", high, med)
+			}
+			return s
+		},
+		"sevCount": func(ds []DetectionView, sev string) int {
+			n := 0
+			for _, d := range ds {
+				if d.Severity == sev {
+					n++
+				}
+			}
+			return n
+		},
+		"detDayBefore": func(ds []DetectionView, i int) string { return ds[i-1].Day },
+		"eventsCrumb": func(p pageData, e *EventPage) string {
+			unit := "events"
+			if spec, ok := pageSpecs[e.ID]; ok {
+				unit = spec.unit
+			}
+			if e.Total == 1 {
+				unit = strings.TrimSuffix(unit, "s")
+			}
+			s := fmt.Sprintf("%s · Events · %s %s", p.Kind(), commas(e.Total), unit)
+			if n := len(e.Hosts); n > 1 {
+				s += fmt.Sprintf(" on %d systems", n)
+			} else if n == 1 {
+				s += " on " + e.Hosts[0]
+			}
+			return s
+		},
+		// head builds a page heading: the report period and, unless crumb
+		// is given, a line describing the report.
+		"head": func(p pageData, title, crumb string) headData {
+			if crumb == "" {
+				crumb = p.Crumb()
+			}
+			rng := p.PeriodStart().In(loc).Format("2 Jan") + " – " + p.WindowEnd.In(loc).Format("2 Jan 2006")
+			return headData{Crumb: crumb, Title: title, Range: rng}
+		},
 		"brandName": func() string { return brand.Name },
 		"fontCSS":   func() template.CSS { return template.CSS(brand.FontCSS()) },
 		"stamp":     format("02 Jan 2006 15:04"),
@@ -129,11 +268,108 @@ func plural(n int, unit string) string {
 	return fmt.Sprintf("%d %ss", n, unit)
 }
 
-// WriteHTML renders the whole report as one self-contained HTML file.
-func (r *Report) WriteHTML(w io.Writer) error {
+// Crumb is the line above each page title, e.g. "Weekly report · 24
+// systems · generated 29 Sep 2026 00:05".
+func (r *Report) Crumb() string {
+	parts := []string{r.Kind()}
+	if r.IsLAN() {
+		parts = append(parts, fmt.Sprintf("%d systems", len(r.Hosts)))
+	} else {
+		vms := 0
+		for _, s := range r.SystemRows {
+			if s.Via != "" {
+				vms++
+			}
+		}
+		desc := "standalone · 1 system"
+		if vms > 0 {
+			desc += fmt.Sprintf(" + %d VM", vms)
+			if vms > 1 {
+				desc += "s"
+			}
+		}
+		parts = append(parts, desc)
+	}
+	parts = append(parts, "generated "+r.Generated.In(r.Location).Format("2 Jan 2006 15:04"))
+	return strings.Join(parts, " · ")
+}
+
+// Kind is "Weekly report", "Interim report" or "Report".
+func (r *Report) Kind() string {
+	switch {
+	case r.Interim:
+		return "Interim report"
+	case r.Period != "":
+		return strings.ToUpper(r.Period[:1]) + r.Period[1:] + " report"
+	}
+	return "Report"
+}
+
+// WriteHTML renders report.html. The event pages read their events from
+// the data files given (see buildData), which go in the data folder.
+func (r *Report) WriteHTML(w io.Writer, pages []*EventPage) error {
 	t, err := template.New("report").Funcs(funcs(r.Location)).Parse(reportTemplate)
 	if err != nil {
 		return err
 	}
-	return t.ExecuteTemplate(w, "layout", pageData{Report: r})
+	meta := map[string]any{"pages": pages, "zone": zoneName(r.Generated, r.Location)}
+	// For the event panel: which detection an event is part of, each
+	// system's original-log zip and what it runs.
+	rowDet, dets := map[int]int{}, []string{}
+	for fi, f := range r.Findings {
+		dets = append(dets, f.Title)
+		for _, id := range append(f.RowIDs, f.RowID) {
+			if i := rowIndex(id); i >= 0 {
+				if _, ok := rowDet[i]; !ok {
+					rowDet[i] = fi
+				}
+			}
+		}
+	}
+	archives, oses := map[string]string{}, map[string]string{}
+	for _, a := range r.Archives {
+		archives[a.Host] = a.Name
+	}
+	for _, sr := range r.SystemRows {
+		oses[sr.Name] = osLabel(sr)
+	}
+	meta["rowdet"], meta["dets"], meta["archives"], meta["os"] = rowDet, dets, archives, oses
+	icons := map[string]string{}
+	for _, n := range []string{"search", "user-round", "server", "shield"} {
+		icons[n] = string(icon(n, 15))
+	}
+	meta["icons"] = icons
+	kinds := map[string]string{}
+	for _, sr := range r.SystemRows {
+		switch {
+		case sr.Via != "":
+			kinds[sr.Name] = "vm"
+		case isServer(sr):
+			kinds[sr.Name] = "server"
+		default:
+			kinds[sr.Name] = "workstation"
+		}
+	}
+	meta["hostKind"] = kinds
+	if w := r.WorkingHours; w.Set() {
+		meta["hours"] = map[string]any{"days": w.Days, "start": w.Start, "end": w.End}
+	}
+	people := r.peoplePage()
+	if pp := people; pp != nil && len(pp.Groups) > 0 && len(pp.Groups[0].People) > 0 {
+		meta["firstPerson"] = pp.Groups[0].People[0].Key
+	}
+	health, overview := r.healthPage(), r.overview(pages)
+	meta["detcsv"], meta["healthcsv"], meta["sums"] = r.detectionsCSV(), r.healthCSV(health), r.dataSums
+	b, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	return t.ExecuteTemplate(w, "layout", pageData{Report: r, Pages: pages, Overview: overview,
+		Detections: r.detectionViews(), SystemsPage: r.systemsPage(), PeoplePage: people, HealthPage: health, TrendsPage: r.trendsPage(),
+		LogsPage: r.logsPage(), Verify: r.verification(), Print: r.printOut(overview, health), Meta: template.JS(b)})
+}
+
+func zoneName(t time.Time, loc *time.Location) string {
+	name, _ := t.In(loc).Zone()
+	return name
 }

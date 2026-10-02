@@ -20,7 +20,7 @@ func TestLogoScales(t *testing.T) {
 
 func TestFontCSS(t *testing.T) {
 	css := FontCSS()
-	for _, want := range []string{"font-family:'Inter'", "font-family:'JetBrains Mono'", "data:font/woff2;base64,d09GMg"} {
+	for _, want := range []string{"font-family:'Public Sans'", "font-family:'Source Code Pro'", "data:font/woff2;base64,d09GMg"} {
 		if !strings.Contains(css, want) {
 			t.Errorf("FontCSS is missing %q", want)
 		}

@@ -3,467 +3,236 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="generator" content="{{brandName}} {{.Version}}">
+<title>{{if .Site}}{{.Site}} · {{end}}{{if .Interim}}Interim {{end}}Audit report · {{dateShort .PeriodStart}} – {{dateShort .WindowEnd}}</title>
 <link rel="icon" href="{{logo}}">
-<title>{{brandName}} · Audit Report · {{if .Site}}{{.Site}} · {{end}}{{dateShort .PeriodStart}} – {{dateShort .WindowEnd}}</title>
 <style>
-{{fontCSS}}/* GE Aerospace navy theme, shared with ADM-Toolkit. */
-:root{
-  --navy-950:#000D2E;--navy-900:#001E62;--navy-800:#002A80;--navy-600:#0047BB;--navy-100:#E8EEFF;--navy-50:#F3F6FE;
-  --ink-950:#0B1020;--ink-800:#1E253A;--ink-700:#384055;--ink-600:#545C72;--ink-500:#7A8299;--ink-400:#A7AEC2;
-  --ink-300:#CDD2DE;--ink-200:#E2E5EC;--ink-150:#EDEFF3;--ink-100:#F3F4F7;--ink-50:#F7F8FA;--paper:#FFFFFF;
-  --ok:#15803D;--ok-bg:#E7F6EC;--ok-border:#C9E8D3;
-  --warn:#B45309;--warn-bg:#FDF4E3;--warn-border:#F6E2B2;
-  --err:#B91C1C;--err-bg:#FCECEC;--err-border:#F3CBCB;
-  --sans:'Inter',"Segoe UI",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
-  --mono:'JetBrains Mono',Consolas,"Cascadia Mono","SF Mono",Menlo,monospace;
-  --r-sm:6px;--r-md:8px;
-  --sh-1:0 1px 2px rgba(11,16,32,.04);--sh-2:0 1px 3px rgba(11,16,32,.06),0 4px 12px rgba(11,16,32,.04);
-  --side-w:290px;--head-h:56px;
-  /* older names used below */
-  --ink:var(--ink-950);--ink2:var(--ink-700);--muted:var(--ink-500);--rule:var(--ink-200);--rule2:var(--ink-150);
-  --accent:var(--navy-600);--high:var(--err);--med:var(--warn);--low:var(--navy-600);--info:var(--ink-500);
-}
-*{box-sizing:border-box}
-html,body{margin:0}
-body{background:var(--ink-50);color:var(--ink-950);font:14px/1.55 var(--sans);font-feature-settings:"cv11";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-a{color:var(--navy-600);text-decoration:none}
-a:hover{text-decoration:underline}
-
-/* frame */
-.topbar{position:fixed;top:0;left:0;right:0;height:var(--head-h);background:var(--navy-900);color:#fff;display:flex;align-items:center;gap:16px;padding:0 24px;z-index:10}
-.topbar .logo{width:34px;height:34px;flex-shrink:0;display:block;background:#fff;border-radius:50%;padding:2px}
-.wordmark{font-weight:600;font-size:15px;letter-spacing:-.2px;white-space:nowrap}
-.wordmark small{font-weight:400;color:rgba(255,255,255,.6);margin-left:6px}
-.topbar .site{color:rgba(255,255,255,.6);font-size:12.5px;border-left:1px solid rgba(255,255,255,.2);padding-left:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.topbar .span{margin-left:auto;font-family:var(--mono);font-size:12px;color:rgba(255,255,255,.7);background:rgba(255,255,255,.08);padding:5px 10px;border-radius:5px;white-space:nowrap}
-.topbar .span b{color:#fff;font-weight:500}
-.side{position:fixed;top:var(--head-h);bottom:0;left:0;width:var(--side-w);background:var(--navy-900);overflow-y:auto;padding:6px 0 24px;border-top:1px solid rgba(255,255,255,.08)}
-.side h4{margin:0;padding:16px 20px 6px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.38);font-weight:700}
-.side a{position:relative;display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:8px 20px;color:rgba(255,255,255,.72);font-size:13px}
-.side a:hover{background:rgba(255,255,255,.05);color:#fff;text-decoration:none}
-.side a.on{background:rgba(255,255,255,.1);color:#fff;font-weight:600}
-.side a.on::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:3px;background:#fff;border-radius:0 2px 2px 0}
-.side .n{font-family:var(--mono);font-size:11px;color:rgba(255,255,255,.5);white-space:nowrap;font-weight:400}
-.side a>span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.side .n .h{color:#FCA5A5;font-weight:600;font-family:inherit}
-.side .n .w{color:#FCD34D;font-weight:600;font-family:inherit}
-.side .n .h::after{content:" · ";color:rgba(255,255,255,.35);font-weight:400}
-.side .foot{border-top:1px solid rgba(255,255,255,.1);margin-top:14px;padding-top:8px}
-main{margin:var(--head-h) 0 0 var(--side-w);padding:32px 40px 64px;max-width:2200px}
-
-/* type */
-h1{font-size:22px;font-weight:700;margin:0 0 4px;letter-spacing:-.02em;color:var(--ink-950)}
-h2{font-size:15px;font-weight:600;margin:34px 0 10px;color:var(--ink-950);display:flex;align-items:center;gap:8px}
-h2 .ct{font-weight:500;color:var(--ink-600);font-family:var(--mono);font-size:11px;background:var(--paper);border:1px solid var(--ink-200);border-radius:10px;padding:0 8px;line-height:18px}
-h3{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-500);margin:26px 0 8px}
-.lede{color:var(--ink-600);margin:0 0 6px;max-width:980px}
-.meta{color:var(--ink-500);font-size:12.5px}
-.meta span+span::before{content:"·";margin:0 8px;color:var(--ink-400)}
-.note{color:var(--ink-500);font-size:12.5px;max-width:1100px}
-code{font-family:var(--mono);font-size:12px;background:var(--ink-100);border:1px solid var(--ink-200);border-radius:4px;padding:0 4px}
-
-/* reporting period */
-.period{display:grid;grid-template-columns:auto auto auto 1fr;background:var(--paper);border:1px solid var(--ink-200);border-radius:var(--r-md);box-shadow:var(--sh-1);margin:18px 0 8px;overflow:hidden}
-.period>div{padding:14px 24px;border-right:1px solid var(--ink-150)}
-.period>div:first-child{box-shadow:inset 3px 0 0 var(--navy-900)}
-.period>div:last-child{border-right:0}
-.period .lbl{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-500);font-weight:700;margin-bottom:2px}
-.period .d{font-size:18px;font-weight:600;white-space:nowrap;color:var(--navy-900)}
-.period .t{font-family:var(--mono);font-size:15px;color:var(--ink-700);white-space:nowrap}
-.period .t small{font-size:11px;color:var(--ink-500);margin-left:4px}
-.period .v{font-size:14px;font-weight:600}
-.period .sub{font-size:12px;color:var(--ink-500)}
-
-/* status line */
-.status{border:1px solid var(--ok-border);background:var(--ok-bg);color:#14532D;border-radius:var(--r-md);padding:10px 16px;margin:18px 0}
-.status.bad{border-color:var(--err-border);background:var(--err-bg);color:#7F1D1D}
-.status.warn{border-color:var(--warn-border);background:var(--warn-bg);color:#78350F}
-.status strong{margin-right:6px}
-.status ul{margin:6px 0 0;padding-left:18px}
-.status a{color:inherit;text-decoration:underline}
-
-/* figures */
-.figs{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px;margin:8px 0}
-.figs a{display:block;padding:14px 16px;background:var(--paper);border:1px solid var(--ink-200);border-radius:var(--r-md);box-shadow:var(--sh-1);color:inherit;transition:border-color .1s,box-shadow .1s}
-.figs a:hover{border-color:var(--navy-600);box-shadow:var(--sh-2);text-decoration:none}
-.figs .k{font-size:12px;color:var(--ink-600);font-weight:600;min-height:36px}
-.figs .v{font-size:28px;font-weight:700;color:var(--navy-900);line-height:1.2;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-.figs .s{font-size:11.5px;color:var(--ink-500);min-height:18px}
-
-/* severity and status badges */
-.sev{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;padding:1px 8px;border-radius:10px;border:1px solid transparent}
-.sev::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
-.sev.high{color:var(--err);background:var(--err-bg);border-color:var(--err-border)}
-.sev.medium{color:var(--warn);background:var(--warn-bg);border-color:var(--warn-border)}
-.sev.low{color:var(--navy-600);background:var(--navy-50);border-color:var(--navy-100)}
-.sev.info{color:var(--ink-600);background:var(--ink-100);border-color:var(--ink-200)}
-.c-high{color:var(--err);font-weight:600}.c-med{color:var(--warn);font-weight:600}
-.st{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border-radius:3px;border:1px solid transparent}
-.st.pass,.st.ok{color:#166534;background:var(--ok-bg);border-color:var(--ok-border)}
-.st.fail,.st.error,.st.silent{color:#991B1B;background:var(--err-bg);border-color:var(--err-border)}
-.st.warn{color:#92400E;background:var(--warn-bg);border-color:var(--warn-border)}
-.st.info{color:var(--ink-600);background:var(--ink-100);border-color:var(--ink-200)}
-details.sys{background:var(--paper);border:1px solid var(--ink-200);border-radius:var(--r-md);box-shadow:var(--sh-1);margin:10px 0;overflow:hidden}
-details.sys>summary{cursor:pointer;padding:10px 16px;font-weight:600;list-style-position:inside}
-details.sys>summary .meta{font-weight:400;margin-left:10px}
-details.sys>table{border:0;border-top:1px solid var(--ink-200);border-radius:0;box-shadow:none}
-.tag{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--navy-800);background:var(--navy-100);border:1px solid #C9D6FA;border-radius:3px;padding:0 5px;margin-left:8px;white-space:nowrap}
-
-/* tables */
-table{border-collapse:separate;border-spacing:0;width:100%;font-size:13.5px;background:var(--paper);border:1px solid var(--ink-200);border-radius:var(--r-md);box-shadow:var(--sh-1);overflow:hidden}
-thead th{text-align:left;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-500);background:var(--ink-50);border-bottom:1px solid var(--ink-200);padding:9px 12px;white-space:nowrap}
-tbody td{border-bottom:1px solid var(--ink-150);padding:8px 12px;vertical-align:top}
-tbody tr:last-child td{border-bottom:0}
-th.num{text-align:right}
-td.num{text-align:right;font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
-td.mono{font-family:var(--mono);font-size:12px;white-space:nowrap;color:var(--ink-600);width:1%;padding-right:24px}
-td.mono.hash{white-space:normal;word-break:break-all;width:auto;font-size:11.5px}
-td.sevc{width:1%;white-space:nowrap}
-tr.row{cursor:pointer}
-tr.row:hover td{background:var(--ink-100)}
-tr.row.s3 td:first-child{box-shadow:inset 3px 0 0 var(--err)}
-tr.row.open td{background:var(--navy-50);border-bottom-color:transparent}
-tr.detail{display:none}
-tr.detail.open{display:table-row}
-tr.detail td{background:var(--navy-50);padding:12px 24px 16px 40px;border-bottom:1px solid var(--ink-200)}
-dl.kv{display:grid;grid-template-columns:200px 1fr;gap:3px 20px;margin:0;max-width:1300px}
-dl.kv dt{color:var(--ink-500)}
-dl.kv dd{margin:0;font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}
-details.raw{margin-top:10px}
-details.raw summary{cursor:pointer;color:var(--ink-500);font-size:12px}
-details.raw dl{margin-top:6px}
-.empty{color:var(--ink-500);padding:14px 16px;background:var(--paper);border:1px dashed var(--ink-300);border-radius:var(--r-md)}
-
-/* filter bar, joined to the table under it */
-.filter{display:flex;gap:10px;align-items:center;margin:14px 0 0;padding:10px 12px;background:var(--paper);border:1px solid var(--ink-200);border-bottom:0;border-radius:var(--r-md) var(--r-md) 0 0}
-.filter+table{border-top-left-radius:0;border-top-right-radius:0}
-.filter input,.filter select{font:inherit;font-size:13px;padding:6px 10px;border:1px solid var(--ink-300);border-radius:var(--r-sm);background:var(--ink-50);color:var(--ink-950)}
-.filter input{width:400px}
-.filter input:focus,.filter select:focus{outline:none;border-color:var(--navy-600);background:var(--paper);box-shadow:0 0 0 3px var(--navy-100)}
-.filter .count{color:var(--ink-500);font-size:12px;margin-left:auto;font-family:var(--mono)}
-
-footer{margin-top:48px;padding-top:12px;border-top:1px solid var(--ink-200);color:var(--ink-500);font-size:12px}
-.view{display:none}
-.view.on{display:block}
-
-@media (max-width:1100px){
-  .side{display:none}main{margin-left:0;padding:24px}
-  .figs{grid-template-columns:repeat(2,1fr)}
-  .period{grid-template-columns:1fr 1fr}
-  .filter input{width:auto;flex:1}
-  .topbar .site{display:none}
-}
-@media print{
-  .topbar,.side,.filter,details.raw{display:none}
-  .view{display:block!important}
-  .view+.view{break-before:page}
-  main{margin:0;padding:0;max-width:none}
-  body{font-size:10.5px;background:#fff}
-  table,.figs a,.period{box-shadow:none}
-  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  tr.row{break-inside:avoid}
-  a{color:inherit}
-}
+{{fontCSS}}{{css}}
 </style>
 </head>
 <body>
-<header class="topbar">
-  <img class="logo" src="{{logo}}" alt="GE Aerospace">
-  <span class="wordmark">{{brandName}}</span>
-  <span class="site">{{if .Site}}{{.Site}} · {{end}}Audit Report</span>
-  <span class="span"><b>{{stamp .PeriodStart}}</b> → <b>{{stamp .WindowEnd}}</b> {{zone .WindowEnd}}</span>
-</header>
-
-<nav class="side" aria-label="Report sections">
-  <h4>Report</h4>
-  <a href="#overview" data-view="overview">Overview</a>
-  {{if .ShowSystems}}<a href="#systems" data-view="systems"><span>Systems</span><span class="n">{{if .SystemsNeedingAttention}}<span class="w">{{.SystemsNeedingAttention}} need attention</span> · {{end}}{{len .SystemRows}}</span></a>{{end}}
-  <h4>Events</h4>
-  {{range .Sections}}<a href="#{{.Info.ID}}" data-view="{{.Info.ID}}"><span>{{.Info.Title}}</span><span class="n">{{with index .BySev "high"}}<span class="h">{{.}} high</span>{{end}}{{commas .Total}}</span></a>
-  {{end}}
-  <h4>Audit</h4>
-  <a href="#health" data-view="health"><span>Audit health</span>{{if .Health.Warnings}}<span class="n"><span class="w">{{len .Health.Warnings}} warning{{if gt (len .Health.Warnings) 1}}s{{end}}</span></span>{{end}}</a>
-  <a href="#people" data-view="people"><span>People</span><span class="n">{{len .Users}}</span></a>
-  {{if .InReportsDir}}<div class="foot"><a href="../index.html">All reports</a></div>{{end}}
-</nav>
-
+<aside>
+  <div class="brand"><img src="{{logo}}" alt=""><div><b>Blackbox</b><span>GE Aerospace</span></div></div>
+  <div class="site"><span>{{if .IsLAN}}Network{{else}}System{{end}}</span><b>{{if .Site}}{{.Site}}{{else}}{{.MainSystem}}{{end}}</b></div>
+  <nav>
+    <a href="#overview" data-nav="overview">{{icon "layout-dashboard" 17}}<span>Overview</span></a>
+    <a href="#systems" data-nav="systems">{{icon "server" 17}}<span>Systems</span>{{if .SystemsNeedingAttention}}<em>!</em>{{end}}</a>
+    <a href="#detections" data-nav="detections">{{icon "shield-alert" 17}}<span>Detections</span>{{with len .Findings}}<em>{{.}}</em>{{end}}</a>
+    <a href="#search" data-nav="search">{{icon "search" 17}}<span>Search</span></a>
+    <a href="#people" data-nav="people">{{icon "user-round" 17}}<span>People</span></a>
+  </nav>
+  <div class="grp">Events</div>
+  <nav>
+    {{range .Pages}}<a href="#{{.ID}}" data-nav="{{.ID}}">{{icon .Icon 17}}<span>{{.Title}}</span><small>{{commas .Total}}</small></a>
+    {{end}}
+  </nav>
+  <div class="grp">Audit</div>
+  <nav>
+    <a href="#health" data-nav="health">{{icon "shield-check" 17}}<span>Audit health</span></a>
+    <a href="#trends" data-nav="trends">{{icon "trending-up" 17}}<span>Trends</span></a>
+    <a href="#logs" data-nav="logs">{{icon "scroll-text" 17}}<span>Original logs</span></a>
+  </nav>
+</aside>
 <main>
-<noscript><style>.view{display:block}</style></noscript>
-<div class="view" data-view="overview">{{template "overview" .}}</div>
-{{if .ShowSystems}}<div class="view" data-view="systems">{{template "systems" .}}</div>{{end}}
-{{range .Sections}}<div class="view" data-view="{{.Info.ID}}">{{template "section" (withSection $ .)}}</div>
-{{end}}<div class="view" data-view="health">{{template "health" .}}</div>
-<div class="view" data-view="people">{{template "people" .}}</div>
-<footer>
-  {{brandName}} {{.Version}} · generated {{stamp .Generated}} {{zone .Generated}} · source: {{.Source}}.
-  SHA-256 hashes of every file in this report are in <code>manifest.sha256</code>; run <code>blackbox verify &lt;folder&gt;</code> to confirm nothing has been altered.
-</footer>
+{{if .Interim}}<div class="alertbar interim">{{icon "clock-alert" 18}}<b>Interim report.</b><span>Run by hand {{stamp .Generated}} {{zone .Generated}}, between scheduled reports. It does not change the schedule: the next scheduled report covers this time again, and that report's folder holds the original logs.</span></div>{{end}}
+
+<section class="view" data-view="overview">
+  {{template "head" (head . (overviewTitle .) "")}}
+  {{template "overview" .Overview}}
+</section>
+<section class="view" data-view="systems">{{template "head" (head . "Systems" "")}}{{with .SystemsPage}}{{template "systems" .}}{{end}}</section>
+<section class="view" data-view="detections">{{template "head" (head . "Detections" (detectionsCrumb .))}}{{template "detections" .}}</section>
+<section class="view" data-view="search">{{template "head" (head . "Search" (searchCrumb .))}}{{template "search" .}}</section>
+<section class="view" data-view="people">{{template "head" (head . "People" (peopleCrumb .))}}{{with .PeoplePage}}{{template "people" .}}{{else}}<div class="panel"><p class="pm" style="margin:0">No one's account did anything in this report.</p></div>{{end}}</section>
+{{range .Pages}}
+<section class="view" data-view="{{.ID}}">
+  {{template "head" (head $ .Title (eventsCrumb $ .))}}
+  {{with .Top}}{{template "pagetop" .}}{{end}}
+  {{template "events" .}}
+</section>
+{{end}}
+<section class="view" data-view="health">{{template "head" (head . "Audit health" (healthCrumb .))}}{{with .HealthPage}}{{template "health" .}}{{else}}<div class="panel"><p class="pm" style="margin:0">No systems in this report.</p></div>{{end}}</section>
+<section class="view" data-view="trends">{{with .TrendsPage}}{{template "head" (head $ "Trends" .Crumb)}}{{template "trends" .}}{{end}}</section>
+<section class="view" data-view="logs">{{template "head" (head . "Original logs" (printf "%s · the raw Windows and Linux logs this report was built from, saved in this report's folder" .Kind))}}{{with .LogsPage}}{{template "logs" .}}{{end}}</section>
+{{template "popovers" .}}
+{{template "printout" .Print}}
 </main>
-<script>
-(function(){
-  var views=document.querySelectorAll('.view'), links=document.querySelectorAll('.side a[data-view]');
-  function pair(tr){return tr.nextElementSibling;}
-  function show(v){
-    views.forEach(function(x){x.classList.toggle('on',x.getAttribute('data-view')===v);});
-    links.forEach(function(a){a.classList.toggle('on',a.getAttribute('data-view')===v);});
-  }
-  function openRow(r){
-    r.style.display=''; r.classList.add('open'); var d=pair(r); if(d) d.classList.add('open');
-    r.scrollIntoView({block:'center'});
-  }
-  function route(){
-    var h=decodeURIComponent(location.hash.slice(1));
-    var r=/^r\d+$/.test(h)&&document.getElementById(h);
-    if(r){show(r.closest('.view').getAttribute('data-view'));openRow(r);return;}
-    if(h&&document.querySelector('.view[data-view="'+h+'"]')){show(h);window.scrollTo(0,0);return;}
-    show('overview');
-  }
-  function apply(f){
-    var t=document.getElementById(f.getAttribute('data-for')); if(!t) return;
-    var q=f.querySelector('input').value.trim().toLowerCase();
-    var min={high:3,medium:2,low:1}[f.querySelector('select.sev-min').value]||0, shown=0;
-    var hs=f.querySelector('select.host'), host=hs?hs.value:'';
-    var rows=t.querySelectorAll('tr.row');
-    rows.forEach(function(r){
-      var d=pair(r), text=r.textContent+' '+(d?d.textContent:'');
-      var ok=(!q||text.toLowerCase().indexOf(q)>=0)&&(+r.getAttribute('data-sev')>=min)&&(!host||r.getAttribute('data-host')===host);
-      r.style.display=ok?'':'none'; if(!ok&&d){d.classList.remove('open');r.classList.remove('open');}
-      if(ok) shown++;
-    });
-    f.querySelector('.count').textContent=(q||min||host)?shown+' of '+rows.length+' shown':rows.length+' events';
-  }
-  // Choosing a system in one table applies to every table.
-  function setHost(h){
-    document.querySelectorAll('.filter').forEach(function(f){var s=f.querySelector('select.host');if(s){s.value=h;apply(f);}});
-  }
-  document.querySelectorAll('.filter').forEach(function(f){
-    f.querySelector('input').addEventListener('input',function(){apply(f);});
-    f.querySelector('select.sev-min').addEventListener('change',function(){apply(f);});
-    var hs=f.querySelector('select.host'); if(hs) hs.addEventListener('change',function(){setHost(hs.value);});
-    apply(f);
-  });
-  document.addEventListener('click',function(ev){
-    var tr=ev.target.closest('tr.row');
-    if(tr&&!ev.target.closest('a')){tr.classList.toggle('open');var d=pair(tr);if(d)d.classList.toggle('open');}
-    var hl=ev.target.closest('a[data-host]');
-    if(hl){setHost(hl.getAttribute('data-host'));}
-    var u=ev.target.closest('a[data-user]');
-    if(u){document.querySelectorAll('.filter').forEach(function(f){f.querySelector('input').value=u.getAttribute('data-user');apply(f);});}
-  });
-  window.addEventListener('hashchange',route);
-  route();
-})();
-</script>
+<div class="ov" hidden></div>
+<div class="drawer" hidden></div>
+<script type="application/json" id="bb-meta">{{.Meta}}</script>
+<script>{{js}}</script>
 </body>
 </html>
 {{end}}
 
+{{define "head"}}<div class="head"><div><div class="crumb">{{.Crumb}}</div><h1>{{.Title}}</h1></div>
+<div class="tools"><span class="btn">{{icon "calendar-range" 16}}{{.Range}}</span><button class="btn verified" data-open="verified">{{icon "fingerprint" 16}}<span>Verified</span></button><button class="btn primary" data-open="export">Export</button></div></div>{{end}}
+
+{{define "soon"}}<div class="panel"><p class="pm" style="margin:0">{{.}}</p></div>{{end}}
+
+{{define "systems"}}<div class="md2"><div class="panel slist" data-picklist>
+<label class="search">{{icon "search" 14}}<input type="search" placeholder="Find a system" data-find></label>
+{{range .Groups}}<div class="grp2">{{.Title}} · {{len .Systems}}</div>{{range .Systems}}<a data-pick="{{.Name}}" href="#systems/{{.Name}}"><i class="{{if .Level}}{{.Level}}{{else}}ok{{end}}"></i><span>{{.Name}}</span><small>{{.Tag}}</small></a>{{end}}{{end}}</div>
+<div style="min-width:0">{{$lan := .LAN}}{{range .Groups}}{{range .Systems}}<div data-pane="{{.Name}}" hidden>
+<div class="panel" style="margin-bottom:12px"><div class="dh"><div><h3>{{.Name}}</h3><p>{{.Line}}</p></div><span class="sv {{if eq .Level "bad"}}high{{else if eq .Level "warn"}}medium{{else}}ok{{end}}">{{.Status}}</span></div>
+{{if .Message}}<div class="alertbar" style="margin-bottom:12px">{{icon "clock-alert" 18}}<span>{{.Message}}</span></div>{{end}}
+<div class="facts4">{{range .Facts}}<div>{{.Label}}<b{{if .Bad}} class="bad"{{end}}>{{.Value}}</b></div>{{end}}</div>
+<div class="sub2">Collection this period</div>{{.Bar}}</div>
+<div class="row" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
+<div class="panel"><div class="ph"><h2>{{icon "shield-check" 17}}Health</h2></div>{{range .Health}}<div class="ck2 {{.Level}}"><div class="i">{{icon .Icon 14}}</div><div><b>{{.Title}}</b><span>{{.What}}</span></div><div></div></div>{{end}}
+{{if .FailedItems}}<details class="fails" open><summary>Audit settings that need attention · {{len .FailedItems}}</summary>{{range .FailedItems}}<div><b>{{.Item}}</b><span>Set to {{or .Have "—"}}; STIG expects {{or .Want "—"}}{{if .STIG}} · {{.STIG}}{{end}}</span></div>{{end}}</details>{{end}}</div>
+<div class="panel"><div class="ph"><h2>{{icon "layers" 17}}{{if $lan}}Activity vs. typical system{{else}}Activity this period{{end}}</h2>{{if $lan}}<span class="pm">Line = network median</span>{{end}}</div><div class="vs">{{range .Activity}}<div><a class="link" href="#{{.PageID}}" style="color:inherit">{{.Label}}</a><div class="tr2{{if .Above}} hot{{end}}"><s style="width:{{.Pct}}%"></s>{{if $lan}}<em style="left:{{.Median}}%"></em>{{end}}</div><b>{{commas .N}}</b></div>{{end}}</div></div></div>
+<div class="panel"><div class="ph"><h2>{{icon "shield-alert" 17}}Detections on {{.Name}}</h2><span class="pm">{{len .Detections}} this period</span></div>{{if .Detections}}<div class="dl">{{range .Detections}}<a class="dc {{.Severity}}" href="#detections/{{.Index}}"><div class="b"><b>{{.Title}}</b><span>{{.Detail}}</span></div><div class="m2">{{.Day}}<small>{{.Time}}</small></div></a>{{end}}</div>{{else}}<p class="pm" style="margin:0">No detections on this system.</p>{{end}}</div>
+</div>{{end}}{{end}}</div></div>{{end}}
+
+{{define "people"}}<div class="md2" style="grid-template-columns:280px 1fr"><div class="panel plist slist" data-picklist>
+<label class="search">{{icon "search" 14}}<input type="search" placeholder="Find a person" data-find></label>
+{{range .Groups}}<div class="grp2">{{.Title}} · {{len .People}}</div>{{range .People}}<a data-pick="{{.Key}}" href="#people/{{.Key}}"><div class="av {{.Level}}">{{.Initials}}</div><div><b>{{.Name}}</b><span>{{.Kind}}</span></div><small>{{.Systems}} sys</small></a>{{end}}{{end}}</div>
+<div style="min-width:0">{{range .Groups}}{{range .People}}<div data-pane="{{.Key}}" hidden>
+<div class="panel" style="margin-bottom:12px"><div class="dh"><div class="ph2"><div class="av {{.Level}}">{{.Initials}}</div><div><h3>{{.Name}}</h3><p>{{.Line}}</p></div></div>{{if .Level}}<span class="sv {{if eq .Level "bad"}}high{{else}}medium{{end}}">Needs a look</span>{{end}}</div>
+<div class="facts4">{{range .Facts}}<div>{{.Label}}<b{{if .Bad}} class="bad"{{end}}>{{.Value}}</b></div>{{end}}</div></div>
+<div class="row" style="grid-template-columns:1.2fr 1fr;margin-bottom:12px">
+<div class="panel"><div class="ph"><h2>{{icon "triangle-alert" 17}}Notable actions</h2><span class="pm">{{.NotableCount}} this period</span></div>{{if .Notable}}{{range .Notable}}<div class="ck2 {{.Level}}"><div class="i">{{icon .Icon 14}}</div><div><b>{{.Title}}</b><span>{{.What}}</span></div><div></div></div>{{end}}{{else}}<p class="pm" style="margin:0">Nothing out of the ordinary.</p>{{end}}</div>
+<div style="display:grid;gap:12px;align-content:start"><div class="panel"><div class="ph"><h2>{{icon "activity" 17}}When they were active</h2><span class="pm">Red = detection</span></div>{{.Heat}}</div>
+<div class="panel"><div class="ph"><h2>{{icon "server" 17}}Systems used</h2><span class="pm">Events</span></div><div class="mini">{{range .Used}}<div><a class="link" style="color:inherit" href="#systems/{{.Label}}">{{.Label}}</a><s style="width:{{.Pct}}%"></s><b>{{commas .N}}</b></div>{{end}}</div></div></div></div>
+</div>{{end}}{{end}}</div></div>{{end}}
+
+{{define "search"}}<div class="panel" style="margin-bottom:12px"><div class="builder" data-q>Show
+<label class="pick">{{icon "layers" 15}}<select data-q="page"><option value="">All events</option>{{range .Pages}}<option value="{{.ID}}">{{.Title}}</option>{{end}}</select></label> by
+<label class="pick">{{icon "user-round" 15}}<select data-q="user"><option value="">anyone</option>{{with .PeoplePage}}{{range .Groups}}<optgroup label="{{.Title}}">{{range .People}}<option value="{{.Key}}">{{.Name}}</option>{{end}}</optgroup>{{end}}{{end}}</select></label> on
+<label class="pick">{{icon "server" 15}}<select data-q="host"><option value="">Any system</option><option value="@server">Servers</option><option value="@workstation">Workstations</option><option value="@vm">Virtual machines</option><optgroup label="Systems">{{range .Hosts}}<option value="{{.}}">{{.}}</option>{{end}}</optgroup></select></label> during
+<label class="pick">{{icon "calendar-range" 15}}<select data-q="when"><option value="">This {{lower (periodWord .)}}</option><option value="@after">Outside working hours</option><optgroup label="Day">{{range periodDays .}}<option value="{{.}}">{{dayName .}}</option>{{end}}</optgroup></select></label> containing
+<label class="pick" style="font-weight:500;min-width:200px">{{icon "search" 15}}<input type="search" placeholder="any text" data-q="text"></label></div>
+<div class="sub2" style="margin-top:18px">Common searches</div><div class="saved" style="margin-top:0">
+<a data-preset="person">{{icon "key-round" 16}}Everything one person did</a><a data-preset="usbservers">{{icon "usb" 16}}USB devices on servers</a>
+<a data-preset="afterhours">{{icon "moon" 16}}Admin work after hours</a><a data-preset="failedsource">{{icon "log-in" 16}}Failed logons by source</a>
+<a data-preset="admingroups">{{icon "user-plus" 16}}Changes to admin groups</a><a data-preset="audit">{{icon "eraser" 16}}Logs cleared or audit changed</a>
+<a data-preset="psdownload">{{icon "terminal" 16}}PowerShell that downloads</a><a data-preset="rdp">{{icon "monitor" 16}}Remote Desktop logons</a></div></div>
+<div class="panel" data-search><div class="toolbar"><h2 data-title>{{icon "list-filter" 17}}<span>Choose what to search for above</span></h2><div class="chips"><span class="on" data-sort="new">Newest</span><span data-sort="host">Group by system</span><span data-csv>Export CSV</span></div></div>
+<div data-hist style="margin-bottom:12px"></div>
+<div class="vt" tabindex="0" style="{{searchCols}}"><div class="vt-head"><span>Time</span><span>System</span><span>Event</span><span>Person</span><span>Details</span><span>Severity</span></div><div class="vt-body"><div class="vt-msg">Search runs in this browser, over the events in this report's folder. Nothing leaves this computer.</div></div></div>
+<div class="pager"><span data-count></span><span></span><span></span></div></div>{{end}}
+
+{{define "health"}}<div class="ev6" style="grid-template-columns:repeat(4,1fr)">{{range .Stats}}<div class="panel ec {{.Level}}"><div class="l">{{icon .Icon 15}}{{.Label}}</div><div class="v">{{.Value}}</div><div class="d">{{.Note}}</div></div>{{end}}</div>
+<div data-a1{{if .Single}} data-single="{{.Single}}"{{end}}><div class="row" style="grid-template-columns:1.45fr 1fr">
+<div class="panel" style="overflow-x:auto"><div class="ph"><h2>{{icon "layers" 17}}Every system, every check</h2><span class="pm"><span style="color:#147A3D">✓</span> matches STIG · <span style="color:#C22020">✕</span> gap · <span style="color:#A35A00">!</span> warning</span></div>
+<table class="mxs"><thead><tr><th>System</th>{{range .Cols}}<th>{{.}}</th>{{end}}</tr></thead><tbody>{{range .Groups}}<tr class="g"><td colspan="11">{{.Title}}</td></tr>{{range .Rows}}{{$n := .Name}}<tr><td class="nm"><a class="link" style="color:inherit" href="#health/{{.Name}}">{{.Name}}</a></td>{{range .Cells}}<td class="{{if eq .Class "ok"}}p{{else if eq .Class "bad"}}f{{else if eq .Class "warn"}}w{{else}}na{{end}}"{{if .Title}} title="{{.Title}}"{{end}}><a href="#health/{{$n}}" style="color:inherit;text-decoration:none;display:block">{{.Mark}}</a></td>{{end}}</tr>{{end}}{{end}}</tbody></table></div>
+<div class="panel" style="align-self:start"><div class="ph"><h2>{{icon "triangle-alert" 17}}Gaps · {{len .Gaps}}</h2><span class="pm">Click a system for its settings</span></div>{{if .Gaps}}<div class="dl">{{range $i, $g := .Gaps}}{{if eq $i 4}}</div><details class="more"><summary class="pm link">All {{len $.Gaps}} →</summary><div class="dl">{{end}}{{template "gapcard" $g}}{{end}}</div>{{if gt (len .Gaps) 4}}</details>{{end}}{{else}}<p class="pm" style="margin:0">No gaps: every system matches the STIG, and no logs were cleared or lost.</p>{{end}}</div></div></div>
+<div data-a3 hidden><div class="md2" style="grid-template-columns:280px 1fr"><div class="panel slist" data-picklist>
+<label class="search">{{icon "search" 14}}<input type="search" placeholder="Find a system" data-find></label>
+{{range .Groups}}<div class="grp2">{{.Title}} · {{len .Rows}}</div>{{range .Rows}}<a data-pick="{{.Name}}" href="#health/{{.Name}}"><i class="{{if .Level}}{{.Level}}{{else}}ok{{end}}"></i><span>{{.Name}}</span><small>{{.Note}}</small></a>{{end}}{{end}}
+<a class="pm link" href="#health" style="display:block;padding:12px 16px 4px">← Every system, every check</a></div>
+<div style="min-width:0">{{range .Groups}}{{range .Rows}}<div data-pane="{{.Name}}" hidden><div class="panel" style="margin-bottom:12px"><div class="dh"><div><h3>{{.Name}}</h3><p>{{.Line}}</p></div><span class="sv {{if eq .Level "bad"}}high{{else if eq .Level "warn"}}medium{{else}}ok{{end}}">{{.Note}}</span></div>
+<div class="facts4">{{range .Facts}}<div>{{.Label}}<b{{if .Bad}} class="bad"{{end}}>{{.Value}}</b></div>{{end}}</div></div>
+<div class="panel"><div class="ph"><h2>{{icon "shield-check" 17}}Settings on {{.Name}}</h2><span class="pm">Report only · Blackbox never changes these</span></div>{{if not .Checked}}<p class="pm">The audit settings of this system have not been checked yet. They are checked at each collection.</p>{{end}}
+<table class="stig"><thead><tr><th>Check</th><th>STIG ID</th><th>Required</th><th>On this system</th><th>Result</th></tr></thead><tbody>{{range .Table}}<tr class="{{.Class}}"><td><b>{{.Check}}</b>{{if and .Fix (ne .Class "ok")}}<div class="fixline">How to fix: {{.Fix}}</div>{{end}}</td><td class="mono mute">{{or .STIG "—"}}</td><td>{{.Want}}</td><td>{{.Have}}</td><td><span class="st {{.Class}}">{{.Result}}</span></td></tr>{{end}}</tbody></table></div>
+</div>{{end}}{{end}}</div></div></div>{{end}}
+
+{{define "gapcard"}}<div class="fd {{.Level}}"><div><b>{{.Title}}</b>{{if .STIG}}<span class="id">{{.STIG}}</span>{{end}}</div><div class="sys"><b>{{len .Systems}}</b>{{if eq (len .Systems) 1}}system{{else}}systems{{end}}</div><p>{{.Explain}}</p><div class="tags">{{range .Systems}}<a href="#health/{{.}}"><span>{{.}}</span></a>{{end}}</div>{{if .Fix}}<div class="fix">How to fix: {{.Fix}}</div>{{end}}</div>{{end}}
+
+{{define "trends"}}{{if .Weeks1}}<div class="alertbar note" style="margin-bottom:12px">{{icon "info" 18}}<span>Trends build up week by week from each report's summary. This is the first report, so each chart has one bar so far.</span></div>{{end}}
+<div class="ph" style="margin-bottom:10px"><h2>{{icon "trending-up" 17}}This week against the last {{len .Weeks}}</h2><span class="pm">Dashed line = average of earlier weeks · red bar = well above average</span></div>
+<div class="sm">{{range .Cards}}<div class="panel smc"><div class="t"><b>{{.Title}}</b><span>{{.Avg}}</span></div><div class="v">{{.Value}}{{if .Delta}}<small class="{{.Class}}">{{.Delta}}</small>{{end}}</div>{{.Chart}}</div>{{end}}</div>
+<div class="panel" style="margin-top:12px"><div class="ph"><h2>{{icon "server" 17}}Detections per system, by week</h2><span class="pm">Darker = more</span></div>{{if .Rows}}<div style="overflow-x:auto"><table class="wk"><thead><tr><th></th>{{range .Weeks}}<th>{{.}}</th>{{end}}</tr></thead><tbody>{{range .Rows}}<tr><td class="nm"><a class="link" style="color:inherit" href="#systems/{{.Name}}">{{.Name}}</a></td>{{range .Cells}}<td style="{{.Style}}">{{if .N}}{{.N}}{{end}}</td>{{end}}</tr>{{end}}</tbody></table></div>{{else}}<p class="pm" style="margin:0">No detections in these weeks.</p>{{end}}</div>{{end}}
+
+{{define "howlogs"}}<div class="how"><div><i>1</i><span>Open the report folder. Each system has a <code>logs-SYSTEM.zip</code> next to <code>report.html</code>.</span></div>
+<div><i>2</i><span>Windows logs are <code>.evtx</code>: double-click to open in Event Viewer. Linux logs are plain text.</span></div>
+<div><i>3</i><span>To prove nothing was changed: <code>blackbox verify</code> checks every file against <code>manifest.sha256</code>.</span></div></div>
+<div class="path" data-folder>This report's folder</div>{{end}}
+
+{{define "logs"}}<div class="ev6" style="grid-template-columns:repeat(4,1fr)">{{range .Stats}}<div class="panel ec {{.Level}}"><div class="l">{{icon .Icon 15}}{{.Label}}</div><div class="v">{{.Value}}</div><div class="d">{{.Note}}</div></div>{{end}}</div>
+{{if not .Archives}}<div class="panel"><p class="pm" style="margin:0">{{if .Kept}}No original logs were archived for this period.{{else}}This report was made without keeping the original logs.{{end}}</p></div>{{else}}
+<div data-a1><div class="row" style="grid-template-columns:1fr 360px">
+<div class="panel" style="overflow-x:auto"><div class="ph"><h2>{{icon "hard-drive" 17}}Archives in this report</h2><span class="pm">{{.Range}}</span></div>
+<table class="ar"><thead><tr><th>System</th><th>OS</th><th>Logs inside</th><th class="n">Size</th><th>SHA-256</th><th>Check</th></tr></thead><tbody>{{range .Archives}}<tr><td><a class="link" style="color:inherit" href="#logs/{{.Host}}"><b>{{.Host}}</b></a></td><td>{{.OS}}</td><td class="mute" style="font-size:12.5px;white-space:normal">{{.Logs}}</td><td class="n">{{.Size}}</td><td class="h" title="{{.SHA256}}">{{.Short}}</td><td>{{if eq .Class "ok"}}<span class="vok">{{icon "circle-check" 14}}{{.Status}}</span>{{else}}<span class="vbad">{{.Status}}</span>{{end}}</td></tr>{{end}}</tbody></table></div>
+<div class="panel" style="align-self:start"><div class="ph"><h2>{{icon "circle-check" 17}}How to use them</h2></div>{{template "howlogs"}}</div></div></div>
+<div data-a3 hidden><div class="md2" style="grid-template-columns:280px 1fr"><div class="panel slist" data-picklist>
+<label class="search">{{icon "search" 14}}<input type="search" placeholder="Find a system" data-find></label>
+{{range .Groups}}<div class="grp2">{{.Title}} · {{len .Archives}}</div>{{range .Archives}}<a data-pick="{{.Host}}" href="#logs/{{.Host}}"><i class="{{if eq .Class "bad"}}bad{{else}}ok{{end}}"></i><span>{{.Host}}</span><small>{{if eq .Status "Missing"}}missing{{else}}{{.Size}}{{end}}</small></a>{{end}}{{end}}
+<a class="pm link" href="#logs" style="display:block;padding:12px 16px 4px">← All archives</a></div>
+<div style="min-width:0">{{range .Archives}}<div data-pane="{{.Host}}" hidden><div class="panel" style="margin-bottom:12px"><div class="dh"><div class="ph2"><div class="av" style="background:rgba(11,95,255,.08)">{{icon "hard-drive" 20}}</div><div><h3>{{if .Name}}{{.Name}}{{else}}{{.Host}}{{end}}</h3><p>{{if .OS}}{{.OS}} · {{end}}{{.Size}} · {{.Covers}}</p></div></div>{{if eq .Class "ok"}}<span class="vok">{{icon "circle-check" 14}}Hash verified</span>{{else}}<span class="vbad">{{.Status}}</span>{{end}}</div>
+{{if .SHA256}}<div class="path">SHA-256 {{.SHA256}}</div>{{else}}<p class="pm" style="margin:0">No archive of this system's logs is in this report.</p>{{end}}</div>
+{{if .Files}}<div class="panel" style="margin-bottom:12px;overflow-x:auto"><div class="ph"><h2>{{icon "scroll-text" 17}}Inside the zip</h2><span class="pm">{{len .Files}} files</span></div>
+<table class="fl"><thead><tr><th>File</th><th>Log</th><th>Covers</th><th class="n">Events</th><th class="n">Size</th><th>Hash</th><th>Note</th></tr></thead><tbody>{{range .Files}}<tr><td class="mono">{{.File}}</td><td>{{.Log}}</td><td class="mono mute">{{.Covers}}</td><td class="n">{{.Events}}</td><td class="n">{{.Size}}</td><td class="mono mute">{{.Hash}}</td><td{{if .NoteBad}} class="vbad" style="font-weight:500"{{else}} class="mute"{{end}}>{{.Note}}</td></tr>{{end}}</tbody></table></div>{{end}}
+<div class="panel"><div class="ph"><h2>{{icon "circle-check" 17}}How to use them</h2></div>{{template "howlogs"}}</div>
+</div>{{end}}</div></div></div>{{end}}{{end}}
+
+{{define "popovers"}}<div class="pop" data-pop="export" hidden>
+<a href="#" data-act="print">{{icon "printer" 18}}<div><b>Print or save as PDF</b><span>A clean printable summary with blank ISSO and ISSM lines</span></div></a>
+<a href="#" data-act="detcsv">{{icon "list-filter" 18}}<div><b>Detections as CSV</b><span>{{plural (len .Findings) "row"}} · for a POA&amp;M or ticket</span></div></a>
+<a href="events.zip" download>{{icon "layers" 18}}<div><b>All events as CSV</b><span>{{commas (len .Events)}} rows in events.zip · for Excel</span></div></a>
+<a href="#" data-act="healthcsv">{{icon "shield-check" 18}}<div><b>Audit health as CSV</b><span>Every system × every STIG check</span></div></a>
+<a href="./" target="_blank">{{icon "folder-open" 18}}<div><b>Open the report folder</b><span>Original logs, manifest, summary.json</span></div></a></div>
+<div class="pop vpop" data-pop="verified" hidden><div class="vh {{if .Verify.OK}}ok{{else}}bad{{end}}" data-vhead>{{icon "circle-check" 16}}<b>{{if .Verify.OK}}This report has not been changed{{else}}Something does not match{{end}}</b></div>
+<p>Every file in the report folder is listed in manifest.sha256 with the SHA-256 it had when the report was written.</p>
+<ul data-vlist>{{range .Verify.Lines}}<li class="{{if .Bad}}bad{{else}}ok{{end}}">{{if .Bad}}{{icon "circle-x" 14}}{{else}}{{icon "circle-check" 14}}{{end}}<span>{{.Text}}</span></li>{{end}}</ul>
+<p class="pm">To check it yourself: <code>blackbox verify</code> in the report folder.</p></div>{{end}}
+
+{{define "printout"}}<section class="printout"><div class="pt-head"><div><div class="pt-kicker">{{.Kicker}}</div><h1>{{.Title}}</h1><p>{{.Sub}}</p></div><img src="{{logo}}" alt=""></div>
+<div class="pt-tot">{{range .Totals}}<div>{{.Label}}<b>{{.Value}}</b></div>{{end}}</div>
+<h2>Detections</h2>{{if .Detections}}<table><thead><tr><th>Severity</th><th>Detection</th><th>System</th><th>When</th></tr></thead><tbody>{{range .Detections}}<tr><td>{{if eq .Severity "high"}}High{{else}}Medium{{end}}</td><td>{{.Title}}</td><td>{{.Host}}</td><td>{{.Day}} {{.Time}}</td></tr>{{end}}</tbody></table>{{else}}<p>Nothing unusual this period.</p>{{end}}
+<h2>Audit trail</h2><table><tbody>{{range .Trail}}<tr><td>{{.Label}}</td><td>{{.Value}}</td></tr>{{end}}</tbody></table>
+<div class="pt-lines"><div>ISSO</div><div>Date</div><div>ISSM</div></div>
+<p class="pt-foot">Full detail is in report.html in the same folder.</p></section>{{end}}
+
+{{define "detections"}}{{if not .Detections}}<div class="panel"><div class="clean"><div class="ic">{{icon "shield-check" 22}}</div><div><b>Nothing unusual this {{lower (periodWord .)}}</b><span>No activity matched a detection rule. All {{commas (len .Events)}} events are still on the event pages and in Search.</span></div></div></div>{{else}}
+<div class="md2" style="grid-template-columns:300px 1fr"><div class="panel dlist" data-picklist style="padding:4px 0 10px"><div class="chips" data-detsev style="padding:12px 16px 0"><span class="on" data-sev="">All<i>{{len .Detections}}</i></span><span data-sev="high">High<i>{{sevCount .Detections "high"}}</i></span><span data-sev="medium">Medium<i>{{sevCount .Detections "medium"}}</i></span></div>
+{{range $i, $d := .Detections}}{{if or (eq $i 0) (ne $d.Day (detDayBefore $.Detections $i))}}<div class="dayh">{{$d.Day}}</div>{{end}}<a class="{{$d.Severity}}" data-pick="{{$d.Index}}" href="#detections/{{$d.Index}}"><div><b>{{$d.Title}}</b><span>{{$d.Host}} · {{$d.Time}}</span></div></a>{{end}}</div>
+<div style="min-width:0">{{range .Detections}}<div class="detail" data-pane="{{.Index}}" hidden><div class="panel" style="margin-bottom:12px"><div class="dh"><div><h3>{{.Title}}</h3><p>{{.Range}}</p></div><span class="sv {{.Severity}}">{{if eq .Severity "high"}}High{{else}}Medium{{end}}</span></div>
+{{if .Detail}}<p style="margin:0 0 12px;font-size:13.5px">{{.Detail}}</p>{{end}}{{if .Why}}<div class="why2"><b>Why this was flagged:</b> {{.Why}}</div>{{end}}</div>
+<div class="row" style="grid-template-columns:1.3fr 1fr;margin-bottom:12px">
+<div class="panel"><div class="ph"><h2>{{icon "history" 17}}What happened</h2><span class="pm">In order</span></div>{{if .Steps}}<div class="seq">{{range .Steps}}<div{{if .Key}} class="k"{{end}}><b>{{.Time}}</b><span>{{.Text}}</span><small>{{.Sub}}</small></div>{{end}}</div>{{if gt .Count (len .Steps)}}<p class="pm" style="margin:0">and {{minus .Count (len .Steps)}} more in the events below.</p>{{end}}{{else}}<p class="pm" style="margin:0">The events behind this detection are not in this report.</p>{{end}}</div>
+<div class="panel"><div class="ph"><h2>{{icon "user-round" 17}}Involved</h2></div><div class="kv2">{{range .Involved}}<span>{{.Label}}</span><b>{{.Value}}</b>{{end}}</div>
+{{if .Related}}<div class="sub2" style="margin-top:16px">Related this week</div><div class="dl">{{range .Related}}<a class="dc {{.Severity}}" href="#detections/{{.Index}}"><div class="b"><b>{{.Title}}</b><span>{{.Host}} · {{.Day}} {{.Time}}</span></div><div></div></a>{{end}}</div>{{end}}</div></div>
+{{if .Events}}<div class="panel"><div class="ph"><h2>{{icon "scroll-text" 17}}Events</h2>{{if .Archive}}<span class="pm">From the original logs · {{.Archive}}</span>{{end}}</div>
+<div style="overflow-x:auto"><table class="ev"><thead><tr><th>Time</th><th>ID</th><th>Event</th><th>Account</th><th>Details</th></tr></thead><tbody>{{range .Events}}<tr><td class="mono">{{.Time}}</td><td class="mono">{{.ID}}</td><td>{{.Event}}</td><td>{{.Account}}</td><td class="mute">{{.Details}}</td></tr>{{end}}</tbody></table></div>
+{{if gt .Count (len .Events)}}<p class="pm" style="margin:10px 0 0">Showing the first {{len .Events}} of {{.Count}} events.</p>{{end}}</div>{{end}}
+</div>{{end}}</div></div>{{end}}{{end}}
+
+{{define "pagetop"}}<div class="ev6" style="grid-template-columns:repeat(4,1fr)">{{range .Stats}}<div class="panel ec {{.Level}}"><div class="l">{{icon .Icon 15}}{{.Label}}</div><div class="v">{{.Value}}</div><div class="d">{{.Note}}</div></div>{{end}}</div>
+<div class="row" style="grid-template-columns:1.5fr 1fr">
+<div class="panel"><div class="ph"><h2>{{icon "calendar-range" 17}}{{.ChartTitle}}</h2><span class="pm">By {{lower $.KindWord}}</span></div>{{.Chart}}<div class="legend">{{range .Legend}}<span><i style="background:{{css2 .Color}}"></i>{{.Name}}</span>{{end}}{{if .Hot}}<span><i style="background:none;outline:1.5px solid #D12C2C"></i>Above normal</span>{{end}}</div></div>
+<div class="panel"><div class="ph"><h2>{{icon "list-filter" 17}}{{.TopTitle}}</h2>{{if .Top}}<span class="pm">Red = flagged</span>{{end}}</div>{{if .Top}}<div class="mini">{{range .Top}}<div><span title="{{.Label}}">{{.Label}}</span><s style="width:{{.Pct}}%{{if .Flagged}};background:#D12C2C{{end}}"></s><b>{{commas .N}}</b></div>{{end}}</div>{{else}}<p class="pm" style="margin:0">Nothing this week.</p>{{end}}</div></div>
+<div class="panel" style="margin-bottom:12px"><div class="ph"><h2>{{icon "shield-alert" 17}}Flagged this week</h2><span class="pm">{{.FlaggedNote}}</span></div>{{if .Flagged}}<div class="dstrip">{{range .Flagged}}<a class="dc {{.Severity}}" href="#detections/{{.Index}}"><div class="b"><b>{{.Title}}</b><span>{{.Detail}}</span></div><div class="m2">{{.Host}}<small>{{.Day}} {{.Time}}</small></div></a>{{end}}</div>{{else}}<p class="pm" style="margin:0">None of these events are part of a detection.</p>{{end}}</div>
+{{end}}
+
+{{define "events"}}
+<div class="panel" data-events="{{.ID}}">
+  <div class="ph"><h2>{{icon "list-filter" 17}}{{.All}} · {{commas .Total}}</h2><span class="pm">Click a row for the full event</span></div>
+  {{if .Omitted}}<div class="alertbar note">{{icon "info" 18}}<span>{{commas .Omitted}} routine Info events are counted in this report but not listed, to keep the report a manageable size. They are in the original logs in this report's folder.</span></div>{{end}}
+  <div class="fbar"><input class="dd txt" type="search" placeholder="Filter text…" data-f="text">
+    <select class="dd" data-f="sev"><option value="">Severity: Any</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="info">None (Info)</option></select>
+    <select class="dd" data-f="host"><option value="">System: Any</option></select>
+    <select class="dd" data-f="user"><option value="">Person: Any</option></select>
+    {{if .KindLabel}}<select class="dd" data-f="kind"><option value="">{{.KindLabel}}: Any</option></select>{{end}}
+    <select class="dd" data-f="day"><option value="">Day: All</option></select>
+  </div>
+  <div class="vt" tabindex="0" style="{{gridCols .Cols}}"><div class="vt-head">{{if .Cols}}{{range .Cols}}<span>{{.Label}}</span>{{end}}{{else}}<span>Time</span><span>System</span><span>Person</span><span>What happened</span><span>Severity</span>{{end}}</div><div class="vt-body"><div class="vt-msg">Loading events…</div></div></div>
+  <div class="pager"><span data-count></span><span></span><span data-csv>Export CSV</span></div>
+</div>
+{{end}}
+
 {{define "overview"}}
-<section>
-  <h1>{{if .Site}}{{.Site}} — {{end}}{{if .Interim}}Interim {{end}}Audit Report</h1>
-  <div class="meta"><span>{{if gt (len .Hosts) 6}}<a href="#systems">{{len .Hosts}} systems</a>{{else}}System{{if gt (len .Hosts) 1}}s{{end}}: {{if .Hosts}}{{join .Hosts ", "}}{{else}}—{{end}}{{end}}</span><span>{{commas (len .Events)}} security-relevant events</span><span>Generated {{stamp .Generated}} {{zone .Generated}}</span></div>
-
-  <div class="period">
-    <div><div class="lbl">From</div><div class="d">{{dateLong .PeriodStart}}</div><div class="t">{{clock .PeriodStart}}<small>{{zone .PeriodStart}}</small></div></div>
-    <div><div class="lbl">To</div><div class="d">{{dateLong .WindowEnd}}</div><div class="t">{{clock .WindowEnd}}<small>{{zone .WindowEnd}}</small></div></div>
-    <div><div class="lbl">Length</div><div class="v">{{length .PeriodStart .WindowEnd}}</div><div class="sub">{{if .WindowStart.IsZero}}first report: from the oldest event collected{{else}}continues from the previous report{{end}}</div></div>
-    <div><div class="lbl">Source</div><div class="v">{{.Source}}</div><div class="sub">{{if .Health.Runs}}{{.Health.Runs}} collection run{{if gt .Health.Runs 1}}s{{end}}{{end}}</div></div>
-  </div>
-
-  {{if .Interim}}
-  <div class="status warn"><strong>Interim report.</strong> Run by hand {{stamp .Generated}} {{zone .Generated}}, between scheduled reports. It does not change the schedule: the next scheduled report covers this time again, and that report's folder holds the original logs.</div>
-  {{end}}
-  {{if or .Health.Gaps .Health.LogClears .Health.AuditOff .Silent}}
-  <div class="status bad"><strong>The audit trail is not complete for this period.</strong>
-    <ul>
-    {{range .Silent}}<li>{{.Name}}: {{.StatusMsg}} See <a href="#systems">Systems</a>.</li>{{end}}
-    {{range .Health.AuditOff}}<li>{{.}}</li>{{end}}
-    {{if .Health.LogClears}}<li>{{.Health.LogClears}} log clear{{if gt .Health.LogClears 1}}s{{end}} recorded — see <a href="{{href $ "audit_integrity" ""}}">Audit &amp; System Integrity</a>.</li>{{end}}
-    {{range .Health.Gaps}}<li>{{if .Note}}{{.Host}}: {{.Channel}}: {{.Note}}.{{else if .Reset}}{{.Host}}: the {{.Channel}} log was cleared or recreated.{{else}}{{.Host}}: {{commas .Lost}} {{.Channel}} events were overwritten before collection ({{stamp .From}} to {{stamp .To}}).{{end}}</li>{{end}}
-    </ul></div>
-  {{else if .Health.Warnings}}
-  <div class="status warn"><strong>Collection warnings.</strong> {{len .Health.Warnings}} item{{if gt (len .Health.Warnings) 1}}s{{end}} on the <a href="{{href $ "health" ""}}">Audit health</a> page.</div>
-  {{else if .Health.Runs}}
-  <div class="status"><strong>Collection complete.</strong> {{.Health.Runs}} collection run{{if gt .Health.Runs 1}}s{{end}} in this period; no events were lost.</div>
-  {{end}}
-  {{with .Excluded}}<p class="note">{{commas .}} events left out by the exclusion list in the configuration.</p>{{end}}
-  {{with .Late}}<p class="note">{{commas .}} events happened before this period but arrived after the previous report; they are marked <span class="tag">Late</span>.</p>{{end}}
-
-  <h2 id="detections">Detections<span class="ct">{{len .Findings}}</span></h2>
-  {{if .Findings}}
-  <table>
-    <thead><tr><th>Severity</th><th>Time</th>{{if gt (len .Hosts) 1}}<th>System</th>{{end}}<th>What was detected</th><th>Category</th></tr></thead>
-    <tbody>
-    {{range .Findings}}<tr><td class="sevc"><span class="sev {{.Severity}}">{{.Severity}}</span></td><td class="mono">{{stampSec .Time}}</td>{{if gt (len $.Hosts) 1}}<td>{{.Host}}</td>{{end}}
-      <td><strong>{{.Title}}.</strong> {{.Detail}} <a href="{{href $ .Category .RowID}}">View</a></td><td><a href="{{href $ .Category ""}}">{{catTitle .Category}}</a></td></tr>
-    {{end}}
-    </tbody>
-  </table>
-  {{else}}<p class="empty">No detections in this period.</p>{{end}}
-  {{if .Learning}}<p class="note">Learning what is normal for {{join .Learning ", "}}: first logons, first use of administrator rights and new logon addresses are pointed out from {{if eq (len .Learning) 1}}its{{else}}their{{end}} next report.</p>{{end}}
-  {{if not .WorkingHours.Set}}<p class="note">Administrator activity outside working hours is not checked: set <code>working_hours</code> in the settings, e.g. <code>Mon-Fri 06:00-18:00</code>.</p>{{end}}
-
-  <h2>Events by category</h2>
-  <div class="figs">
-  {{range .Sections}}<a href="{{href $ .Info.ID ""}}"><div class="k">{{.Info.Title}}</div><div class="v">{{commas .Total}}</div>
-    <div class="s">{{with index .BySev "high"}}<span class="c-high">{{.}} high</span>{{end}}{{if and (index .BySev "high") (index .BySev "medium")}} · {{end}}{{with index .BySev "medium"}}<span class="c-med">{{.}} medium</span>{{end}}</div></a>
-  {{end}}
-  </div>
-
-  <h2>Needs attention<span class="ct">{{len .HighRows}}</span></h2>
-  {{if not .HighRows}}<p class="empty">No single event in this period was rated high severity.</p>{{else}}
-  <table>
-    <thead><tr><th>Severity</th><th>Time</th>{{if gt (len .Hosts) 1}}<th>System</th>{{end}}<th>What happened</th><th>Category</th></tr></thead>
-    <tbody>
-    {{range .HighRows}}<tr><td class="sevc"><span class="sev high">high</span></td><td class="mono">{{stampSec .Time}}</td>{{if gt (len $.Hosts) 1}}<td>{{.Host}}</td>{{end}}
-      <td>{{.Summary}}{{range .Flags}}<span class="tag">{{.}}</span>{{end}} <a href="{{href $ .Category .ID}}">View</a></td><td><a href="{{href $ .Category ""}}">{{catTitle .Category}}</a></td></tr>
-    {{end}}
-    </tbody>
-  </table>{{end}}
-
-  {{if .Medium}}
-  <h2>Also review<span class="ct">{{mediumTotal .Medium}}</span></h2>
-  <table>
-    <thead><tr><th>Severity</th><th class="num">Count</th><th>What</th><th>Category</th></tr></thead>
-    <tbody>{{range .Medium}}<tr><td class="sevc"><span class="sev medium">medium</span></td><td class="num">{{commas .Count}}</td>
-      <td>{{.Label}} — <a href="{{href $ .Category .RowID}}">first occurrence</a></td><td><a href="{{href $ .Category ""}}">{{catTitle .Category}}</a></td></tr>{{end}}</tbody>
-  </table>
-  {{end}}
-</section>
+{{if .Alert}}<div class="alertbar">{{icon "triangle-alert" 18}}<b>{{.Alert}}</b><span>{{.AlertDetail}}</span><a href="#health">Details {{icon "chevron-right" 14}}</a></div>{{end}}
+{{if .Standalone}}<div class="sys2">{{range .Systems}}
+<div class="panel"><div class="sc"><div class="ic">{{if .VM}}{{icon "box" 22}}{{else}}{{icon "monitor" 22}}{{end}}</div><div><h3>{{.Name}}{{if .VM}} <span class="vm">VM</span>{{end}}</h3><p>{{.OS}} · {{.Role}}</p></div>
+<span class="sv {{if .Bad}}high{{end}}" style="align-self:start{{if not .Bad}};color:#147A3D{{end}}">{{.Status}}</span></div>
+<div class="facts"><div>Events<b>{{.Events}}</b></div><div>Detections<b class="{{if .DetectionsBad}}bad{{end}}">{{.Detections}}</b></div><div>Collected<b>{{.Collected}}</b></div><div>Audit settings<b class="{{if .SettingsBad}}bad{{end}}">{{.Settings}}</b></div></div></div>
+{{end}}</div>{{else}}
+<div class="kpis">{{range .KPIs}}<div class="panel kpi"><div class="kl">{{.Label}}</div><div class="kv{{if .Bad}} bad{{end}}">{{.Value}}</div><div class="kr"><span class="ks">{{.Note}}</span>{{.Spark}}</div></div>{{end}}</div>
 {{end}}
-
-{{define "section"}}{{with .Section}}
-<section>
-  <h1>{{.Info.Title}}</h1>
-  <p class="lede">{{.Info.Description}}</p>
-  <div class="meta"><span>{{commas .Total}} event{{if ne .Total 1}}s{{end}}</span>{{with index .BySev "high"}}<span class="c-high">{{.}} high</span>{{end}}{{with index .BySev "medium"}}<span class="c-med">{{.}} medium</span>{{end}}<span>NIST SP 800-53: {{join .Info.Controls ", "}}</span></div>
-
-  {{if .Logons}}
-  <h2>Who logged on<span class="ct">{{len .Logons}}</span></h2>
-  <table>
-    <thead><tr><th>Account</th>{{if gt (len $.Hosts) 1}}<th>System</th>{{end}}<th class="num">Logons</th><th>How</th><th>From</th><th>First</th><th>Last</th></tr></thead>
-    <tbody>{{range .Logons}}<tr><td>{{.User}}</td>{{if gt (len $.Hosts) 1}}<td>{{.Host}}</td>{{end}}<td class="num">{{.Count}}</td><td>{{.Types}}</td><td>{{or .Sources "this computer"}}</td><td class="mono">{{stamp .First}}</td><td class="mono">{{stamp .Last}}</td></tr>{{end}}</tbody>
-  </table>
-  <h2>All logon and logoff events<span class="ct">{{commas .Total}}</span></h2>
-  {{end}}
-
-  {{if .Rows}}
-  <div class="filter" data-for="t-{{.Info.ID}}">
-    <input type="search" placeholder="Filter by account, computer, file, address…" aria-label="Filter {{.Info.Title}}">
-    {{if gt (len $.Hosts) 1}}<select class="host" aria-label="System"><option value="">All systems</option>{{range $.Hosts}}<option>{{.}}</option>{{end}}</select>{{end}}
-    <select class="sev-min" aria-label="Minimum severity"><option value="">All severities</option><option value="high">High only</option><option value="medium">Medium and higher</option><option value="low">Low and higher</option></select>
-    <span class="count"></span>
-  </div>
-  <table id="t-{{.Info.ID}}">
-    <thead><tr><th>Severity</th><th>Time</th>{{if gt (len $.Hosts) 1}}<th>System</th>{{end}}<th>Account</th><th>What happened</th></tr></thead>
-    <tbody>
-    {{range .Rows}}<tr class="row s{{sevRank .Severity}}" id="{{.ID}}" data-sev="{{sevRank .Severity}}" data-host="{{.Host}}"><td class="sevc"><span class="sev {{.Severity}}">{{.Severity}}</span></td><td class="mono">{{stampSec .Time}}</td>{{if gt (len $.Hosts) 1}}<td>{{.Host}}</td>{{end}}<td>{{.User}}</td><td>{{.Summary}}{{range .Flags}}<span class="tag">{{.}}</span>{{end}}</td></tr>
-    <tr class="detail"><td colspan="{{if gt (len $.Hosts) 1}}5{{else}}4{{end}}"><dl class="kv">
-      {{range .Details}}<dt>{{.Label}}</dt><dd>{{.Value}}</dd>{{end}}
-      <dt>Recorded as</dt><dd>{{if eq .OS "windows"}}{{.Source}} event {{.EventID}}{{if .RecordID}}, record {{.RecordID}}{{end}}{{else}}{{.Source}} {{.RecordType}}{{if .RecordID}} record, serial {{.RecordID}}{{else}} message{{end}}{{end}}, on {{.Host}} at {{stampSec .Time}} {{zone .Time}}</dd>
-    </dl>{{if and .Fields (ne .Category "logon_activity")}}<details class="raw"><summary>Original event data</summary><dl class="kv">{{range $k, $v := .Fields}}{{if $v}}<dt>{{$k}}</dt><dd>{{$v}}</dd>{{end}}{{end}}</dl></details>{{end}}</td></tr>
-    {{end}}
-    </tbody>
-  </table>
-  {{if .Truncated}}<p class="note">{{commas .Truncated}} more events are not shown to keep this page a manageable size. All of them are in <code>events.csv</code> in this report's folder.</p>{{end}}
-  {{else}}
-  <p class="empty">No events in this period.</p>
-  {{end}}
-</section>
-{{end}}{{end}}
-
-{{define "health"}}
-<section>
-  <h1>Audit health</h1>
-  <p class="lede">Whether the logs were collected completely, and whether auditing on the system is configured to record what this report needs.</p>
-  {{if .Health.Runs}}<div class="meta"><span>{{.Health.Runs}} collection run{{if gt .Health.Runs 1}}s{{end}}, {{stamp .Health.FirstRun}} to {{stamp .Health.LastRun}}</span>{{if and (gt .Health.Runs 1) (le (len .Hosts) 1)}}<span>longest gap between runs {{dur .Health.LongestPause}}</span>{{end}}<span>{{commas .Health.TotalRead}} events read, {{commas .Health.TotalKept}} kept</span></div>{{end}}
-
-  {{if .Health.Warnings}}<div class="status warn"><strong>Warnings</strong><ul>{{range .Health.Warnings}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
-
-  {{if .Health.Channels}}
-  <h2>Logs read</h2>
-  <table>
-    <thead><tr><th>System</th><th>Log</th><th class="num">Read</th><th class="num">Kept</th><th class="num">Lost</th><th>History in log</th><th>Maximum size</th><th>Status</th></tr></thead>
-    <tbody>{{range .Health.Channels}}<tr><td>{{.Host}}</td><td>{{.Channel}}</td><td class="num">{{commas .Read}}</td><td class="num">{{commas .Kept}}</td>
-      <td class="num">{{if .Lost}}<span class="c-high">{{commas .Lost}}</span>{{else}}0{{end}}</td>
-      <td>{{if .History}}{{dur .History}}{{else}}—{{end}}</td><td>{{if .MaxSize}}{{bytes .MaxSize}}{{else}}—{{end}}</td>
-      <td>{{if .Unavailable}}<span class="st info">not available</span> <span class="meta">{{.Unavailable}}</span>{{else if .LastError}}<span class="st fail">error</span>{{else if .Resets}}<span class="st fail">cleared</span>{{else}}<span class="st pass">OK</span>{{end}}</td></tr>
-    {{end}}</tbody></table>
-  {{end}}
-
-  {{if .ArchivesKept}}
-  <h2 id="archives">Original logs<span class="ct">{{len .Archives}} file{{if ne (len .Archives) 1}}s{{end}}</span></h2>
-  <p class="note">The logs this report was made from, unaltered, are saved in this report's folder: one zip per computer, holding a folder for each day. Windows event logs are .evtx files (open them in Event Viewer); Linux audit records are audit.log (read it with <code>ausearch -if audit.log</code>) and system log lines are text. Each day's files are listed with their SHA-256 in its archive.json, and each zip's SHA-256 is in this report's manifest.sha256.</p>
-  {{if .NoArchive}}<div class="status warn">No original logs for this period from {{join .NoArchive ", "}}. A computer that sends to a collector delivers its logs with its events; one that has been off or cut off catches up, and its logs go into the next report.</div>{{end}}
-  {{if .Archives}}<table>
-    <thead><tr><th>System</th><th>From</th><th>To</th><th class="num">Size</th><th>File</th><th>SHA-256</th></tr></thead>
-    <tbody>{{range .Archives}}<tr><td>{{.Host}}</td><td class="mono">{{stamp .From}}</td><td class="mono">{{stamp .To}}</td><td class="num">{{bytes .Bytes}}</td><td><a href="{{.Name}}">{{.Name}}</a></td><td class="mono hash">{{.SHA256}}</td></tr>{{end}}</tbody>
-  </table>{{end}}
-  {{end}}
-
-  {{if .CheckSets}}
-  <h2>Audit configuration compared with the DISA STIG<span class="ct">{{.Health.ChecksPass}} pass · {{.Health.ChecksFail}} need attention</span></h2>
-  <p class="note">Blackbox only reports these settings and never changes them. A FAIL means part of this report may be incomplete.</p>
-  {{if eq (len .CheckSets) 1}}{{with index .CheckSets 0}}<p class="note">Checked {{stamp .Time}} on {{.Host}}{{with .Baseline}} against the {{.}}{{end}}.</p>{{template "checktable" .Results}}{{end}}
-  {{else}}{{range .CheckSets}}
-  <details class="sys" id="checks-{{.Host}}"{{if .Fail}} open{{end}}><summary>{{.Host}}<span class="meta">{{with .Baseline}}{{.}} · {{end}}{{.Pass}} pass · {{if .Fail}}<span class="c-high">{{.Fail}} need attention</span>{{else}}0 need attention{{end}} · checked {{stamp .Time}}</span></summary>
-  {{template "checktable" .Results}}</details>
-  {{end}}{{end}}
-  {{end}}
-
-  {{if .Health.Volume}}
-  <h2>Busiest event types</h2>
-  <p class="note">Every event read, including routine ones Blackbox does not report. One event type taking up most of the log usually means an audit setting is broader than it needs to be, or a tool is very noisy. That is what makes logs roll over quickly.</p>
-  <table>
-    <thead><tr><th>Log</th><th class="num">Event</th><th>Meaning</th><th class="num">Count</th><th class="num">Share</th></tr></thead>
-    <tbody>{{range .Health.Volume}}<tr><td>{{.Channel}}</td><td class="num">{{if .Type}}{{.Type}}{{else}}{{.EventID}}{{end}}</td><td>{{or .Name "—"}}</td><td class="num">{{commas .Count}}</td><td class="num">{{pct .Percent}}</td></tr>{{end}}</tbody>
-  </table>
-  {{end}}
-</section>
+<div class="ev6">{{range .Cards}}<a class="panel ec {{.Level}}" href="{{.Href}}"><div class="l">{{icon .Icon 15}}{{.Label}}</div><div class="v">{{.Value}}</div><div class="d">{{.Note}}</div></a>{{end}}</div>
+<div class="row" style="grid-template-columns:1.35fr 1fr">
+<div class="panel"><div class="ph"><h2>{{icon "server" 17}}{{if .Standalone}}Health{{else}}Systems · {{add (add .OK .Warn) .Bad}}{{end}}</h2>{{if not .Standalone}}<a class="pm link" href="#systems">Systems page →</a>{{end}}</div>
+{{if not .Standalone}}<div class="hbar">{{if .OK}}<s style="flex:{{.OK}};background:#1A9A50"></s>{{end}}{{if .Warn}}<s style="flex:{{.Warn}};background:#E08A00"></s>{{end}}{{if .Bad}}<s style="flex:{{.Bad}};background:#D12C2C"></s>{{end}}</div>
+<div class="hleg"><span><i style="background:#1A9A50"></i><b>{{.OK}}</b>reporting normally</span>{{if .Warn}}<span><i style="background:#E08A00"></i><b>{{.Warn}}</b>{{if eq .Warn 1}}warning{{else}}warnings{{end}}</span>{{end}}{{if .Bad}}<span><i style="background:#D12C2C"></i><b>{{.Bad}}</b>{{if eq .Bad 1}}problem{{else}}problems{{end}}</span>{{end}}</div>{{end}}
+{{range .Checks}}<div class="ck2 {{.Level}}"><div class="i">{{icon .Icon 14}}</div><div><b>{{.Title}}</b><span>{{if .Who}}<em>{{.Who}}</em>: {{end}}{{.What}}</span></div><div class="r">{{.Count}}</div></div>{{end}}
+{{if .Map}}<div style="margin-top:16px">{{range .Map}}<div class="mgrp">{{.Title}} · {{len .Tiles}}</div><div class="map" style="grid-template-columns:repeat(6,1fr)">{{range .Tiles}}<a class="m {{.Level}}{{if .VM}} mvm{{end}}" href="#systems/{{.Name}}">{{.Name}}<small>{{.OS}}</small></a>{{end}}</div>{{end}}</div>{{end}}
+</div>
+<div class="panel"><div class="ph"><h2>{{icon "shield-alert" 17}}Detections</h2><span class="pm"><span class="hi">{{.High}} high</span> · <span class="md">{{.Med}} medium</span></span></div>
+{{if .Detections}}<div class="dl">{{range $i, $d := .Detections}}{{if lt $i 6}}{{if or (eq $i 0) (ne $d.Day (dayBefore $.Detections $i))}}<div class="dayh">{{$d.Day}}</div>{{end}}<a class="dc {{$d.Severity}}" href="#detections/{{$d.Index}}"><div class="b"><b>{{$d.Title}}</b><span>{{$d.Detail}}</span></div><div class="m2">{{$d.Host}}<small>{{$d.Time}}</small></div></a>{{end}}{{end}}</div>
+{{if gt (len .Detections) 6}}<a class="pm link" style="display:block;margin-top:12px" href="#detections">All {{len .Detections}} detections →</a>{{end}}
+{{else}}<div class="clean"><div class="ic">{{icon "shield-check" 22}}</div><div><b>Nothing unusual this week</b><span>No activity matched a detection rule. Every event is still on the event pages and in Search.</span></div></div>{{end}}
+</div></div>
+<div class="sub2" style="margin:6px 0 8px">Trends · last 12 weeks</div>
+<div class="row" style="grid-template-columns:repeat(3,1fr)">{{range .Trends}}<div class="panel"><div class="ph"><h2>{{.Title}}</h2><span class="pm">{{.Note}}</span></div>{{.Chart}}<div class="lg" style="justify-content:space-between"><span>12 weeks ago</span><span>This week</span></div></div>{{end}}</div>
 {{end}}
-
-{{define "checktable"}}
-  <table>
-    <thead><tr><th>Status</th><th>Setting</th><th>Current</th><th>Required</th><th>Effect on this report · how to fix</th></tr></thead>
-    <tbody>{{range .}}{{if and (ne .Status "pass") (ne .Area "Baseline")}}<tr><td class="sevc"><span class="st {{.Status}}">{{.Status}}</span></td><td>{{.Area}}: <strong>{{.Item}}</strong>{{with .STIG}}<br><span class="meta">{{.}}</span>{{end}}</td><td>{{.Have}}</td><td>{{.Want}}</td>
-      <td>{{.Affects}}{{if .Fix}}<br><code>{{.Fix}}</code>{{end}}</td></tr>{{end}}{{end}}
-    {{range .}}{{if eq .Status "pass"}}<tr><td class="sevc"><span class="st pass">pass</span></td><td>{{.Area}}: {{.Item}}{{with .STIG}}<br><span class="meta">{{.}}</span>{{end}}</td><td>{{.Have}}</td><td>{{.Want}}</td><td></td></tr>{{end}}{{end}}
-    </tbody></table>
-{{end}}
-
-{{define "systems"}}
-<section>
-  <h1>Systems</h1>
-  <p class="lede">Every computer whose events are in this report: when each last collected, what it contributed, and whether anything is wrong with its audit trail. Select a name to show only that computer's events throughout the report.</p>
-  <div class="meta"><span>{{len .SystemRows}} system{{if ne (len .SystemRows) 1}}s{{end}}</span>{{with .SystemsNeedingAttention}}<span class="c-high">{{.}} need{{if eq . 1}}s{{end}} attention</span>{{end}}{{if .Collector}}<span>This computer is the collector</span>{{end}}</div>
-  <table>
-    <thead><tr><th>Status</th><th>System</th><th>OS</th><th>Last collection</th><th class="num">Runs</th><th class="num">Events</th><th class="num">High</th><th>Audit settings</th><th>Notes</th></tr></thead>
-    <tbody>{{range .SystemRows}}<tr><td class="sevc"><span class="st {{.Status}}">{{if eq .Status "silent"}}no data{{else if eq .Status "warn"}}check{{else}}OK{{end}}</span></td>
-      <td><strong><a href="#privileged" data-host="{{.Name}}">{{.Name}}</a></strong>{{if .Via}}<div class="meta">via {{.Via}}</div>{{end}}</td>
-      <td>{{.OSName}}</td>
-      <td class="mono">{{stamp .LastRun}}</td><td class="num">{{.Runs}}</td><td class="num">{{commas .Events}}</td>
-      <td class="num">{{if .High}}<span class="c-high">{{.High}}</span>{{else}}0{{end}}</td>
-      <td>{{with .Checks}}{{if .Fail}}<a href="#health" class="c-high">{{.Fail}} need attention</a>{{else}}<span class="st pass">all pass</span>{{end}}{{else}}—{{end}}</td>
-      <td>{{.StatusMsg}}</td></tr>{{end}}</tbody>
-  </table>
-  <p class="note">A computer that sends to this collector appears here after its first collection. To stop listing one that has been retired, run <code>blackbox systems remove NAME</code> on this computer.</p>
-</section>
-{{end}}
-
-{{define "people"}}
-<section>
-  <h1>People</h1>
-  <p class="lede">Everything in this report, counted by the account that did it. Select a number to see those events.</p>
-  {{if .Users}}
-  <table>
-    <thead><tr><th>Account</th>{{range $.Sections}}<th class="num">{{.Info.Title}}</th>{{end}}<th class="num">High</th></tr></thead>
-    <tbody>{{range .Users}}{{$u := .}}<tr><td><strong>{{.User}}</strong></td>
-      {{range $.Sections}}{{$cat := .Info.ID}}<td class="num">{{with index $u.Counts $cat}}<a href="#{{$cat}}" data-user="{{$u.User}}">{{.}}</a>{{else}}<span class="meta">·</span>{{end}}</td>{{end}}
-      <td class="num">{{if .High}}<span class="c-high">{{.High}}</span>{{else}}0{{end}}</td></tr>{{end}}</tbody>
-  </table>
-  {{else}}<p class="empty">No account activity in this period.</p>{{end}}
-</section>
-{{end}}
-
-

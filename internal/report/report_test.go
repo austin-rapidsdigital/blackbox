@@ -1,7 +1,13 @@
 package report
 
 import (
+	"archive/zip"
 	"bytes"
+	"compress/gzip"
+	"encoding/base64"
+	"fmt"
+	"html/template"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,17 +142,69 @@ func TestWriteAndVerify(t *testing.T) {
 	}
 	html, _ := os.ReadFile(filepath.Join(dir, "report.html"))
 	for _, want := range []string{
-		// every view is in the one file
-		`data-view="overview"`, `data-view="privileged"`, `data-view="removable_media"`, `data-view="failed_logon"`,
-		`data-view="account_changes"`, `data-view="audit_integrity"`, `data-view="other_security"`,
-		`data-view="logon_activity"`, `data-view="health"`, `data-view="people"`,
-		// content and in-file links
-		"Possible password guessing", `href="#r`, "Mon 28 Sep 2026", "Test Site",
-		"wevtutil  cl Application", "SanDisk Cruzer Blade", `data-user="admin_jd"`,
+		// every page is in the one file
+		`data-view="overview"`, `data-view="detections"`, `data-view="search"`, `data-view="people"`, `data-view="systems"`,
+		`data-view="privileged"`, `data-view="usb"`, `data-view="failed"`, `data-view="accounts"`, `data-view="integrity"`,
+		`data-view="powershell"`, `data-view="other"`, `data-view="logons"`,
+		`data-view="health"`, `data-view="trends"`, `data-view="logs"`, "Test Site",
+		`data-pick="admin_jd"`, `data-pane="admin_jd"`, "When they were active", // People
+		`data-preset="psdownload"`, `data-q="text"`, // Search
+		`data-pop="export"`, `data-pop="verified"`, `href="events.zip" download`, // Export menu, Verified
+		`class="printout"`, "<div>ISSO</div>", "Audit trail</h2>", // printed summary
 	} {
 		if !bytes.Contains(html, []byte(want)) {
 			t.Errorf("report.html missing %q", want)
 		}
+	}
+	// The events are in the data folder, one file per page and day.
+	var data strings.Builder
+	files, _ := filepath.Glob(filepath.Join(dir, "data", "*.js"))
+	for _, f := range files {
+		b, _ := os.ReadFile(f)
+		data.WriteString(unpackData(t, b))
+	}
+	for _, want := range []string{"wevtutil  cl Application", "SanDisk Cruzer Blade", "admin_jd"} {
+		if !strings.Contains(data.String(), want) {
+			t.Errorf("event data missing %q", want)
+		}
+	}
+	if zr, err := zip.OpenReader(filepath.Join(dir, "events.zip")); err != nil || len(zr.File) != 1 || zr.File[0].Name != "events.csv" {
+		t.Errorf("events.zip should hold events.csv: %v", err)
+	} else {
+		zr.Close()
+	}
+	if _, err := os.Stat(filepath.Join(dir, "events.jsonl")); err == nil {
+		t.Error("events.jsonl is no longer written")
+	}
+	// Only a detection's own events are in report.html; the rest are in
+	// the data files.
+	inFinding := map[string]bool{}
+	for _, f := range r.Findings {
+		for _, id := range append(f.RowIDs, f.RowID) {
+			inFinding[id] = true
+		}
+	}
+	shown := map[string]bool{}
+	for _, row := range r.rows {
+		if inFinding[row.ID] {
+			shown[row.Summary] = true
+		}
+	}
+	checked := 0
+	for _, row := range r.rows {
+		if shown[row.Summary] || len(row.Summary) < 30 {
+			continue
+		}
+		if checked++; bytes.Contains(html, []byte(template.HTMLEscapeString(row.Summary))) {
+			t.Errorf("events belong in the data files, not report.html: %q", row.Summary)
+			break
+		}
+	}
+	if checked == 0 {
+		t.Error("no routine events to check")
+	}
+	if !strings.Contains(fmt.Sprint(r.summary().Detections), "Possible password guessing") {
+		t.Error("detection missing from summary.json")
 	}
 	for _, bad := range []string{"SECRET", "UNCLASSIFIED", ".html#", "Signature", "sign-off"} {
 		if bytes.Contains(html, []byte(bad)) {
@@ -157,10 +215,11 @@ func TestWriteAndVerify(t *testing.T) {
 		t.Fatalf("fresh report should verify: %v %v", p, err)
 	}
 	os.WriteFile(filepath.Join(dir, "report.html"), []byte("tampered"), 0o640)
-	if p, _ := Verify(dir); len(p) != 1 || !strings.Contains(p[0], "CHANGED") {
+	os.WriteFile(files[0], []byte("tampered"), 0o640)
+	if p, _ := Verify(dir); len(p) != 2 || !strings.Contains(p[0], "CHANGED") || !strings.Contains(p[1], "CHANGED") {
 		t.Errorf("tampering not detected: %v", p)
 	}
-	if err := WriteIndex(filepath.Dir(dir), "Test Site", time.UTC); err != nil {
+	if err := WriteIndex(filepath.Dir(dir), "Test Site", "weekly", time.UTC); err != nil {
 		t.Fatal(err)
 	}
 	idx, _ := os.ReadFile(filepath.Join(filepath.Dir(dir), "index.html"))
@@ -225,13 +284,47 @@ func TestLinuxReport(t *testing.T) {
 			t.Errorf("%s attributed to %q, want %q", e.Target, e.User, want[e.Target])
 		}
 	}
-	var buf bytes.Buffer
-	if err := r.WriteHTML(&buf); err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(buf.Bytes(), []byte("auditd USER_CMD record, serial")) {
+	if !strings.Contains(dataText(t, r), "auditd USER_CMD record, serial") {
 		t.Error("Linux 'recorded as' text missing")
 	}
+}
+
+// dataText is the decompressed text of every event data file of r.
+func dataText(t *testing.T, r *Report) string {
+	t.Helper()
+	_, files, err := r.buildData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all strings.Builder
+	for _, f := range files {
+		all.WriteString(unpackData(t, f.Body))
+	}
+	return all.String()
+}
+
+// unpackData decodes one data file (BB.put("key","base64 gzip")).
+func unpackData(t *testing.T, body []byte) string {
+	t.Helper()
+	s := string(body)
+	i := strings.Index(s, `,"`)
+	j := strings.LastIndex(s, `");`)
+	if i < 0 || j < i {
+		t.Fatalf("bad data file: %.80s", s)
+	}
+	raw, err := base64.StdEncoding.DecodeString(s[i+2 : j])
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func TestSystemsPage(t *testing.T) {
@@ -292,11 +385,13 @@ func TestSystemsPage(t *testing.T) {
 	}
 
 	var html bytes.Buffer
-	if err := r.WriteHTML(&html); err != nil {
+	if err := r.WriteHTML(&html, nil); err != nil {
 		t.Fatal(err)
 	}
 	h := html.String()
-	for _, want := range []string{`data-view="systems"`, `<option>WS-03</option>`, `data-host="WS-01"`, `id="checks-WS-01" open`, "via WS-01", "The audit trail is not complete"} {
+	for _, want := range []string{`data-view="systems"`, `data-pick="WS-03"`, `data-pane="WS-01"`, "Virtual machine on WS-01",
+		"Audit settings that need attention", "No collection received in this period", "Silent",
+		"No data received", `href="#health/WS-01"`} { // Audit health
 		if !strings.Contains(h, want) {
 			t.Errorf("report HTML missing %q", want)
 		}
@@ -337,11 +432,75 @@ func TestSingleSystemHasNoSystemsPage(t *testing.T) {
 		t.Error("a standalone report should not have a Systems page")
 	}
 	var html bytes.Buffer
-	r.WriteHTML(&html)
-	if strings.Contains(html.String(), `select class="host"`) {
-		t.Error("no system filter on a single-system report")
+	if err := r.WriteHTML(&html, nil); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(html.String(), "Checked ") {
-		t.Error("single check set should be shown directly")
+	if !strings.Contains(html.String(), `<span>System</span><b>`) {
+		t.Error("a standalone report names its system in the sidebar")
+	}
+	if !strings.Contains(html.String(), `data-single="WS-07"`) || !strings.Contains(html.String(), "Settings on WS-07") {
+		t.Error("a report of one system opens its audit settings directly")
+	}
+}
+
+// Above MaxListed, routine Info events are counted but not listed; flagged
+// events and those a detection points to are always listed.
+func TestSizeSafeguard(t *testing.T) {
+	defer func(n int) { MaxListed = n }(MaxListed)
+	MaxListed = 5
+	end := time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)
+	var events []*event.Event
+	for i := 0; i < 8; i++ {
+		events = append(events, &event.Event{Time: end.Add(-time.Duration(10-i) * time.Hour), Host: "WS-01", OS: "windows",
+			Category: event.CatLogon, Severity: event.SevInfo, Action: "logon", Summary: fmt.Sprintf("logon %d", i)})
+	}
+	events = append(events, &event.Event{Time: end.Add(-time.Hour), Host: "WS-01", OS: "windows",
+		Category: event.CatIntegrity, Severity: event.SevHigh, Action: "log_cleared", Summary: "Security log cleared"})
+	r := Build(events, nil, Options{WindowEnd: end, Generated: end, Location: time.UTC})
+	pages, files, err := r.buildData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logons, integrity *EventPage
+	for _, p := range pages {
+		switch p.ID {
+		case "logons":
+			logons = p
+		case "integrity":
+			integrity = p
+		}
+	}
+	if logons.Total != 8 || logons.Omitted != 4 || integrity.Omitted != 0 {
+		t.Errorf("logons %d listed, %d omitted; integrity omitted %d", logons.Total, logons.Omitted, integrity.Omitted)
+	}
+	var data strings.Builder
+	for _, f := range files {
+		data.WriteString(unpackData(t, f.Body))
+	}
+	if !strings.Contains(data.String(), "Security log cleared") || !strings.Contains(data.String(), "logon 0") || strings.Contains(data.String(), "logon 7") {
+		t.Error("the safeguard should keep flagged and the earliest routine events")
+	}
+	var html bytes.Buffer
+	if err := r.WriteHTML(&html, pages); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html.String(), "4 routine Info events are counted in this report but not listed") {
+		t.Error("the page must say events were not listed")
+	}
+}
+
+// A VM is on only part of the week; being off is never a problem.
+func TestVMOffIsNotFlagged(t *testing.T) {
+	end := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	runs := []*store.Run{{Time: end.Add(-time.Hour), Host: "WS-03", OS: "windows"}, {Time: end.AddDate(0, 0, -5), Host: "WS-03-VM1", OS: "windows"}}
+	r := Build(nil, runs, Options{WindowStart: end.AddDate(0, 0, -7), WindowEnd: end, Generated: end, Location: time.UTC, Source: "Live collection",
+		Systems: []SystemInfo{{Name: "WS-03", OS: "windows"}, {Name: "WS-03-VM1", OS: "windows", Via: "WS-03"}, {Name: "WS-03-VM2", OS: "windows", Via: "WS-03"}}})
+	for _, s := range r.SystemRows {
+		if s.Status != "ok" {
+			t.Errorf("%s flagged for being off: %s %s", s.Name, s.Status, s.StatusMsg)
+		}
+	}
+	if len(r.Silent) != 0 {
+		t.Errorf("silent: %+v", r.Silent)
 	}
 }

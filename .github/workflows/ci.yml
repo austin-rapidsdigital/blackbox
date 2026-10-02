@@ -21,6 +21,14 @@ jobs:
         run: go test -race ./...
       - name: Build release binaries
         run: scripts/build.sh
+      - name: Report pages work in a browser (LAN and standalone demo reports)
+        run: |
+          npm i --no-save --prefix "$RUNNER_TEMP/pw" playwright-core@1.48.2
+          BLACKBOX_DEMO_OUT="$RUNNER_TEMP/demo-lan" go test ./internal/report -run TestDemoReport -count=1
+          BLACKBOX_DEMO_STANDALONE=1 BLACKBOX_DEMO_OUT="$RUNNER_TEMP/demo-sa" go test ./internal/report -run TestDemoReport -count=1
+          for d in demo-lan demo-sa; do
+            NODE_PATH="$RUNNER_TEMP/pw/node_modules" node scripts/browsercheck.js "$RUNNER_TEMP/$d" "$(command -v google-chrome)"
+          done
   windows:
     runs-on: windows-latest
     # Receives the Linux runner's batches, so it runs after that job.
@@ -186,15 +194,18 @@ jobs:
           dir=$(sudo sh -c 'ls -d bbdata/reports/*/' | head -1)
           sudo ./blackbox verify "$dir"
           for want in "created the user account bbtestuser" "added bbtestuser to the privileged group sudo" "changed the sudo rules: /etc/sudoers.d/bbtestuser"; do
-            if ! sudo grep -q "$want" "$dir/report.html"; then
+            if ! sudo unzip -p "$dir/events.zip" events.csv | grep -q "$want"; then
               echo "report is missing: $want"
-              sudo grep -o 'class="row s[0-9]"[^<]*<td[^<]*<span[^>]*>[a-z]*</span></td><td class="mono">[^<]*</td><td>[^<]*</td><td>[^<]*' "$dir/report.html" | sed 's/<[^>]*>/ | /g' | head -40
+              sudo unzip -p "$dir/events.zip" events.csv | cut -c1-200 | head -40
               echo "--- account-related audit records:"
               sudo grep -E 'type=(ADD_USER|ADD_GROUP|USER_MGMT|GRP_MGMT|USER_CHAUTHTOK)' /var/log/audit/audit.log | tail -20
               exit 1
             fi
           done
           echo "All expected events found."
+          # The event pages read their events from compressed data files.
+          sudo sh -c "ls $dir/data/*.js" | head -5
+          sudo sh -c "grep -q 'BB.put(\"privileged/' $dir/data/privileged-*.js" || { echo "no event data files"; exit 1; }
       - name: Install, change report folder, run the scheduled job, uninstall
         run: |
           sudo ./blackbox install --yes --site CI --report-dir /srv/bb-reports --no-first-report

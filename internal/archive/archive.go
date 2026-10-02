@@ -451,3 +451,26 @@ func FileSHA256(path string) (string, error) {
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
+
+// Contents lists what a zip holds: the archive.json of a single archive,
+// or of each day's folder in a bundle (see Bundle), in order.
+func Contents(path string) ([]Info, error) {
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	var out []Info
+	for _, f := range zr.File {
+		if f.Name != InfoName && !strings.HasSuffix(f.Name, "/"+InfoName) {
+			continue
+		}
+		var info Info
+		if err := readJSON(f, &info); err != nil {
+			return nil, fmt.Errorf("%s: %w", f.Name, err)
+		}
+		out = append(out, info)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].From.Before(out[j].From) })
+	return out, nil
+}
