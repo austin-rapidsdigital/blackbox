@@ -27,50 +27,28 @@ func WindowedPath() string { return filepath.Join(filepath.Dir(ProgramPath()), "
 // status icon never blocks an upgrade. The .old files are kept until the
 // new program has been checked (see checkPrograms), and deleted at the
 // next install.
-func placePrograms(self string) error {
+func placePrograms(self string) ([]kept, error) {
 	src, err := os.ReadFile(self)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	RemoveOld()
+	var ks []kept
 	for _, p := range []struct {
 		path     string
 		windowed bool
 	}{{ProgramPath(), false}, {WindowedPath(), true}} {
 		b, err := winexe.SetSubsystem(src, p.windowed)
 		if err != nil {
-			return err
+			return ks, err
 		}
-		tmp := p.path + ".new"
-		if err := os.WriteFile(tmp, b, 0o755); err != nil {
-			return err
-		}
-		if _, err := os.Stat(p.path); err == nil {
-			if err := os.Rename(p.path, oldName(p.path)); err != nil {
-				os.Remove(tmp)
-				return err
-			}
-		}
-		if err := os.Rename(tmp, p.path); err != nil {
-			return err
+		old, err := swapIn(p.path, b)
+		ks = append(ks, kept{p.path, old})
+		if err != nil {
+			return ks, err
 		}
 	}
-	return nil
-}
-
-// oldName is where a replaced program waits until the new one is checked.
-// A previous .old still in use (an icon that hasn't restarted yet) is
-// left alone and the next free name is used.
-func oldName(p string) string {
-	for i := 0; ; i++ {
-		n := p + ".old"
-		if i > 0 {
-			n = fmt.Sprintf("%s.old%d", p, i)
-		}
-		if _, err := os.Stat(n); os.IsNotExist(err) {
-			return n
-		}
-	}
+	return ks, nil
 }
 
 // RemoveOld deletes replaced programs that are no longer running.
@@ -83,7 +61,7 @@ func RemoveOld() {
 
 // checkPrograms runs the installed program and confirms it is the version
 // just installed. If it isn't, the previous program is put back.
-func checkPrograms(version string) error {
+func checkPrograms(version string, ks []kept) error {
 	out, err := hidden.Command(ProgramPath(), "version").Output()
 	got := strings.TrimSpace(string(out))
 	if err == nil && got == "blackbox "+version {
@@ -92,15 +70,8 @@ func checkPrograms(version string) error {
 	if err == nil {
 		err = fmt.Errorf("it answered %q", got)
 	}
-	restored := false
-	for _, p := range []string{ProgramPath(), WindowedPath()} {
-		if _, e := os.Stat(p + ".old"); e == nil {
-			os.Remove(p)
-			restored = os.Rename(p+".old", p) == nil
-		}
-	}
-	if restored {
-		return fmt.Errorf("the new program did not start (%v); the previous version was put back", err)
+	if rollBack(ks) {
+		return fmt.Errorf("the new program did not start (%v); the upgrade was undone and the previous version put back", err)
 	}
 	return fmt.Errorf("the new program did not start: %v", err)
 }

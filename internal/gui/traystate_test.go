@@ -140,3 +140,46 @@ func TestLostEvents(t *testing.T) {
 		t.Errorf("notified twice in one period: %+v", n)
 	}
 }
+
+// S9: notifications found together are shown one after another, not
+// replaced by the last; S8: an update is among them.
+func TestNoticeQueue(t *testing.T) {
+	h := healthy()
+	h.AuditGaps["WS-02"] = 1
+	h.Lost = []app.LostLog{{Host: "DSK1", Channel: "Security", Count: 5}}
+	n, _ := notices(trayMemory{Seen: true, Version: "0.9.3"}, h, classify(h, nil, trayNow), "0.10.1", trayNow)
+	if len(n) != 3 || n[0].Text != "Blackbox updated to 0.10.1." {
+		t.Fatalf("notices: %+v", n)
+	}
+	var q noticeQueue
+	var shown []string
+	for _, x := range n {
+		if q.add(x) {
+			shown = append(shown, x.Text)
+		}
+	}
+	for {
+		x, ok := q.next()
+		if !ok {
+			break
+		}
+		shown = append(shown, x.Text)
+	}
+	if len(shown) != 3 || shown[0] != n[0].Text || shown[2] != n[2].Text {
+		t.Errorf("shown %v", shown)
+	}
+	if !q.add(n[0]) {
+		t.Error("an empty queue should show straight away")
+	}
+}
+
+// Wording: the next report is a weekday and time, even a week ahead.
+func TestNextReportWording(t *testing.T) {
+	h := healthy()
+	h.NextReport = trayNow.Add(7 * 24 * time.Hour).Truncate(time.Hour)
+	v := classify(h, nil, trayNow)
+	want := " · next report " + h.NextReport.Local().Format("Mon 15:04")
+	if !strings.HasSuffix(v.Status, want) {
+		t.Errorf("status %q, want it to end %q", v.Status, want)
+	}
+}

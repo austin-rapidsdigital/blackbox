@@ -31,6 +31,8 @@ const (
 	timerPoll   = 1
 	timerAdd    = 2
 	timerExit   = 3
+	timerNotify = 4 // the next queued notification
+	noticeGap   = 7000
 	pollEvery   = time.Minute
 	trayIconID  = 1
 	nimAdd      = 0
@@ -71,6 +73,7 @@ type tray struct {
 	view      trayView
 	memory    trayMemory
 	clickOpen string // report to open when the last notification is clicked
+	queue     noticeQueue
 	making    bool
 	made      string
 	madeErr   error
@@ -201,8 +204,16 @@ func (t *tray) update() {
 	pShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&d)))
 }
 
-// notify shows a notification by the clock.
+// notify shows a notification by the clock, or queues it behind the one
+// showing.
 func (t *tray) notify(n notice) {
+	if t.queue.add(n) {
+		t.show(n)
+		pSetTimer.Call(t.hwnd, timerNotify, noticeGap, 0)
+	}
+}
+
+func (t *tray) show(n notice) {
 	d := t.data()
 	d.Flags = nifInfo
 	copy(d.InfoTitle[:63], syscall.StringToUTF16(n.Title))
@@ -256,6 +267,12 @@ func (t *tray) timer(id uintptr) {
 		t.add()
 	case timerExit:
 		t.close()
+	case timerNotify:
+		if n, ok := t.queue.next(); ok {
+			t.show(n)
+		} else {
+			pKillTimer.Call(t.hwnd, timerNotify)
+		}
 	}
 }
 
@@ -272,7 +289,7 @@ func (t *tray) app(m uint32, wp, lp uintptr) {
 			list, t.memory = notices(t.memory, h, t.view, t.version, time.Now())
 			saveMemory(t.memory)
 			for _, n := range list {
-				t.notify(n) // one at a time: the newest is shown
+				t.notify(n) // queued: each is shown in turn
 			}
 		}
 	case msgTray:

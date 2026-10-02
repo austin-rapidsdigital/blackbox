@@ -2,6 +2,7 @@ package gui
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/casea1/blackbox/internal/install"
@@ -21,5 +22,35 @@ func TestPagesFor(t *testing.T) {
 	if step(install.RoleSender, pRole, 1) != pSendTo || step(install.RoleCollector, pCollect, -1) != pInbox ||
 		step(install.RoleStandalone, pWelcome, -1) != pWelcome {
 		t.Error("step moves to the wrong page")
+	}
+}
+
+// S2, S3, S4, S6: the window's wording.
+func TestSetupWording(t *testing.T) {
+	if w := welcomeText("0.10.0", "0.10.0"); strings.Contains(w, "upgrade") || !strings.Contains(w, "Apply") {
+		t.Errorf("same version: %q", w)
+	}
+	if w := welcomeText("0.9.3", "0.10.0"); !strings.Contains(w, "upgrade it to 0.10.0") {
+		t.Errorf("upgrade: %q", w)
+	}
+	if w := welcomeText("", "0.10.0"); !strings.Contains(w, "will be installed") {
+		t.Errorf("first install: %q", w)
+	}
+	if applyVerb("") != "Install" || applyVerb("0.10.0") != "Apply" {
+		t.Error("Install on a first install (even with old settings), Apply when installed")
+	}
+	if finishLabel(true) != "Close" || finishLabel(false) != "Finish" {
+		t.Error("Close after a failure, Finish otherwise")
+	}
+	if !confirmCancel(pWelcome, false, false) || confirmCancel(pInstall, false, true) || confirmCancel(pSummary, true, false) {
+		t.Error("Cancel asks on every page before installing, including Welcome")
+	}
+}
+
+// Owner decision: the folder-access question is Yes or No only.
+func TestFolderAccessQuestion(t *testing.T) {
+	q := folderAccessQuestion(`C:\ProgramData\Blackbox\reports`, `DSK1\Austin`)
+	if !strings.Contains(q, `Give DSK1\Austin read access`) || strings.Contains(q, "No:") || strings.Contains(q, "Cancel") {
+		t.Errorf("question: %q", q)
 	}
 }

@@ -3,6 +3,7 @@ package install
 import (
 	"encoding/xml"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -103,5 +104,30 @@ func TestTrayTaskXML(t *testing.T) {
 	}
 	if strings.Contains(x, "<UserId>") {
 		t.Error("the tray must run as the person logging on, not a fixed account")
+	}
+}
+
+// S7: when an earlier .old is still in use, the program is set aside as
+// .old1, and a rollback restores exactly that file.
+func TestSwapInAndRollBack(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "blackbox.exe")
+	os.WriteFile(p, []byte("v1"), 0o755)
+	os.WriteFile(p+".old", []byte("v0 still running"), 0o755)
+	old, err := swapIn(p, []byte("v2"))
+	if err != nil || old != p+".old1" {
+		t.Fatalf("set aside as %q, %v; want .old1", old, err)
+	}
+	if b, _ := os.ReadFile(p); string(b) != "v2" {
+		t.Errorf("new program not in place: %q", b)
+	}
+	if !rollBack([]kept{{p, old}}) {
+		t.Fatal("rollback reported nothing restored")
+	}
+	if b, _ := os.ReadFile(p); string(b) != "v1" {
+		t.Errorf("rollback restored %q, want v1 (not the older .old)", b)
+	}
+	if b, _ := os.ReadFile(p + ".old"); string(b) != "v0 still running" {
+		t.Error("the older .old was touched")
 	}
 }

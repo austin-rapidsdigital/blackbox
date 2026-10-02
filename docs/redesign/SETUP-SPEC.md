@@ -36,7 +36,7 @@ The setup file is `blackbox.exe` with its Windows subsystem set to "windowed", s
 Standard Windows controls with the Windows visual style and the system font. The layout follows the screen's DPI.
 
 - **Size:** about 640 × 480 at 100% scale. It cannot be resized.
-- **Header band:** white, with the Blackbox logo, a page title and one line of explanation.
+- **Header band:** white, with the logo (the GE Aerospace monogram for now, as in the reports), a page title and one line of explanation.
 - **Bottom bar:** **Back**, **Next**, **Cancel**.
 
 If setup isn't running with administrator rights, it asks Windows for them (the UAC prompt) and restarts itself elevated. If the prompt is declined, it says "Blackbox setup needs administrator rights" and exits.
@@ -46,6 +46,8 @@ The pages ask exactly the console setup's questions, in the same order, with the
 1. **Welcome.**
    - First install: "Blackbox <version> will be installed on this computer."
    - Upgrade: "Blackbox <installed version> is installed. This will upgrade it to <version>. Your current settings are kept and shown on the next pages."
+   - Same version already installed (from **Change settings…** or **Modify**): "Blackbox <version> is installed. Change any settings on the next pages, then click Apply."
+   - A first install also says in a short paragraph what Blackbox does, and lists the program and data folders in grey (owner decision, 3 Oct 2026).
 2. **This computer.** How will this computer's audit events be reviewed? Three radio buttons, each with the console setup's description:
    - on this computer;
    - send to a collector;
@@ -108,7 +110,7 @@ The tray reads the same status as `blackbox status` directly, once a minute.
 | Icon | Means |
 |---|---|
 | Logo, green dot | Collecting on schedule; nothing needs attention |
-| Logo, amber dot | Something to look at: audit settings to fix, Defender intelligence out of date, files set aside in the inbox, or a sender that has gone quiet |
+| Logo, amber dot | Something to look at: audit settings to fix, Defender intelligence out of date, events lost because a log filled up before it was collected, files set aside in the inbox, or a sender that has gone quiet |
 | Logo, red dot | Collection has stopped (no run for twice the interval plus 15 minutes) or the last run failed |
 | Logo, grey | Status can't be read |
 
@@ -118,7 +120,7 @@ The tooltip gives the state in a few words, e.g. "Blackbox: collecting · last 1
 
 - Status line, not clickable: "Collecting every hour · last 14:05 · next report Wed 00:00", or what is wrong.
 - When there is something to look at, one line per item, not clickable: e.g. "Audit settings: 2 to fix on WS-13", "WS-09 has not sent since 29 Sep".
-- **Open latest report** (bold: the default).
+- **Open latest report** (bold: the default; greyed out when there is no report yet).
 - **Open all reports** (the reports `index.html`).
 - **Make an interim report…** opens a small window. Choices:
   - since the last report (default);
@@ -126,7 +128,7 @@ The tooltip gives the state in a few words, e.g. "Blackbox: collecting · last 1
   - last 30 days;
   - last 90 days.
 
-  **Make report** produces it in the background, then a notification says it's ready and **Open report** opens it.
+  **Make report** produces it in the background, then a notification says it's ready; clicking the notification opens it (owner decision, 3 Oct 2026: Windows notifications from the tray have no buttons).
 - **Collect now:** runs the scheduled task now.
 - **Status details…** opens a window with the text of `blackbox status`.
 - **Change settings…** opens the setup window.
@@ -140,14 +142,17 @@ Each is shown once per occurrence, remembered per person in `HKCU\Software\Black
 - collection has stopped, or the last run failed;
 - a sender has gone quiet (collector);
 - audit settings went from matching the STIG to not matching;
+- events were lost because a log filled up before it was collected (once per report period);
 - Blackbox was updated.
+
+Several found together are shown one after another, not on top of each other.
 
 ### Opening reports
 
 - **Browser rights.** Reports are opened in the person's normal browser without administrator rights, handed over through Explorer.
 - **Folder access.** The default reports folder is readable only by administrators with full rights, like the data folder. If the person's own account can't read the report, the tray asks: "Your account can't open reports in <folder> without administrator rights. Give <account> read access to this folder? (This is what Explorer's Continue button does.)"
   - **Yes** grants read access to that one account.
-  - **No** opens the folder in Explorer instead.
+  - **No** changes nothing (owner decision, 3 Oct 2026: Explorer can't open a folder the account can't read, so offering it was a dead end).
   - **Nothing is changed without asking.**
 
 ## Uninstall

@@ -172,7 +172,7 @@ func (s *setupWin) header() (title, sub string) {
 	case pCollect:
 		return "Collection", install.QInterval
 	case pSummary:
-		if s.reinstall {
+		if s.installed != "" {
 			return "Ready to apply", "Check the settings, then click Apply."
 		}
 		return "Ready to install", "Check the settings, then click Install."
@@ -210,11 +210,7 @@ func (s *setupWin) build() {
 
 	switch s.page {
 	case pWelcome:
-		if s.installed != "" {
-			s.label(fmt.Sprintf("Blackbox %s is installed. This will upgrade it to %s.\n\nYour current settings are kept and shown on the next pages; change any of them, or just click Next on each page.", s.installed, s.version), x, y, w, 80)
-		} else {
-			s.label(fmt.Sprintf("Blackbox %s will be installed on this computer.\n\nIt collects security events from the Windows event logs on a schedule, keeps them before the logs roll over, and produces audit reports. It checks the audit settings against the DISA STIG and reports what needs fixing; it never changes them.", s.version), x, y, w, 100)
-		}
+		s.label(welcomeText(s.installed, s.version), x, y, w, 100)
 		s.note("Program folder: "+filepath.Dir(install.ProgramPath())+"\nSettings and collected events: "+config.DefaultDataDir(), x, y+130, w, 40)
 	case pRole:
 		var ch []choiceText
@@ -325,7 +321,7 @@ func (s *setupWin) build() {
 			s.label(l.Value, x+140, y, w-140, h)
 			y += h + 8
 		}
-		setText(s.next, map[bool]string{true: "Apply", false: "Install"}[s.reinstall])
+		setText(s.next, applyVerb(s.installed))
 	case pInstall:
 		s.c["status"] = s.label("", x, y, w, 20)
 		s.c["bar"] = s.control("msctls_progress32", "", pbsMarquee, 0, x, y+24, w, 6, false)
@@ -471,6 +467,11 @@ func (s *setupWin) check_() bool {
 		if _, err := config.ParseReportAt(v); err != nil {
 			return warn("at", "Please enter the time as hours and minutes, for example 00:00 or 06:30.")
 		}
+		// An empty box is not "the default": a full path is required, as
+		// the console asks.
+		if strings.TrimSpace(getText(s.c["dir"])) == "" {
+			return warn("dir", install.ReportDirError("").Error())
+		}
 		if s.a.ReportDir != "" {
 			if err := install.ReportDirError(s.a.ReportDir); err != nil {
 				return warn("dir", err.Error())
@@ -512,6 +513,11 @@ func (s *setupWin) folderOK(dir, create string) bool {
 		return false
 	}
 	return messageBox(s.hwnd, create, "Blackbox setup", mbYesNo|mbIconQuestion) == idYes
+}
+
+func folderExists(p string) bool {
+	ok, _ := dirExists(p)
+	return ok
 }
 
 func dirExists(p string) (bool, error) {
@@ -637,11 +643,11 @@ func (s *setupWin) installButtons() {
 	}
 	setText(s.c["status"], status)
 	show(s.c["bar"], s.running)
-	setText(s.next, "Finish")
+	setText(s.next, finishLabel(s.done && s.err != nil))
 	enable(s.next, s.done)
 	enable(s.cancel, false) // as in any wizard: Finish, with Cancel greyed out
 	show(s.openRep, s.done && s.err == nil && s.res.Report != "")
-	show(s.openDir, s.done && s.err == nil && s.res.ReportsDir != "")
+	show(s.openDir, s.done && s.err == nil && s.res.ReportsDir != "" && folderExists(s.res.ReportsDir))
 }
 
 func (s *setupWin) confirmClose() bool {
@@ -649,7 +655,7 @@ func (s *setupWin) confirmClose() bool {
 	case s.running:
 		messageBox(s.hwnd, "Setup is still working. Please wait for it to finish.", "Blackbox setup", mbOK|mbIconInfo)
 		return false
-	case s.done, s.page == pWelcome:
+	case !confirmCancel(s.page, s.running, s.done):
 		return true
 	}
 	return messageBox(s.hwnd, "Cancel Blackbox setup? Nothing has been changed.", "Blackbox setup", mbYesNo|mbIconQuestion) == idYes
