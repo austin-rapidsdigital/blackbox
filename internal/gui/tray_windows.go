@@ -337,6 +337,12 @@ func (t *tray) menu() uintptr {
 }
 
 func (t *tray) showMenu() {
+	// The menu shows the status as it is now, not up to a minute ago.
+	if a, err := t.newApp(); err == nil {
+		h, err := a.Health()
+		t.view = classify(h, err, time.Now())
+		t.update()
+	}
 	m := t.menu()
 	defer pDestroyMenu.Call(m)
 	var p point

@@ -46,13 +46,6 @@ func Run(o Options) (Result, error) {
 		return res, err
 	}
 
-	if o.StartTray && o.Answers.Tray && o.Answers.Role != install.RoleSender && runtime.GOOS == "windows" {
-		// An icon already running restarts itself into the new version.
-		if err := install.StartTray(); err != nil {
-			logf("Note: the status icon could not be started now (%v); it appears at the next logon.", err)
-		}
-	}
-
 	logf("")
 	logf("Checking audit settings against the DISA STIG (nothing will be changed)...")
 	for _, l := range CheckLines(check.Run(), false) {
@@ -113,6 +106,13 @@ func Run(o Options) (Result, error) {
 		logf("")
 		logf("Other computers can now send to this collector's inbox: %s", cfg.Inbox)
 		logf("Their events appear in reports after their first collection. See: blackbox status")
+	}
+	// Last, so its first look sees the first report. An icon already
+	// running restarts itself into the new version.
+	if o.StartTray && o.Answers.Tray && o.Answers.Role != install.RoleSender && runtime.GOOS == "windows" {
+		if err := install.StartTray(); err != nil {
+			logf("Note: the status icon could not be started now (%v); it appears at the next logon.", err)
+		}
 	}
 	return res, nil
 }

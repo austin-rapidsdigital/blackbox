@@ -317,12 +317,13 @@ func (s *setupWin) build() {
 	case pSummary:
 		a := s.final()
 		for _, l := range install.Summary(a, s.defaultReports, true) {
-			s.boldLabel(l.Label, x, y, 130, 20)
-			s.label(l.Value, x+140, y, w-140, 36)
+			h := 20 // rows must not overlap, or the later one hides the text
 			if len(l.Value) > 70 {
-				y += 18
+				h = 38
 			}
-			y += 26
+			s.boldLabel(l.Label, x, y, 130, 20)
+			s.label(l.Value, x+140, y, w-140, h)
+			y += h + 8
 		}
 		setText(s.next, map[bool]string{true: "Apply", false: "Install"}[s.reinstall])
 	case pInstall:
@@ -638,8 +639,7 @@ func (s *setupWin) installButtons() {
 	show(s.c["bar"], s.running)
 	setText(s.next, "Finish")
 	enable(s.next, s.done)
-	enable(s.cancel, false)
-	show(s.cancel, !s.done)
+	enable(s.cancel, false) // as in any wizard: Finish, with Cancel greyed out
 	show(s.openRep, s.done && s.err == nil && s.res.Report != "")
 	show(s.openDir, s.done && s.err == nil && s.res.ReportsDir != "")
 }

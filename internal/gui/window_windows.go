@@ -21,8 +21,8 @@ type window struct {
 
 	nextID   uint16
 	handlers map[uint16]func(code uint16)
-	notes    map[uintptr]bool // grey text
-	page     []uintptr        // controls of the current page, destroyed together
+	notes    map[uint16]bool // controls (by ID) drawn in grey
+	page     []uintptr       // controls of the current page, destroyed together
 
 	onPaint   func(hdc uintptr, r rect)
 	onClose   func() bool // false keeps the window open
@@ -93,7 +93,7 @@ func systemDPI() int {
 // w×h (unscaled), centred on the screen. A hidden window (for the status
 // icon) is created with w = h = 0.
 func newWindow(title string, w, h int, owner uintptr) *window {
-	win := &window{dpi: systemDPI(), nextID: 100, handlers: map[uint16]func(uint16){}, notes: map[uintptr]bool{}}
+	win := &window{dpi: systemDPI(), nextID: 100, handlers: map[uint16]func(uint16){}, notes: map[uint16]bool{}}
 	style := uintptr(wsOverlapped | wsCaption | wsSysMenu | wsMinimizeBox | wsClipChildren)
 	ex := uintptr(wsExControlParent)
 	x, y, cw, ch := uintptr(0), uintptr(0), uintptr(0), uintptr(0)
@@ -173,9 +173,11 @@ func makeFont(face string, points, weight, dpi int) uintptr {
 func (win *window) control(class, text string, style, ex uint32, x, y, w, h int, fixed bool) uintptr {
 	id := win.nextID
 	win.nextID++
-	// Each control starts its own group, except the 2nd and later option
-	// buttons of a set, so arrow keys move only within a set of options.
-	if class != "BUTTON" || style&0xF != bsAutoRadio {
+	// Each input starts its own group, so arrow keys move only within a
+	// set of options. Text (the grey lines under options) and the 2nd and
+	// later option buttons of a set don't, or the set would be split and
+	// two options could be ticked at once.
+	if class != "STATIC" && (class != "BUTTON" || style&0xF != bsAutoRadio) {
 		style |= wsGroup
 	}
 	hwnd, _, _ := pCreateWindowExW.Call(uintptr(ex), ptr(class), ptr(text), uintptr(wsChild|wsVisible|style),
@@ -201,9 +203,9 @@ func (win *window) label(text string, x, y, w, h int) uintptr {
 }
 
 func (win *window) note(text string, x, y, w, h int) uintptr {
-	l := win.label(text, x, y, w, h)
-	win.notes[l] = true
-	return l
+	// Marked before it exists: a control may be drawn while it is created.
+	win.notes[win.nextID] = true
+	return win.label(text, x, y, w, h)
 }
 
 func (win *window) boldLabel(text string, x, y, w, h int) uintptr {
@@ -290,7 +292,7 @@ func comboIndex(c uintptr) int { return int(int32(send(c, cbGetCurSel, 0, 0))) }
 // clear removes the current page's controls.
 func (win *window) clear() {
 	for _, c := range win.page {
-		delete(win.notes, c)
+		delete(win.notes, ctrlID(c))
 		delete(win.handlers, ctrlID(c))
 		pDestroyWindow.Call(c)
 	}
@@ -336,7 +338,7 @@ func wndProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
 		}
 	case wmCtlColorStatic, wmCtlColorBtn:
 		pSetBkColor.Call(wp, rgb(255, 255, 255))
-		if win.notes[lp] {
+		if win.notes[ctrlID(lp)] {
 			pSetTextColor.Call(wp, colNote)
 		} else {
 			pSetTextColor.Call(wp, colText)
