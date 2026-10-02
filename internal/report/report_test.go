@@ -385,9 +385,8 @@ func TestSystemsPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := html.String()
-	// Redesign: the Systems page's own checks return with step 3
-	// (WS-03 listed, the VM "via WS-01", failing settings, the audit trail).
-	for _, want := range []string{`data-view="systems"`} {
+	for _, want := range []string{`data-view="systems"`, `data-pick="WS-03"`, `data-pane="WS-01"`, "Virtual machine on WS-01",
+		"Audit settings that need attention", "No collection received in this period", "Silent"} {
 		if !strings.Contains(h, want) {
 			t.Errorf("report HTML missing %q", want)
 		}

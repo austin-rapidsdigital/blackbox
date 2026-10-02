@@ -29,11 +29,12 @@ var appJS string
 // while rendering one category's view.
 type pageData struct {
 	*Report
-	Section    *Section
-	Pages      []*EventPage
-	Overview   *Overview
-	Detections []DetectionView
-	Meta       template.JS // settings for app.js, as JSON
+	Section     *Section
+	Pages       []*EventPage
+	Overview    *Overview
+	Detections  []DetectionView
+	SystemsPage *SystemsPage
+	Meta        template.JS // settings for app.js, as JSON
 }
 
 // headData is a page's heading.
@@ -312,7 +313,7 @@ func (r *Report) WriteHTML(w io.Writer, pages []*EventPage) error {
 		return err
 	}
 	return t.ExecuteTemplate(w, "layout", pageData{Report: r, Pages: pages, Overview: r.overview(pages),
-		Detections: r.detectionViews(), Meta: template.JS(b)})
+		Detections: r.detectionViews(), SystemsPage: r.systemsPage(), Meta: template.JS(b)})
 }
 
 func zoneName(t time.Time, loc *time.Location) string {

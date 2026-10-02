@@ -66,33 +66,45 @@
     document.querySelectorAll('[data-nav]').forEach(function (a) { a.classList.toggle('on', a.getAttribute('data-nav') === id); });
     var t = tables[id];
     if (t) t.open();
-    if (id === 'detections') showDetection((location.hash.split('/')[1] || ''));
+    var view = document.querySelector('.view[data-view="' + id + '"]');
+    if (view.querySelector('[data-pick]')) showPick(view, decodeURIComponent(location.hash.split('/').slice(1).join('/')));
     window.scrollTo(0, 0);
   }
 
-  // ---- Detections: one shown at a time, the newest unless one is named ----
-  function showDetection(n) {
-    var links = document.querySelectorAll('[data-det]');
-    if (!links.length) return;
-    if (!document.querySelector('[data-detail="' + n + '"]')) {
+  // ---- List pages (Systems, Detections, People): one item shown at a
+  // time, the first in the list unless one is named in the link ----
+  function showPick(view, key) {
+    var links = view.querySelectorAll('[data-pick]');
+    var has = Array.prototype.some.call(view.querySelectorAll('[data-pane]'), function (d) { return d.getAttribute('data-pane') === key; });
+    if (!has) {
       var first = Array.prototype.find.call(links, function (a) { return !a.hidden; }) || links[0];
-      n = first.getAttribute('data-det');
+      key = first.getAttribute('data-pick');
     }
-    links.forEach(function (a) { a.classList.toggle('sel', a.getAttribute('data-det') === n); });
-    document.querySelectorAll('[data-detail]').forEach(function (d) { d.hidden = d.getAttribute('data-detail') !== n; });
+    links.forEach(function (a) { a.classList.toggle('sel', a.getAttribute('data-pick') === key); });
+    view.querySelectorAll('[data-pane]').forEach(function (d) { d.hidden = d.getAttribute('data-pane') !== key; });
   }
+  // Hide group headings with nothing left under them.
+  function tidyHeads(list, head) {
+    list.querySelectorAll(head).forEach(function (h) {
+      var el = h.nextElementSibling, any = false;
+      while (el && !el.matches(head)) { if (!el.hidden) any = true; el = el.nextElementSibling; }
+      h.hidden = !any;
+    });
+  }
+  document.querySelectorAll('[data-find]').forEach(function (box) {
+    box.addEventListener('input', function () {
+      var q = box.value.toLowerCase(), list = box.closest('[data-picklist]');
+      list.querySelectorAll('[data-pick]').forEach(function (a) { a.hidden = q && a.textContent.toLowerCase().indexOf(q) < 0; });
+      tidyHeads(list, '.grp2');
+    });
+  });
   document.querySelectorAll('[data-detsev] span').forEach(function (chip) {
     chip.addEventListener('click', function () {
       var sev = chip.getAttribute('data-sev');
       chip.parentNode.querySelectorAll('span').forEach(function (c) { c.classList.toggle('on', c === chip); });
       var list = chip.closest('.dlist');
-      list.querySelectorAll('[data-det]').forEach(function (a) { a.hidden = !!sev && !a.classList.contains(sev); });
-      // Hide day headings with nothing left under them.
-      list.querySelectorAll('.dayh').forEach(function (h) {
-        var el = h.nextElementSibling, any = false;
-        while (el && !el.classList.contains('dayh')) { if (!el.hidden) any = true; el = el.nextElementSibling; }
-        h.hidden = !any;
-      });
+      list.querySelectorAll('[data-pick]').forEach(function (a) { a.hidden = !!sev && !a.classList.contains(sev); });
+      tidyHeads(list, '.dayh');
     });
   });
 

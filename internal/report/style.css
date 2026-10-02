@@ -419,3 +419,7 @@ a.link,.pm.link{color:#0B5FFF;font-weight:600;text-decoration:none}
 .near div{display:grid;grid-template-columns:96px 1fr;gap:10px;padding:8px 10px;border-bottom:1px solid rgba(0,30,98,.07);font-size:12.5px}
 .near div span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.near div small{color:#8A96B3;margin-left:6px}
 .near div.me{background:rgba(11,95,255,.08)}.near .mono{font-size:12px}
+.slist a{text-decoration:none}.slist .search input{border:0;background:none;outline:0;font:inherit;color:#0B1630;width:100%}
+.sv.ok{color:#147A3D}.sv.ok:before{background:#1A9A50}
+details.fails{margin-top:10px;border-top:1px solid rgba(0,30,98,.07);padding-top:8px}details.fails summary{cursor:pointer;font-size:12.5px;font-weight:600;color:#B01C1C}
+details.fails div{padding:6px 0 0 4px;font-size:12.5px}details.fails b{font-weight:600;display:block}details.fails span{color:#5A6785}

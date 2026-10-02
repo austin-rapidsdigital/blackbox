@@ -42,6 +42,12 @@ type SystemRow struct {
 	Problems  int    // lost events, cleared logs and read errors
 	Status    string // ok | warn | silent
 	StatusMsg string
+
+	runTimes []time.Time          // collection runs in this period
+	gaps     []store.Gap          // events lost before they were collected
+	resets   []time.Time          // runs that found a log cleared or recreated
+	holds    map[string]time.Time // oldest event still in each log, at the last run
+	holdsAt  time.Time
 }
 
 // OSName is a readable operating system name.
@@ -89,9 +95,24 @@ func (r *Report) buildSystems(runs []*store.Run, events []*event.Event) {
 		if run.Time.After(s.LastRun) {
 			s.LastRun = run.Time
 		}
+		if !run.Time.Before(r.WindowStart) && !run.Time.After(r.WindowEnd) {
+			s.runTimes = append(s.runTimes, run.Time)
+		}
 		for _, c := range run.Channels {
 			if c.Gap != nil || c.Reset || c.Error != "" {
 				s.Problems++
+			}
+			if c.Gap != nil {
+				s.gaps = append(s.gaps, *c.Gap)
+			}
+			if c.Reset {
+				s.resets = append(s.resets, run.Time)
+			}
+			if !c.OldestTime.IsZero() && !run.Time.Before(s.holdsAt) {
+				if s.holds == nil || run.Time.After(s.holdsAt) {
+					s.holds, s.holdsAt = map[string]time.Time{}, run.Time
+				}
+				s.holds[c.Channel] = c.OldestTime
 			}
 		}
 	}
