@@ -488,3 +488,19 @@ func TestSizeSafeguard(t *testing.T) {
 		t.Error("the page must say events were not listed")
 	}
 }
+
+// A VM is on only part of the week; being off is never a problem.
+func TestVMOffIsNotFlagged(t *testing.T) {
+	end := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	runs := []*store.Run{{Time: end.Add(-time.Hour), Host: "WS-03", OS: "windows"}, {Time: end.AddDate(0, 0, -5), Host: "WS-03-VM1", OS: "windows"}}
+	r := Build(nil, runs, Options{WindowStart: end.AddDate(0, 0, -7), WindowEnd: end, Generated: end, Location: time.UTC, Source: "Live collection",
+		Systems: []SystemInfo{{Name: "WS-03", OS: "windows"}, {Name: "WS-03-VM1", OS: "windows", Via: "WS-03"}, {Name: "WS-03-VM2", OS: "windows", Via: "WS-03"}}})
+	for _, s := range r.SystemRows {
+		if s.Status != "ok" {
+			t.Errorf("%s flagged for being off: %s %s", s.Name, s.Status, s.StatusMsg)
+		}
+	}
+	if len(r.Silent) != 0 {
+		t.Errorf("silent: %+v", r.Silent)
+	}
+}

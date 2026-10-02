@@ -143,8 +143,11 @@ func (r *Report) buildSystems(runs []*store.Run, events []*event.Event) {
 	live := r.Source == "" || strings.HasPrefix(r.Source, "Live")
 	for _, s := range idx {
 		s.Status = "ok"
+		vm := s.Via != ""
 		switch {
 		case !live:
+		case vm && s.Runs == 0:
+			// A VM is on only part of the time; being off is not a problem.
 		case s.Runs == 0:
 			s.Status = "silent"
 			if s.LastRun.IsZero() {
@@ -154,7 +157,7 @@ func (r *Report) buildSystems(runs []*store.Run, events []*event.Event) {
 					r.stamp(s.LastRun), roughDuration(r.WindowEnd.Sub(s.LastRun)))
 			}
 			s.StatusMsg += " It may have been switched off, or it cannot reach the collector."
-		case r.WindowEnd.Sub(s.LastRun) > silentAfter:
+		case !vm && r.WindowEnd.Sub(s.LastRun) > silentAfter:
 			s.Status = "warn"
 			s.StatusMsg = fmt.Sprintf("Last collection %s, %s before the end of this report.", r.stamp(s.LastRun), roughDuration(r.WindowEnd.Sub(s.LastRun)))
 		case s.Problems > 0:

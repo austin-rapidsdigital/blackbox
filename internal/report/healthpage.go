@@ -188,6 +188,8 @@ func (r *Report) healthPage() *HealthPage {
 					// Not collected live (a report from saved logs).
 				case s.Status == "silent":
 					c = Cell{Mark: "✕", Class: "bad", Title: "No collection received in this period"}
+				case s.Via != "":
+					c = Cell{Mark: "✓", Class: "ok", Title: "A VM reports whenever it is on"}
 				case r.WindowEnd.Sub(s.LastRun) > silentAfter:
 					c = Cell{Mark: "!", Class: "warn", Title: "Last collection " + s.LastRun.In(r.Location).Format("2 Jan 15:04")}
 				default:

@@ -169,8 +169,11 @@ func (r *Report) systemsPage() *SystemsPage {
 			collected = fmt.Sprintf("on %d%%", on)
 			v.Tag = collected
 		}
-		if s.Status == "silent" {
+		switch {
+		case s.Status == "silent":
 			collected = "nothing"
+		case s.Via != "" && len(s.runTimes) == 0:
+			collected, v.Tag = "off", "off"
 		}
 		settings, settingsBad := "not checked", false
 		if s.Checks != nil {
