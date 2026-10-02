@@ -14,8 +14,8 @@ import (
 // KPI is one of the four main stat cards.
 type KPI struct {
 	Label, Value, Note, Href string
-	Bad                bool
-	Spark              template.HTML
+	Bad                      bool
+	Spark                    template.HTML
 }
 
 // EventCard is one of the important-event cards.

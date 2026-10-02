@@ -33,7 +33,7 @@ var whyFlagged = map[string]string{
 type Step struct {
 	Time, Text, Sub string
 	Ev              string // opens the event (see evRef)
-	Key             bool // the events the detection is about
+	Key             bool   // the events the detection is about
 }
 
 // KV is a labelled value.
