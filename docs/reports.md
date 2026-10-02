@@ -83,9 +83,8 @@ out.
 ## Original logs
 
 Reports show what Blackbox found in the logs. The original logs are kept
-too, for an assessor or an investigation, because the report's own
-`events.csv` and `events.jsonl` hold only the security-relevant events,
-translated.
+too, for an assessor or an investigation, because the report's own event
+lists and `events.zip` hold only the security-relevant events, translated.
 
 Each report's folder holds the original logs it was made from, unaltered:
 one zip per computer, `logs-COMPUTER.zip`, covering the report's period.
@@ -144,9 +143,9 @@ Every report is a folder containing:
 
 | File | |
 |---|---|
-| `report.html` | The report: one self-contained file that opens offline in any browser |
-| `events.csv` | Every event, for Excel |
-| `events.jsonl` | Every event as JSON lines, for Splunk or other tools |
+| `report.html` | The report. Open it in any browser; it works offline |
+| `data/` | The events the report's pages list, compressed, one file per page and day. `report.html` reads them; keep them next to it |
+| `events.zip` | Every event as `events.csv`, for Excel. Double-click to open |
 | `summary.json` | Counts and period, used by the report list |
 | `manifest.sha256` | SHA-256 hash of each file |
 

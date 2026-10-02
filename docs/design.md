@@ -86,7 +86,8 @@ with no runtime to install: no Python, .NET, Java or Node.
     Site-specific tuning (excluded users and programs) goes in the config
     file.
 - **Report**
-  - One self-contained HTML file per run, plus `events.jsonl` and CSV files.
+  - One report folder per run: `report.html`, its compressed event data
+    files, and `events.zip` (every event as CSV).
 - **Seal**
   - A SHA-256 manifest covers every output file, and the retention policy
     decides how long outputs are kept.
@@ -237,8 +238,8 @@ platform (see section 13).
 
 ### Other outputs, written on every run
 
-- `events.jsonl`: all normalized events, in a format Splunk can ingest
-- CSV exports for each category
+- `events.zip`: every event as CSV
+- `data/`: the event pages' compressed data files
 - `manifest.sha256`
 - `index.html`: links to every report, with its coverage window
 
@@ -290,7 +291,8 @@ administrator.
 - **Blackbox** runs on the collector and produces one LAN-wide report.
 
 Later, Splunk can read from the same collector: add a Splunk forwarder or
-point it at the `events.jsonl` output.
+point it at the collector's event spool (`spool/events-*.jsonl` in the data
+folder), which holds every normalized event as JSON lines.
 
 
 ---

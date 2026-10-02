@@ -1,6 +1,7 @@
 package report
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"crypto/sha256"
@@ -132,19 +133,9 @@ func (r *Report) Write(dir string) error {
 	if err != nil {
 		return fmt.Errorf("event data: %w", err)
 	}
-	var html, csvBuf, jsonl bytes.Buffer
+	var html bytes.Buffer
 	if err := r.WriteHTML(&html, pages); err != nil {
 		return fmt.Errorf("render report: %w", err)
-	}
-	if err := r.writeCSV(&csvBuf); err != nil {
-		return err
-	}
-	enc := json.NewEncoder(&jsonl)
-	enc.SetEscapeHTML(false)
-	for _, e := range r.Events {
-		if err := enc.Encode(e); err != nil {
-			return err
-		}
 	}
 	sum, err := json.MarshalIndent(r.summary(), "", "  ")
 	if err != nil {
@@ -152,8 +143,6 @@ func (r *Report) Write(dir string) error {
 	}
 	contents := map[string][]byte{
 		"report.html":  html.Bytes(),
-		"events.csv":   csvBuf.Bytes(),
-		"events.jsonl": jsonl.Bytes(),
 		"summary.json": append(sum, '\n'),
 	}
 	if len(data) > 0 {
@@ -171,6 +160,13 @@ func (r *Report) Write(dir string) error {
 			sums[a.Name] = a.SHA256
 		}
 	}
+	// Every event as a spreadsheet, zipped: CSV of a busy week is large,
+	// and Windows opens a zip with a double-click.
+	zsum, err := r.writeEventsZip(filepath.Join(dir, "events.zip"))
+	if err != nil {
+		return fmt.Errorf("events.zip: %w", err)
+	}
+	sums["events.zip"] = zsum
 	for name, b := range contents {
 		if err := store.WriteFileAtomic(filepath.Join(dir, name), b, 0o640); err != nil {
 			return err
@@ -188,6 +184,39 @@ func (r *Report) Write(dir string) error {
 		fmt.Fprintf(&manifest, "%s  %s\n", sums[name], name)
 	}
 	return store.WriteFileAtomic(filepath.Join(dir, "manifest.sha256"), []byte(manifest.String()), 0o440)
+}
+
+// writeEventsZip writes events.zip (events.csv inside), streaming so a
+// large report is not held in memory, and returns its SHA-256.
+func (r *Report) writeEventsZip(path string) (string, error) {
+	tmp := path + ".partial"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	zw := zip.NewWriter(io.MultiWriter(f, h))
+	w, err := zw.CreateHeader(&zip.FileHeader{Name: "events.csv", Method: zip.Deflate, Modified: r.Generated})
+	if err == nil {
+		err = r.writeCSV(w)
+	}
+	if err == nil {
+		err = zw.Close()
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		os.Remove(tmp)
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func (r *Report) writeCSV(w io.Writer) error {

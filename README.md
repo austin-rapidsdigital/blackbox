@@ -131,8 +131,8 @@ was made from, unaltered: Windows `.evtx` files and the Linux audit and
 system logs, one zip per computer, with a SHA-256 for every file. This works
 on a standalone computer and on a collector. [More →](docs/reports.md#original-logs)
 
-Each report also comes with `events.csv` for Excel, `events.jsonl` for
-Splunk, and a `manifest.sha256`. [More about reports →](docs/reports.md)
+Each report also comes with `events.zip` (every event as a spreadsheet for
+Excel) and a `manifest.sha256`. [More about reports →](docs/reports.md)
 
 ## Try it without installing
 

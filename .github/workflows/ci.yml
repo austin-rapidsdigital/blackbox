@@ -186,9 +186,9 @@ jobs:
           dir=$(sudo sh -c 'ls -d bbdata/reports/*/' | head -1)
           sudo ./blackbox verify "$dir"
           for want in "created the user account bbtestuser" "added bbtestuser to the privileged group sudo" "changed the sudo rules: /etc/sudoers.d/bbtestuser"; do
-            if ! sudo grep -q "$want" "$dir/events.csv"; then
+            if ! sudo unzip -p "$dir/events.zip" events.csv | grep -q "$want"; then
               echo "report is missing: $want"
-              sudo cut -c1-200 "$dir/events.csv" | head -40
+              sudo unzip -p "$dir/events.zip" events.csv | cut -c1-200 | head -40
               echo "--- account-related audit records:"
               sudo grep -E 'type=(ADD_USER|ADD_GROUP|USER_MGMT|GRP_MGMT|USER_CHAUTHTOK)' /var/log/audit/audit.log | tail -20
               exit 1

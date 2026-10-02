@@ -1,6 +1,7 @@
 package report
 
 import (
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
@@ -161,6 +162,14 @@ func TestWriteAndVerify(t *testing.T) {
 		if !strings.Contains(data.String(), want) {
 			t.Errorf("event data missing %q", want)
 		}
+	}
+	if zr, err := zip.OpenReader(filepath.Join(dir, "events.zip")); err != nil || len(zr.File) != 1 || zr.File[0].Name != "events.csv" {
+		t.Errorf("events.zip should hold events.csv: %v", err)
+	} else {
+		zr.Close()
+	}
+	if _, err := os.Stat(filepath.Join(dir, "events.jsonl")); err == nil {
+		t.Error("events.jsonl is no longer written")
 	}
 	if bytes.Contains(html, []byte("wevtutil  cl Application")) {
 		t.Error("events belong in the data files, not report.html")

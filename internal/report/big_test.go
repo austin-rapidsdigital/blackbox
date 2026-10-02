@@ -84,9 +84,8 @@ func TestBigReport(t *testing.T) {
 		}
 	}
 	html, _ := os.Stat(filepath.Join(out, "report.html"))
-	csv, _ := os.Stat(filepath.Join(out, "events.csv"))
-	jsonl, _ := os.Stat(filepath.Join(out, "events.jsonl"))
-	t.Logf("%d events: build %v, total %v; report.html %d KB; table data %.1f MB; raw event data %.1f MB in %d files; events.csv %.1f MB; events.jsonl %.1f MB",
+	zipped, _ := os.Stat(filepath.Join(out, "events.zip"))
+	t.Logf("%d events: build %v, total %v; report.html %d KB; table data %.1f MB; raw event data %.1f MB in %d files; events.zip %.1f MB",
 		n, built.Round(time.Millisecond), time.Since(began).Round(time.Millisecond), html.Size()>>10,
-		float64(data)/(1<<20), float64(raw)/(1<<20), len(files), float64(csv.Size())/(1<<20), float64(jsonl.Size())/(1<<20))
+		float64(data)/(1<<20), float64(raw)/(1<<20), len(files), float64(zipped.Size())/(1<<20))
 }

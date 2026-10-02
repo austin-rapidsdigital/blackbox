@@ -19,7 +19,7 @@ import (
 )
 
 // maxRowsPerSection keeps the HTML file a manageable size; every event
-// is always in events.csv and events.jsonl.
+// is always in events.zip (events.csv).
 const maxRowsPerSection = 5000
 
 // Options describe the report being built.
