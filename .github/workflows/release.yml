@@ -46,11 +46,11 @@ jobs:
 
           | System | File | Install |
           |---|---|---|
-          | Windows 11 / Server 2025 | \`blackbox-${VERSION}-windows-amd64.zip\` | Unzip, then double-click \`Install.cmd\` |
+          | Windows 11 / Server 2025 | \`Blackbox-Setup-${VERSION}.exe\` | Double-click it and answer the questions (it also upgrades an installed Blackbox) |
           | Linux (x86-64) | \`blackbox-${VERSION}-linux-amd64.tar.gz\` | Extract, then \`sudo ./install.sh\` |
           | Linux (ARM64) | \`blackbox-${VERSION}-linux-arm64.tar.gz\` | Extract, then \`sudo ./install.sh\` |
 
           Check downloads with \`sha256sum -c SHA256SUMS\`. See the [README](https://github.com/casea1/blackbox#readme) and the [Windows](https://github.com/casea1/blackbox/blob/main/docs/windows.md) and [Linux](https://github.com/casea1/blackbox/blob/main/docs/linux.md) guides.
           NOTES
-          gh release create "$TAG" dist/*.zip dist/*.tar.gz dist/SHA256SUMS \
+          gh release create "$TAG" dist/*.exe dist/*.tar.gz dist/SHA256SUMS \
             --target "$GITHUB_SHA" --title "Blackbox $TAG" --notes-file notes.md

@@ -89,3 +89,19 @@ func TestPrepareReportDir(t *testing.T) {
 		t.Error("a file was accepted as the report folder")
 	}
 }
+
+// The status icon starts at logon for members of Administrators, elevated,
+// one per person.
+func TestTrayTaskXML(t *testing.T) {
+	x := trayTaskXML(`C:\Program Files\Blackbox\blackboxw.exe`)
+	for _, want := range []string{"<LogonTrigger>", "<GroupId>S-1-5-32-544</GroupId>", "<RunLevel>HighestAvailable</RunLevel>",
+		"<MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy>", "<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>",
+		`<Command>C:\Program Files\Blackbox\blackboxw.exe</Command>`, "<Arguments>tray</Arguments>"} {
+		if !strings.Contains(x, want) {
+			t.Errorf("tray task lacks %s", want)
+		}
+	}
+	if strings.Contains(x, "<UserId>") {
+		t.Error("the tray must run as the person logging on, not a fixed account")
+	}
+}

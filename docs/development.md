@@ -14,7 +14,7 @@
 | `internal/lan/` | Sending batches to a collector and importing them (see [lan.md](lan.md#how-it-works)) |
 | `internal/share/` | Reaching a collector's share: Windows share sign-in and DPAPI-protected password, Linux mount point |
 | `internal/store/`, `internal/config/`, `internal/app/` | State, settings, and the report schedule |
-| `packaging/` | Files shipped in the release packages (`Install.cmd`, `install.sh`, …) |
+| `packaging/` | Files shipped in the Linux packages (`install.sh`, …); Windows ships one setup file |
 | `testdata/` | Synthetic Windows and Ubuntu logs, used by the tests and the samples |
 | `docs/` | Documentation and screenshots |
 
@@ -46,7 +46,7 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-The **Release** workflow then tests, builds the Windows zip, the Linux
+The **Release** workflow then tests, builds the Windows setup file, the Linux
 tarballs and `SHA256SUMS`, and publishes them on the
 [Releases](https://github.com/casea1/blackbox/releases) page.
 

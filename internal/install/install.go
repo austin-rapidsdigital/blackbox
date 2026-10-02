@@ -325,3 +325,50 @@ func onCalendar(d time.Duration) (string, error) {
 	}
 	return "", fmt.Errorf("collection interval %s must divide an hour or a day evenly (e.g. 15m, 30m, 1h, 2h)", d)
 }
+
+// TrayTaskName is the Windows scheduled task that starts the status icon.
+const TrayTaskName = "Blackbox Status"
+
+// TrayQuitEvent is the named event the status icons watch: setting it
+// closes every running icon (on uninstall, or when the icon is turned off).
+const TrayQuitEvent = `Global\BlackboxTrayQuit`
+
+// trayTaskXML starts the status icon when any member of Administrators
+// logs on, in their session, with full rights (the task was registered by
+// an administrator, so there is no UAC prompt). Every administrator who is
+// logged on gets their own icon, so copies run side by side.
+func trayTaskXML(exe string) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Author>Blackbox</Author>
+    <Description>Shows Blackbox's status in the notification area for administrators.</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <GroupId>S-1-5-32-544</GroupId>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Enabled>true</Enabled>
+    <Priority>5</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>%s</Command>
+      <Arguments>tray</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+`, xmlEscape(exe))
+}

@@ -227,6 +227,7 @@ func TestWizardWindowsCollector(t *testing.T) {
 		"vmuser", // account that runs VirtualBox
 		"y",      // share it on the network too
 		"",       // hourly
+		"y",      // status icon
 		"",       // confirm
 	)
 	a, out, err := runWizard(t, input, Answers{}, fakeEnv{windows: true}, false)
@@ -234,11 +235,12 @@ func TestWizardWindowsCollector(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	want := Answers{Role: RoleCollector, Site: "Lab 3", ReportEvery: "daily", ReportAt: config.DefaultReportAt, CollectEvery: time.Hour,
-		Inbox: abs("/srv/blackbox-inbox"), ShareInbox: true, InboxWriters: []string{"vmuser"}}
+		Inbox: abs("/srv/blackbox-inbox"), ShareInbox: true, InboxWriters: []string{"vmuser"}, Tray: true}
 	if !reflect.DeepEqual(a, want) {
 		t.Errorf("got %+v, want %+v", a, want)
 	}
-	if !strings.Contains(out, "shared on the network as BlackboxInbox") || !strings.Contains(out, "Can deliver:      vmuser") {
+	if !strings.Contains(out, "shared on the network as BlackboxInbox") || !strings.Contains(out, "Can deliver:      vmuser") ||
+		!strings.Contains(out, "Status icon:      shown to administrators") {
 		t.Errorf("summary:\n%s", out)
 	}
 }
@@ -252,5 +254,17 @@ func TestWizardBackToStandalone(t *testing.T) {
 	}
 	if a.Inbox != "" || a.ShareInbox || a.Role != RoleStandalone {
 		t.Errorf("got %+v", a)
+	}
+}
+
+// A sender never gets the status icon, and is not asked about it.
+func TestWizardSenderNoTray(t *testing.T) {
+	env := fakeEnv{windows: true, reachable: map[string]string{`\\COL\BlackboxInbox`: ""}}
+	a, out, err := runWizard(t, lines("2", `\\COL\BlackboxInbox`, "", "", ""), Answers{Tray: true}, env, false)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if a.Tray || strings.Contains(out, "notification area") || strings.Contains(out, "Status icon") {
+		t.Errorf("a sender should have no status icon: %+v\n%s", a, out)
 	}
 }

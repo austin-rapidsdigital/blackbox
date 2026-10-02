@@ -1,0 +1,122 @@
+package gui
+
+import (
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/casea1/blackbox/internal/app"
+	"github.com/casea1/blackbox/internal/report"
+)
+
+var trayNow = time.Date(2026, 10, 2, 14, 30, 0, 0, time.Local)
+
+func healthy() app.Health {
+	return app.Health{Role: "collector", ReportEvery: "weekly", Every: time.Hour, LastCollect: trayNow.Add(-25 * time.Minute),
+		LastRun: app.LastRun{Time: trayNow.Add(-25 * time.Minute)}, NextReport: time.Date(2026, 10, 7, 0, 0, 0, 0, time.Local),
+		ReportsDir: `C:\Reports`, AuditGaps: map[string]int{}, Quiet: map[string]time.Time{}}
+}
+
+func TestClassify(t *testing.T) {
+	v := classify(healthy(), nil, trayNow)
+	if v.State != stateOK || !strings.HasPrefix(v.Status, "Collecting every hour · last 14:05 · next report") || len(v.Items) != 0 {
+		t.Errorf("healthy: %+v", v)
+	}
+
+	h := healthy()
+	h.AuditGaps["WS-13"] = 2
+	h.AVOld = []string{"WS-05"}
+	h.Quiet["WS-09"] = trayNow.Add(-72 * time.Hour)
+	v = classify(h, nil, trayNow)
+	if v.State != stateLook || len(v.Items) != 3 || v.Items[0] != "Audit settings: 2 settings to fix on WS-13" ||
+		!strings.HasPrefix(v.Items[2], "WS-09 has not sent since") {
+		t.Errorf("things to look at: %+v", v)
+	}
+
+	h = healthy()
+	h.LastCollect = trayNow.Add(-2*time.Hour - 16*time.Minute) // past twice the interval plus 15 minutes
+	if v = classify(h, nil, trayNow); v.State != stateStopped || !strings.Contains(v.Status, "Collection has stopped") {
+		t.Errorf("stopped: %+v", v)
+	}
+	h.LastCollect = trayNow.Add(-2 * time.Hour) // not yet
+	if v = classify(h, nil, trayNow); v.State != stateOK {
+		t.Errorf("not overdue yet: %+v", v)
+	}
+
+	h = healthy()
+	h.LastRun = app.LastRun{Time: trayNow.Add(-5 * time.Minute), Error: "disk full"}
+	if v = classify(h, nil, trayNow); v.State != stateStopped || !strings.Contains(v.Status, "disk full") {
+		t.Errorf("failed run: %+v", v)
+	}
+
+	if v = classify(app.Health{}, errors.New("access is denied"), trayNow); v.State != stateUnknown {
+		t.Errorf("unreadable: %+v", v)
+	}
+}
+
+func TestNotices(t *testing.T) {
+	h := healthy()
+	h.Latest = &report.IndexEntry{Dir: `C:\Reports\week-39`, Summary: report.Summary{WindowStart: trayNow.AddDate(0, 0, -7), WindowEnd: trayNow}}
+	h.AuditGaps["WS-13"] = 1
+
+	// The first look notifies nothing, only remembers.
+	n, m := notices(trayMemory{}, h, classify(h, nil, trayNow), "1.0", trayNow)
+	if len(n) != 0 || m.Report != `C:\Reports\week-39` || !m.Gaps["WS-13"] {
+		t.Fatalf("first look: %v %+v", n, m)
+	}
+	// Nothing new: nothing notified.
+	if n, _ = notices(m, h, classify(h, nil, trayNow), "1.0", trayNow); len(n) != 0 {
+		t.Errorf("repeat: %v", n)
+	}
+
+	// A new scheduled report, a new gap, an update and a stop: one each.
+	h2 := healthy()
+	h2.Latest = &report.IndexEntry{Dir: `C:\Reports\week-40`, Summary: report.Summary{WindowStart: trayNow.AddDate(0, 0, -7), WindowEnd: trayNow,
+		Detections: []report.Detection{{Severity: "high"}, {Severity: "medium"}}}}
+	h2.AuditGaps["WS-13"] = 1
+	h2.AuditGaps["WS-02"] = 3
+	h2.LastCollect = trayNow.Add(-5 * time.Hour)
+	n, m2 := notices(m, h2, classify(h2, nil, trayNow), "1.1", trayNow)
+	var texts []string
+	for _, x := range n {
+		texts = append(texts, x.Text)
+	}
+	all := strings.Join(texts, "\n")
+	for _, want := range []string{"Blackbox updated to 1.1.", "Weekly report ready: 2 detections, 1 high.",
+		"Collection has stopped", "Audit settings on WS-02 no longer match the STIG: 3 settings to fix."} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing %q in:\n%s", want, all)
+		}
+	}
+	if strings.Contains(all, "WS-13") || len(n) != 4 {
+		t.Errorf("WS-13 was already notified; got %d notices:\n%s", len(n), all)
+	}
+	// Once notified, the outage is not repeated.
+	if n, _ = notices(m2, h2, classify(h2, nil, trayNow), "1.1", trayNow); len(n) != 0 {
+		t.Errorf("outage repeated: %v", n)
+	}
+	// An interim report is not announced.
+	h3 := h2
+	h3.Latest = &report.IndexEntry{Dir: `C:\Reports\interim`, Summary: report.Summary{Interim: true}}
+	h3.LastCollect = trayNow
+	if n, _ = notices(m2, h3, classify(h3, nil, trayNow), "1.1", trayNow); len(n) != 0 {
+		t.Errorf("interim announced: %v", n)
+	}
+}
+
+func TestTrayImage(t *testing.T) {
+	for s, want := range map[trayState][3]uint8{stateOK: {0x1E, 0x9E, 0x4A}, stateLook: {0xE0, 0x8A, 0x00}, stateStopped: {0xD0, 0x2B, 0x2B}} {
+		img := trayImage(32, s)
+		c := img.NRGBAAt(32-8, 32-8) // inside the dot
+		if [3]uint8{c.R, c.G, c.B} != want {
+			t.Errorf("state %d: dot is %v", s, c)
+		}
+	}
+	g := trayImage(32, stateUnknown)
+	for i := 0; i < len(g.Pix); i += 4 {
+		if g.Pix[i] != g.Pix[i+1] || g.Pix[i+1] != g.Pix[i+2] {
+			t.Fatal("unknown state should be grey")
+		}
+	}
+}

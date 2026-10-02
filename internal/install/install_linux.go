@@ -221,3 +221,20 @@ func RequireAdmin() error {
 	}
 	return nil
 }
+
+// The status icon is Windows only.
+
+// TrayWanted is always false here.
+func TrayWanted() bool { return false }
+
+// StartTray is Windows only.
+func StartTray() error { return nil }
+
+// QuitTrays is Windows only.
+func QuitTrays() {}
+
+// RemoveOld is Windows only.
+func RemoveOld() {}
+
+// InstalledVersion is only used by the Windows setup window.
+func InstalledVersion() string { return "" }

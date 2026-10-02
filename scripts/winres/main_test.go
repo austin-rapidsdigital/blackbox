@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"debug/pe"
 	"encoding/binary"
+	"encoding/xml"
 	"image/png"
 	"regexp"
 	"strings"
@@ -111,6 +112,34 @@ func TestIconIsTheLogo(t *testing.T) {
 		img := Icon(size)
 		if img.Bounds().Dx() != size || img.NRGBAAt(size/2, size/2).A == 0 || img.NRGBAAt(0, 0).A > 40 {
 			t.Errorf("%dpx icon is not the round logo", size)
+		}
+	}
+}
+
+// The manifest is well-formed XML, runs with the starter's rights, and
+// asks for the current controls and per-monitor DPI.
+func TestManifest(t *testing.T) {
+	var found bool
+	for _, r := range Resources("1.0.0") {
+		if r.Type == rtManifest && r.ID == 1 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no manifest resource (type 24, ID 1)")
+	}
+	d := xml.NewDecoder(strings.NewReader(Manifest))
+	for {
+		if _, err := d.Token(); err != nil {
+			if err.Error() != "EOF" {
+				t.Fatalf("manifest is not valid XML: %v", err)
+			}
+			break
+		}
+	}
+	for _, want := range []string{`level="asInvoker"`, "Microsoft.Windows.Common-Controls", "PerMonitorV2"} {
+		if !strings.Contains(Manifest, want) {
+			t.Errorf("manifest lacks %s", want)
 		}
 	}
 }

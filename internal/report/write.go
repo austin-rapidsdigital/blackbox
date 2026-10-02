@@ -550,3 +550,24 @@ type archiveState struct {
 	Verified bool // its SHA-256 matches the one recorded when it was made
 	Contents []archive.Info
 }
+
+// Latest is the newest report in reportsDir (scheduled or interim).
+func Latest(reportsDir string) (IndexEntry, bool) {
+	matches, _ := filepath.Glob(filepath.Join(reportsDir, "*", "summary.json"))
+	var best IndexEntry
+	found := false
+	for _, m := range matches {
+		b, err := os.ReadFile(m)
+		if err != nil {
+			continue
+		}
+		var s Summary
+		if json.Unmarshal(b, &s) != nil {
+			continue
+		}
+		if !found || s.Generated.After(best.Generated) {
+			best, found = IndexEntry{Summary: s, Dir: filepath.Dir(m)}, true
+		}
+	}
+	return best, found
+}

@@ -3,11 +3,11 @@ package archive
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/casea1/blackbox/internal/hidden"
 	"github.com/casea1/blackbox/internal/winevt"
 )
 
@@ -22,7 +22,7 @@ func export(tmp string, from, to time.Time) ([]Source, []string) {
 	for _, ch := range winevt.Channels {
 		name := SafeName(ch) + ".evtx"
 		path := filepath.Join(tmp, name)
-		out, err := exec.Command(wevtutil(), "epl", ch, path, query, "/ow:true").CombinedOutput()
+		out, err := hidden.Command(wevtutil(), "epl", ch, path, query, "/ow:true").CombinedOutput()
 		if err != nil {
 			msg := strings.TrimSpace(string(out))
 			if strings.Contains(strings.ToLower(msg), "could not be found") {

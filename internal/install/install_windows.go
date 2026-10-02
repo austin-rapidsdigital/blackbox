@@ -5,9 +5,7 @@ package install
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -16,6 +14,7 @@ import (
 
 	"github.com/casea1/blackbox/internal/brand"
 	"github.com/casea1/blackbox/internal/config"
+	"github.com/casea1/blackbox/internal/hidden"
 	"github.com/casea1/blackbox/internal/share"
 )
 
@@ -48,9 +47,12 @@ func Install(opt Options) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	if !samePath(self, dst) {
-		if err := copyFile(self, dst); err != nil {
-			return fmt.Errorf("copy program to %s: %w (if upgrading, make sure Blackbox is not running)", dst, err)
+	if err := placePrograms(self); err != nil {
+		return fmt.Errorf("copy program to %s: %w", filepath.Dir(dst), err)
+	}
+	if opt.Version != "" {
+		if err := checkPrograms(opt.Version); err != nil {
+			return err
 		}
 	}
 	logf("Installed program:   %s", dst)
@@ -91,12 +93,17 @@ func Install(opt Options) error {
 		return err
 	}
 	defer os.Remove(tmp)
-	if out, err := exec.Command("schtasks.exe", "/Create", "/TN", TaskName, "/XML", tmp, "/F").CombinedOutput(); err != nil {
+	if out, err := hidden.Command("schtasks.exe", "/Create", "/TN", TaskName, "/XML", tmp, "/F").CombinedOutput(); err != nil {
 		return fmt.Errorf("create scheduled task: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	logf("Scheduled task:      \"%s\" — collects %s as SYSTEM; %s reports", TaskName, EveryText(opt.CollectEvery), opt.ReportEvery)
 
-	// 5. Entry in Settings > Apps and Control Panel > Programs and Features.
+	// 5. The status icon, for administrators on a collector or standalone computer.
+	if err := setupTray(opt.Tray && opt.SendTo == "", logf); err != nil {
+		return err
+	}
+
+	// 6. Entry in Settings > Apps and Control Panel > Programs and Features.
 	if err := registerUninstall(dst, opt.Version); err != nil {
 		logf("Note: could not add Blackbox to Programs and Features: %v", err)
 	} else {
@@ -122,12 +129,13 @@ func registerUninstall(exe, version string) error {
 		{"UninstallString", "REG_SZ", `"` + exe + `" uninstall`},
 		{"QuietUninstallString", "REG_SZ", `"` + exe + `" uninstall`},
 		{"URLInfoAbout", "REG_SZ", "https://github.com/casea1/blackbox"},
-		{"NoModify", "REG_DWORD", "1"},
+		{"ModifyPath", "REG_SZ", `"` + WindowedPath() + `" setup`},
+		{"NoModify", "REG_DWORD", "0"},
 		{"NoRepair", "REG_DWORD", "1"},
 		{"EstimatedSize", "REG_DWORD", size},
 	}
 	for _, v := range values {
-		if out, err := exec.Command("reg.exe", "add", uninstallKey, "/v", v[0], "/t", v[1], "/d", v[2], "/f").CombinedOutput(); err != nil {
+		if out, err := hidden.Command("reg.exe", "add", uninstallKey, "/v", v[0], "/t", v[1], "/d", v[2], "/f").CombinedOutput(); err != nil {
 			return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 		}
 	}
@@ -141,7 +149,7 @@ func afterReportDirChange(func(string, ...any)) error { return nil }
 // restrictDir limits a folder Blackbox created to Administrators and
 // SYSTEM (by SID, so it works on any language version of Windows).
 func restrictDir(dir string) error {
-	if out, err := exec.Command("icacls.exe", dir, "/inheritance:r",
+	if out, err := hidden.Command("icacls.exe", dir, "/inheritance:r",
 		"/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F").CombinedOutput(); err != nil {
 		return fmt.Errorf("restrict permissions on %s: %v: %s", dir, err, out)
 	}
@@ -154,13 +162,14 @@ func Uninstall(logf func(string, ...any)) error {
 	if !isAdmin() {
 		return errors.New("uninstall must be run from an elevated (Run as administrator) prompt")
 	}
-	exec.Command("schtasks.exe", "/End", "/TN", TaskName).Run() // stop a run in progress
-	if out, err := exec.Command("schtasks.exe", "/Delete", "/TN", TaskName, "/F").CombinedOutput(); err != nil {
+	hidden.Command("schtasks.exe", "/End", "/TN", TaskName).Run() // stop a run in progress
+	if out, err := hidden.Command("schtasks.exe", "/Delete", "/TN", TaskName, "/F").CombinedOutput(); err != nil {
 		logf("Scheduled task: %s", strings.TrimSpace(string(out)))
 	} else {
 		logf("Removed scheduled task \"%s\".", TaskName)
 	}
-	exec.Command("reg.exe", "delete", uninstallKey, "/f").Run()
+	setupTray(false, logf)
+	hidden.Command("reg.exe", "delete", uninstallKey, "/f").Run()
 	removeInbox(logf)
 	share.SaveSecret(config.DefaultDataDir(), "") // removes the stored share password
 	logf("Removed Blackbox from Programs and Features.")
@@ -186,7 +195,7 @@ func Uninstall(logf func(string, ...any)) error {
 func removeAfterExit(dir string) error {
 	script := `ping -n 3 127.0.0.1 >nul & for /l %i in (1,1,30) do @(rmdir /s /q "` + dir +
 		`" 2>nul & if not exist "` + dir + `" (exit /b 0) & ping -n 2 127.0.0.1 >nul)`
-	cmd := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"))
+	cmd := hidden.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"))
 	// Set the command line directly: Go's argument quoting (\") is not
 	// understood by cmd.exe and breaks paths containing spaces.
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -208,34 +217,6 @@ func isAdmin() bool {
 	return true
 }
 
-func samePath(a, b string) bool {
-	aa, err1 := filepath.Abs(a)
-	bb, err2 := filepath.Abs(b)
-	return err1 == nil && err2 == nil && strings.EqualFold(aa, bb)
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	tmp := dst + ".new"
-	out, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		os.Remove(tmp)
-		return err
-	}
-	if err := out.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp, dst)
-}
-
 // utf16LE encodes s with a byte order mark, as schtasks expects.
 func utf16LE(s string) []byte {
 	u := utf16.Encode([]rune(s))
@@ -251,7 +232,7 @@ func utf16LE(s string) []byte {
 // RequireAdmin returns an error unless running elevated.
 func RequireAdmin() error {
 	if !isAdmin() {
-		return errors.New("run this as an administrator (right-click Command Prompt > Run as administrator, or double-click Install.cmd)")
+		return errors.New("run this as an administrator (right-click Command Prompt > Run as administrator, or double-click the setup file)")
 	}
 	return nil
 }
