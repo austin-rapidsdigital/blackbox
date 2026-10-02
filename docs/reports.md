@@ -211,7 +211,7 @@ Every report is a folder containing:
 | `report.html` | The report. Open it in any browser; it works offline |
 | `data/` | The events the report's pages list, compressed, one file per page and day. `report.html` reads them only when a page needs them; keep them next to it |
 | `logs-COMPUTER.zip` | The original logs, one per computer (see above) |
-| `events.zip` | Every event as `events.csv`, for Excel. Double-click to open |
+| `events.zip` | Every event as `events.csv`, for Excel. Double-click to open. A field that starts with `=`, `+`, `-` or `@` gets a `'` in front, so Excel shows it as text and never runs it as a formula |
 | `summary.json` | Counts and period, used by the report list |
 | `manifest.sha256` | SHA-256 hash of each file |
 
@@ -219,6 +219,17 @@ To confirm a report has not been altered, run
 `blackbox verify <report folder>`, or `sha256sum -c manifest.sha256`.
 The report also checks each data file as it loads it: if one was changed,
 **Verified** at the top of every page turns red.
+
+`blackbox verify` also fails if a file the manifest lists is missing, if a
+file was added to the folder afterwards, or if the manifest no longer
+lists `report.html` or `summary.json`.
+
+**What this proves, and what it doesn't.** The manifest is not signed, so
+it finds accidental damage, a copy that went wrong, and careless edits.
+Someone who edits a file and also rewrites its hash in the manifest is not
+caught. For that, keep the reports where only administrators can change
+them (the default report folder is), or copy each report to write-once
+storage when it is made.
 
 **Large networks.** A report lists up to 2,000,000 events. Above that,
 routine Info events (mostly logons) are counted and charted but not

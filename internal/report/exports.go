@@ -72,8 +72,25 @@ func (r *Report) verification() Verification {
 func csvText(rows [][]string) string {
 	var b bytes.Buffer
 	w := csv.NewWriter(&b)
-	w.WriteAll(rows)
+	for _, row := range rows {
+		w.Write(csvSafe(row))
+	}
+	w.Flush()
 	return b.String()
+}
+
+// csvSafe keeps every field text in a spreadsheet: one starting with
+// = + - @, a tab or a return is a formula to Excel, so a logon attempt
+// with the user name =HYPERLINK(…) must not become a working link.
+func csvSafe(row []string) []string {
+	out := make([]string, len(row))
+	for i, f := range row {
+		if f != "" && strings.ContainsRune("=+-@\t\r", rune(f[0])) {
+			f = "'" + f
+		}
+		out[i] = f
+	}
+	return out
 }
 
 // detectionsCSV is the Export menu's detections file, for a POA&M or a

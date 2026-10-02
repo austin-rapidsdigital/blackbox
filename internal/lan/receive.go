@@ -189,7 +189,8 @@ func importBatch(st *store.Store, b *Batch, now time.Time) (int, error) {
 		snd = &store.SenderState{Host: b.Sender, FirstSeen: now}
 		st.State.Senders[b.SenderID] = snd
 	}
-	if b.Seq <= snd.LastSeq {
+	late := b.Seq <= snd.LastSeq
+	if late && !inGap(snd.Missing, b.Seq) {
 		return 0, nil // already imported (delivered twice)
 	}
 
@@ -262,10 +263,15 @@ func importBatch(st *store.Store, b *Batch, now time.Time) (int, error) {
 
 	// Bookkeeping: gaps in the sequence, the sender's clock, and which
 	// systems this data came from.
-	if b.Seq > snd.LastSeq+1 {
-		snd.Missing = append(snd.Missing, store.SeqGap{From: snd.LastSeq + 1, To: b.Seq - 1, Noted: now})
+	if late {
+		// A batch that was missing has arrived after all (out of order).
+		snd.Missing = fillGap(snd.Missing, b.Seq)
+	} else {
+		if b.Seq > snd.LastSeq+1 {
+			snd.Missing = append(snd.Missing, store.SeqGap{From: snd.LastSeq + 1, To: b.Seq - 1, Noted: now})
+		}
+		snd.LastSeq = b.Seq
 	}
-	snd.LastSeq = b.Seq
 	snd.Host = b.Sender
 	snd.Version = b.Version
 	snd.LastReceived = now
@@ -285,6 +291,34 @@ func importBatch(st *store.Store, b *Batch, now time.Time) (int, error) {
 		return 0, err
 	}
 	return b.Records(), nil
+}
+
+// inGap reports whether batch seq is one of the missing ones.
+func inGap(gaps []store.SeqGap, seq uint64) bool {
+	for _, g := range gaps {
+		if seq >= g.From && seq <= g.To {
+			return true
+		}
+	}
+	return false
+}
+
+// fillGap removes seq from the missing batches, splitting a gap if needed.
+func fillGap(gaps []store.SeqGap, seq uint64) []store.SeqGap {
+	var out []store.SeqGap
+	for _, g := range gaps {
+		if seq < g.From || seq > g.To {
+			out = append(out, g)
+			continue
+		}
+		if seq > g.From {
+			out = append(out, store.SeqGap{From: g.From, To: seq - 1, Noted: g.Noted})
+		}
+		if seq < g.To {
+			out = append(out, store.SeqGap{From: seq + 1, To: g.To, Noted: g.Noted})
+		}
+	}
+	return out
 }
 
 func marshal(v any) ([]byte, error) {

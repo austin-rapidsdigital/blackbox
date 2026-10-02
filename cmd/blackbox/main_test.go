@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -30,5 +31,14 @@ func TestReportRange(t *testing.T) {
 	}
 	if f, to, err := parseRangeAnswer("2026-09-01 2026-09-30", now, time.UTC); err != nil || f.Day() != 1 || to.Day() != 1 || to.Month() != 10 {
 		t.Errorf("two dates: %v %v %v", f, to, err)
+	}
+}
+
+// R4: a saved setting is used by the next run of any kind, not only the
+// next scheduled one.
+func TestSavedText(t *testing.T) {
+	got := savedText("site_name", "Lab 3")
+	if strings.Contains(got, "next scheduled run") || !strings.Contains(got, "blackbox report") {
+		t.Errorf("savedText = %q", got)
 	}
 }

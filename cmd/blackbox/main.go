@@ -383,8 +383,14 @@ func cmdConfig(args []string) error {
 			return err
 		}
 	}
-	fmt.Printf("Saved %s = %s. It takes effect at the next scheduled run.\n", key, value)
+	fmt.Println(savedText(key, value))
 	return nil
+}
+
+// savedText confirms a setting change. Settings are read at the start of
+// every run, scheduled or by hand, so a change applies from the next one.
+func savedText(key, value string) string {
+	return fmt.Sprintf("Saved %s = %s. It applies from the next collection or report, including one you run now with \"blackbox report\".", key, value)
 }
 
 func cmdStatus(args []string) error {
