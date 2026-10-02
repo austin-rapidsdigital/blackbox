@@ -100,22 +100,25 @@ collector**. The [LAN guide](docs/lan.md) walks through each setup.
 
 Reports are written to `C:\ProgramData\Blackbox\reports\` on Windows and
 `/var/lib/blackbox/reports/` on Linux, or to the folder you chose during
-setup. Open `index.html` there for the list of all reports. Each report is one self-contained `report.html` file with
-these views:
+setup. Open `index.html` there for the list of all reports. Each report is a
+folder; open its `report.html` in any browser (it works offline, from a
+local folder or a file share). Its pages:
 
-| View | Shows |
+| Page | Shows |
 |---|---|
-| **Overview** | Reporting period, whether the audit trail is complete, detections, and what needs attention |
-| **Privileged Activity** | Admin logons, sudo/su, elevated programs, commands that tamper with auditing |
-| **USB & Removable Media** | Devices with make, model and serial number, who used them, files copied |
-| **Failed Logons & Lockouts** | Every failure with the reason decoded, plus password-guessing patterns |
-| **Account & Group Changes** | Accounts created, deleted or reset; additions to admin groups |
-| **Audit & System Integrity** | Logs cleared, auditing stopped, audit rules changed, time changes |
-| **Other Security Events** | New services and tasks, kernel modules, anti-malware, SELinux/AppArmor |
-| **Logon Activity** | Who logged on, how, and from where |
-| **Systems** | On a collector: every computer, its last collection, and whether any stopped sending |
-| **Audit health** | Collection completeness, STIG audit-setting check, busiest event types |
-| **People** | Everything above, counted per account |
+| **Overview** | Stat cards with twelve-week trends, important events, every system's health, the latest detections |
+| **Systems** | Every computer (servers, workstations, VMs), problems first: its collection this period, health, activity against a typical system, its detections |
+| **Detections** | Each detection explained: why it was flagged, what happened in order, who was involved, and the exact events |
+| **Search** | "Show [events] by [person] on [systems] during [days] containing [text]", plus eight common searches |
+| **People** | Every account that did something, grouped Needs a look / Administrators / Service accounts / Users, with when they were active |
+| **Event pages** | Privileged activity, USB & removable, Failed logons, Accounts & groups, Audit integrity, PowerShell, Other security and Logon activity: stat cards, events per day, top six, what was flagged, and every event of that kind, filterable, with the full original event one click away |
+| **Audit health** | Every system against every STIG audit check, the gaps and how to fix them, and each system's settings (Blackbox only reports these; it never changes them) |
+| **Trends** | This week against the last twelve, and detections per system by week |
+| **Original logs** | The raw logs the report was made from, one zip per system, with hashes |
+
+Export prints a one-page summary (or saves it as PDF), or saves the
+detections, every event, or the audit health check as CSV. **Verified**
+shows the report's hash checks; a changed file turns it red.
 
 **Detections** point out patterns across events, the kind a SIEM
 correlates: password guessing and spraying across computers, access set up
@@ -171,9 +174,10 @@ VERSION=0.2.0 scripts/build.sh    # packages in dist/
 
 Copyright 2026 Austin Case. Licensed under the [Apache License, Version 2.0](LICENSE).
 
-Reports embed the [Inter](https://github.com/rsms/inter) and
-[JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) fonts, so they
-look the same on every computer without installing anything. Both are
+Reports embed the [Public Sans](https://github.com/uswds/public-sans) and
+[Source Code Pro](https://github.com/adobe-fonts/source-code-pro) fonts, so
+they look the same on every computer without installing anything. Both are
 licensed under the SIL Open Font License 1.1
-([Inter](internal/brand/fonts/Inter-OFL.txt),
-[JetBrains Mono](internal/brand/fonts/JetBrainsMono-OFL.txt)).
+([Public Sans](internal/brand/fonts/PublicSans-OFL.txt),
+[Source Code Pro](internal/brand/fonts/SourceCodePro-OFL.txt)). The icons
+are from [Lucide](https://lucide.dev) ([ISC license](internal/report/icons/LICENSE)).

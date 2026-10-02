@@ -21,6 +21,14 @@ jobs:
         run: go test -race ./...
       - name: Build release binaries
         run: scripts/build.sh
+      - name: Report pages work in a browser (LAN and standalone demo reports)
+        run: |
+          npm i --no-save --prefix "$RUNNER_TEMP/pw" playwright-core@1.48.2
+          BLACKBOX_DEMO_OUT="$RUNNER_TEMP/demo-lan" go test ./internal/report -run TestDemoReport -count=1
+          BLACKBOX_DEMO_STANDALONE=1 BLACKBOX_DEMO_OUT="$RUNNER_TEMP/demo-sa" go test ./internal/report -run TestDemoReport -count=1
+          for d in demo-lan demo-sa; do
+            NODE_PATH="$RUNNER_TEMP/pw/node_modules" node scripts/browsercheck.js "$RUNNER_TEMP/$d" "$(command -v google-chrome)"
+          done
   windows:
     runs-on: windows-latest
     # Receives the Linux runner's batches, so it runs after that job.

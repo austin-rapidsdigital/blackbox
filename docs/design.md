@@ -213,23 +213,18 @@ Why:
 
 ### Layout
 
-1. **Header**
-   - Hosts covered, time window, Blackbox version and rule-set version
-2. **Summary**
-   - Counts by category
-   - Anything unusual, highlighted
-   - Audit health (§5)
-3. **Sections, in priority order**
-   - Privileged activity
-   - USB and removable media
-   - Failed logons
-   - Account changes
-   - Audit and system integrity
-   - Other
-4. **Per-user and per-host views.** For example, "everything jsmith did this
-   week."
-5. **Raw event detail.** Collapsed under each translated row, so the original
-   is always available.
+The page designs are locked in [redesign/SPEC.md](redesign/SPEC.md), with a
+mockup of each in `redesign/mockups/`. In short: a sidebar switches
+between the Overview, Systems, Detections, Search and People; one page per
+kind of event (each with stat cards, a chart, a top-six list, what was
+flagged, and every event of that kind); and Audit health, Trends and
+Original logs. Each event opens a side panel with the original record.
+
+Events are not inside `report.html`: they are in compressed data files
+next to it, one per page and day, read only when a page needs them, so
+the report opens fast on a network of thirty busy computers. Charts are
+drawn when the report is written, as SVG, so they need no script and print
+as they look.
 
 ### Review and sign-off
 
@@ -430,7 +425,7 @@ The answers are in section 13. The original questions were:
 | Reviewers | ISSO/Auditor, then ISSM. Reviews are recorded on a separate platform and reports are not printed, so the report has **no signature or review section**, and `blackbox review` is dropped from the roadmap. |
 | Audit baseline | **Report only.** `check` and the report's health panel show what is missing and the command that fixes it. Blackbox never changes settings. |
 | Classification banner | Not needed, and removed. |
-| Report layout | **One self-contained `report.html`** designed for a 2560×1440 desktop. A sidebar switches between views inside the file: an overview with a clear From / To / Length period block, one view per category, Audit health, and People. The look is plain and dense: square edges, thin rules, and severity shown as colored text with a small square marker. |
+| Report layout | **`report.html` plus its data folder**, designed for a desktop and locked in [redesign/SPEC.md](redesign/SPEC.md) (October 2026): a glassy navy look with sharp edges, Public Sans and Source Code Pro, Lucide icons, and severity shown as colored text with a small square marker. |
 | Report template | No existing template needs to be matched. |
 | Config format | Plain `key = value`, not YAML. This keeps the module at zero third-party dependencies. |
 | Report chain | Each report covers the time up to its period end and includes every event not already reported. Events collected late, for example from before a system was powered off, go into the next report marked *Late*. Every event appears in exactly one report (`app.SelectWindow`). |

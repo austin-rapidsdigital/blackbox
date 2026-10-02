@@ -41,9 +41,9 @@ than usual once).
 | **Low** | Routine but relevant | Single failed logon, sudo command, admin logon |
 | **Info** | Context | Logons, logoffs, startup and shutdown |
 
-The Overview starts with **Detections**, then lists every high-severity
-event under **Needs attention**, then counts the medium ones by type under
-**Also review**.
+Only High and Medium are flagged in the report: the event tables show
+the severity for those and a dash for the rest. Every event is still
+listed, whatever its severity.
 
 ## Detections
 
@@ -112,8 +112,10 @@ a damaged or altered zip is set aside in the inbox's `rejected` folder. A
 day's logs go into the report whose period its save ends in, so a
 computer that was off catches up in the next report.
 
-The **Audit health** view lists each computer's zip with its period, size
-and SHA-256, and warns about any computer with no logs for the period.
+The **Original logs** page lists each computer's zip with its size and
+SHA-256, checked against the hash recorded when the zip was made, and
+shows what is inside each one. A computer with no logs for the period is
+listed first, as Missing.
 They are also listed in `summary.json`. The zips are removed with their
 reports after `retention_days`.
 
@@ -131,11 +133,11 @@ The Overview flags a report as incomplete when:
 - a Linux log was rotated away before it was read, or the kernel dropped
   audit records
 
-The **Audit health** view shows:
-
-- every log read, and how much history each one holds
-- the busiest event types, which point at noisy tools
-- the STIG audit-setting check
+The **Audit health** page shows every system against every STIG audit
+check (logon, account management, policy change, privilege use, process
+creation, removable storage, PowerShell logging, log size, reporting, logs
+intact), the gaps with how to fix them, and each system's own settings
+table. Blackbox only reports audit settings; it never changes them.
 
 ## Output files
 
@@ -144,10 +146,24 @@ Every report is a folder containing:
 | File | |
 |---|---|
 | `report.html` | The report. Open it in any browser; it works offline |
-| `data/` | The events the report's pages list, compressed, one file per page and day. `report.html` reads them; keep them next to it |
+| `data/` | The events the report's pages list, compressed, one file per page and day. `report.html` reads them only when a page needs them; keep them next to it |
+| `logs-COMPUTER.zip` | The original logs, one per computer (see above) |
 | `events.zip` | Every event as `events.csv`, for Excel. Double-click to open |
 | `summary.json` | Counts and period, used by the report list |
 | `manifest.sha256` | SHA-256 hash of each file |
 
 To confirm a report has not been altered, run
 `blackbox verify <report folder>`, or `sha256sum -c manifest.sha256`.
+The report also checks each data file as it loads it: if one was changed,
+**Verified** at the top of every page turns red.
+
+**Large networks.** A report lists up to 2,000,000 events. Above that,
+routine Info events (mostly logons) are counted and charted but not
+listed, and the event pages say so; every High, Medium and Low event, and
+every event a detection points to, is always listed. All of them are in
+the original logs. Tables draw only the rows on screen, so a page with
+hundreds of thousands of events still scrolls smoothly.
+
+The folder of reports has an `index.html`: detections per week over the
+last twelve reports, and each report with its week, systems, events,
+detections and whether its audit trail is complete.
