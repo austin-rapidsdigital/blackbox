@@ -395,7 +395,7 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		Site:        a.Cfg.SiteName,
 		WindowStart: prevEnd, WindowEnd: end, Generated: generated, Version: a.Version,
 		Source: "Live collection", Location: a.loc(), InReportsDir: true, Interim: !advance, Period: a.Cfg.ReportEvery,
-		History: report.History(a.ReportsDir(), end, 11),
+		History:      report.History(a.ReportsDir(), end, 11),
 		ExcludeUsers: a.Cfg.ExcludeUsers, ExcludeProcesses: a.Cfg.ExcludeProcesses,
 		KnownDevices: st.State.KnownDevices, CheckSets: sets,
 		Context: context, Baseline: st.State.Baseline, BaselineHosts: st.State.BaselineHosts,
