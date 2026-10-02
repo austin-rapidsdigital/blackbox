@@ -44,6 +44,10 @@ type EventPage struct {
 	BySev    map[string]int // by severity
 	Days     []string       // YYYYMMDD of each data file
 	Hosts    []string       `json:"-"` // computers with events on this page
+
+	Cols      []Column // the table's columns
+	KindLabel string   // the kind column's filter, e.g. "Reason"
+	Top       *pageTop `json:"-"`
 }
 
 // eventPages lists the event pages in sidebar order.
@@ -88,7 +92,7 @@ type chunk struct {
 	dict map[string]int
 }
 
-var chunkCols = []string{"i", "t", "host", "sev", "act", "user", "target", "src", "sum", "eid", "log", "proc", "cmd", "out", "flags"}
+var chunkCols = []string{"i", "t", "host", "sev", "act", "user", "target", "src", "sum", "eid", "log", "proc", "cmd", "out", "flags", "kind", "x"}
 
 func (c *chunk) ref(s string) int {
 	if i, ok := c.dict[s]; ok {
@@ -111,7 +115,9 @@ func (r *Report) buildData() ([]*EventPage, []dataFile, error) {
 		}
 	}
 	var files []dataFile
+	sessions := r.sessions()
 	for _, p := range pages {
+		spec := pageSpecs[p.ID]
 		p.BySev = map[string]int{}
 		type dayData struct {
 			c   *chunk
@@ -149,8 +155,8 @@ func (r *Report) buildData() ([]*EventPage, []dataFile, error) {
 			}
 			c.Rows = append(c.Rows, []any{i, e.Time.Unix() - c.Base, c.ref(e.Host), c.ref(string(e.Severity)), c.ref(e.Action),
 				c.ref(e.User), e.Target, c.ref(e.SourceIP), e.Summary, eid, c.ref(e.Source), c.ref(e.Process), e.Command,
-				c.ref(e.Outcome), strings.Join(flags[i], ",")})
-			d.raw = append(d.raw, []any{e.Details, e.Fields, recordedAs(e)})
+				c.ref(e.Outcome), strings.Join(flags[i], ","), c.ref(spec.kindOf(e)), c.ref(extra(spec, e, sessions[i]))})
+			d.raw = append(d.raw, []any{e.Details, e.Fields, recordedAs(e), preciseTime(local)})
 		}
 		sort.Strings(p.Hosts)
 		for day := range days {
@@ -172,7 +178,16 @@ func (r *Report) buildData() ([]*EventPage, []dataFile, error) {
 			files = append(files, dataFile{Name: p.ID + "-" + day + "-raw.js", Body: raw})
 		}
 	}
+	r.fillPages(pages)
 	return pages, files, nil
+}
+
+// extra is the page-specific column's value for e.
+func extra(spec pageSpec, e *event.Event, session string) string {
+	if spec.extra != nil {
+		return spec.extra(e)
+	}
+	return session
 }
 
 // listed marks which events (by index in r.Events) the event pages list.
@@ -204,6 +219,27 @@ func (r *Report) listed() []bool {
 		}
 	}
 	return keep
+}
+
+// preciseTime is an event's time for the event panel, to the millisecond
+// and with its UTC offset: "Mon 28 Sep 2026 06:02:41.338 (UTC-5)".
+func preciseTime(t time.Time) string {
+	_, off := t.Zone()
+	z := "UTC"
+	if off != 0 {
+		z = fmt.Sprintf("UTC%+d", off/3600)
+		if m := off % 3600 / 60; m != 0 {
+			z += fmt.Sprintf(":%02d", abs(m))
+		}
+	}
+	return t.Format("Mon 2 Jan 2006 15:04:05.000") + " (" + z + ")"
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 // recordedAs says where the event came from, e.g. "Security event 4625,

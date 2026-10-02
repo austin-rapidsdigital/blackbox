@@ -99,7 +99,7 @@
   // ---- Event tables ----
   // Rows are kept as compact arrays: [index, time, host, sev, action, user,
   // target, source, summary, eventID, log, process, command, outcome, flags,
-  // day, offset], strings already looked up.
+  // day, offset, kind, extra], strings already looked up.
   var ROW_H = 38;
   var tables = {};
   (meta.pages || []).forEach(function (p) {
@@ -138,7 +138,7 @@
       return getData(p.ID + '/' + day, p.ID + '-' + day + '.js').then(function (c) {
         var d = c.dict;
         c.rows.forEach(function (r) {
-          rows.push([r[0], c.base + r[1], d[r[2]], d[r[3]], d[r[4]], d[r[5]], r[6], d[r[7]], r[8], r[9], d[r[10]], d[r[11]], r[12], d[r[13]], r[14], day, c.off]);
+          rows.push([r[0], c.base + r[1], d[r[2]], d[r[3]], d[r[4]], d[r[5]], r[6], d[r[7]], r[8], r[9], d[r[10]], d[r[11]], r[12], d[r[13]], r[14], day, c.off, d[r[15]] || '', d[r[16]] || '']);
         });
         done++;
         self.message('Loading events… ' + done + ' of ' + p.Days.length + ' days');
@@ -172,6 +172,8 @@
     fill(this.el.querySelector('[data-f="host"]'), 2);
     fill(this.el.querySelector('[data-f="user"]'), 5);
     fill(this.el.querySelector('[data-f="day"]'), 15, dayLabel);
+    var k = this.el.querySelector('[data-f="kind"]');
+    if (k) fill(k, 17);
   };
 
   Table.prototype.filter = function () {
@@ -184,8 +186,9 @@
       if (f.host && r[2] !== f.host) return false;
       if (f.user && r[5] !== f.user) return false;
       if (f.day && r[15] !== f.day) return false;
+      if (f.kind && r[17] !== f.kind) return false;
       if (text) {
-        var hay = (r[8] + ' ' + r[2] + ' ' + r[5] + ' ' + r[6] + ' ' + r[7] + ' ' + r[9] + ' ' + r[11] + ' ' + r[12]).toLowerCase();
+        var hay = (r[8] + ' ' + r[2] + ' ' + r[5] + ' ' + r[6] + ' ' + r[7] + ' ' + r[9] + ' ' + r[11] + ' ' + r[12] + ' ' + r[17] + ' ' + r[18]).toLowerCase();
         if (hay.indexOf(text) < 0) return false;
       }
       return true;
@@ -210,19 +213,40 @@
     var html = '';
     for (var i = first; i < last; i++) {
       var r = this.shown[i];
-      html += '<div class="vt-row" data-i="' + i + '" style="top:' + (i * ROW_H) + 'px"><span class="mono">' + when(r[1], r[16]) +
-        '</span><span><b>' + esc(r[2]) + '</b></span><span>' + esc(r[5]) + '</span><span class="what" title="' + esc(r[8]) + '">' + esc(r[8]) +
-        (r[14] ? ' <i class="flag">' + esc(r[14].split(',').join(' · ')) + '</i>' : '') + '</span><span>' + sevCell(r[3]) + '</span></div>';
+      html += '<div class="vt-row" data-i="' + i + '" style="top:' + (i * ROW_H) + 'px">' + this.cells(r) + '</div>';
     }
     this.body.innerHTML = html;
+  };
+
+  // A row's cells, in the page's columns.
+  var FIELDS = {
+    time: function (r) { return '<span class="mono">' + when(r[1], r[16]) + '</span>'; },
+    host: function (r) { return '<span><b>' + esc(r[2]) + '</b></span>'; },
+    user: function (r) { return '<span>' + esc(r[5]) + '</span>'; },
+    account: function (r) { return '<span>' + esc(r[6] || r[5]) + '</span>'; },
+    src: function (r) { return '<span class="mono">' + esc(r[7] || 'local') + '</span>'; },
+    kind: function (r) { return '<span>' + esc(r[17]) + '</span>'; },
+    x: function (r) { return '<span title="' + esc(r[18]) + '">' + esc(r[18]) + '</span>'; },
+    cmd: function (r) { var c = (r[12] || r[8]).split('\n')[0]; return '<span class="mono" title="' + esc(c) + '">' + esc(c) + '</span>'; },
+    sum: function (r) {
+      return '<span class="what" title="' + esc(r[8]) + '">' + esc(r[8]) + (r[14] ? ' <i class="flag">' + esc(r[14].split(',').join(' · ')) + '</i>' : '') + '</span>';
+    },
+    sev: function (r) { return '<span>' + sevCell(r[3]) + '</span>'; }
+  };
+  var DEFAULT_COLS = [{ f: 'time' }, { f: 'host' }, { f: 'user' }, { f: 'sum' }, { f: 'sev' }];
+  Table.prototype.cells = function (r) {
+    var out = '';
+    (this.page.Cols || DEFAULT_COLS).forEach(function (c) { out += FIELDS[c.f](r); });
+    return out;
   };
 
   Table.prototype.csv = function () {
     if (!this.shown.length) return;
     var q = function (s) { s = String(s == null ? '' : s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-    var lines = ['time,system,person,target,source,what happened,severity,event id,log,process,command,outcome'];
+    var kind = (this.page.KindLabel || 'kind').toLowerCase();
+    var lines = ['time,system,person,target,source,what happened,' + kind + ',severity,event id,log,process,command,outcome'];
     this.shown.forEach(function (r) {
-      lines.push([when(r[1], r[16]), r[2], r[5], r[6], r[7], r[8], r[3], r[9], r[10], r[11], r[12], r[13]].map(q).join(','));
+      lines.push([when(r[1], r[16]), r[2], r[5], r[6], r[7], r[8], r[17], r[3], r[9], r[10], r[11], r[12], r[13]].map(q).join(','));
     });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv' }));
@@ -239,12 +263,30 @@
   function openEvent(table, i) {
     var r = table.shown[i], p = table.page;
     if (!r) return;
-    var rows = [['Time', when(r[1], r[16]) + ' ' + meta.zone], ['System', r[2]], ['Person', r[5]], ['Target', r[6]], ['Source address', r[7]],
-      ['Event ID', r[9]], ['Log', r[10]], ['Program', r[11]], ['Command', r[12]], ['Outcome', r[13]]];
-    var kv = rows.filter(function (x) { return x[1]; }).map(function (x) { return '<span>' + esc(x[0]) + '</span><b>' + esc(x[1]) + '</b>'; }).join('');
-    drawer.innerHTML = '<span class="x" tabindex="0">✕ Close</span><div class="pm" style="margin-bottom:4px">' + esc(p.Title) + (r[9] ? ' · event ' + esc(r[9]) : '') + '</div>' +
-      '<h3>' + esc(r[8]) + '</h3><div style="margin-top:6px">' + sevCell(r[3]) + '</div><div class="kv3">' + kv + '</div><div class="raw">Loading the original event data…</div>';
+    var det = meta.rowdet && meta.rowdet[r[0]];
+    var cols = {};
+    (p.Cols || []).forEach(function (c) { cols[c.f] = c.l; });
+    var sys = r[2] + (meta.os && meta.os[r[2]] ? ' · ' + meta.os[r[2]] : '');
+    var zip = meta.archives && meta.archives[r[2]];
+    var rows = [['Time', when(r[1], r[16]) + ' ' + meta.zone], ['System', sys], ['Person', r[5]], ['Account', r[6]], ['Source address', r[7]],
+      [cols.x || '', r[18]], [cols.kind || p.KindLabel || 'Kind', r[17]], ['Program', r[11]], ['Command', r[12]], ['Outcome', r[13]],
+      ['Original log', zip ? zip + ' › ' + (r[10] || '') : r[10]]];
+    var kv = rows.filter(function (x) { return x[0] && x[1]; }).map(function (x) { return '<span>' + esc(x[0]) + '</span><b>' + esc(x[1]) + '</b>'; }).join('');
+    var part = det !== undefined ? ' <a class="pm link" style="margin-left:10px" href="#detections/' + det + '">part of “' + esc(meta.dets[det]) + '”</a>' : '';
+    var btn = function (href, ic, text) { return '<a class="btn" href="' + href + '">' + ((meta.icons || {})[ic] || '') + text + '</a>'; };
+    var btns = '';
+    if (r[7]) btns += btn('#search/' + encodeURIComponent(r[7]), 'search', 'Everything from ' + esc(r[7]));
+    var who = r[5] || r[6];
+    if (who) btns += btn('#people/' + encodeURIComponent(who), 'user-round', esc(who) + '’s page');
+    btns += btn('#systems/' + encodeURIComponent(r[2]), 'server', esc(r[2]) + '’s page');
+    if (det !== undefined) btns += btn('#detections/' + det, 'shield', 'Open detection');
+    drawer.innerHTML = '<span class="x" tabindex="0">✕ Close</span><div class="pm" style="margin-bottom:4px">' + esc(p.Title) +
+      (r[9] ? ' · event ' + esc(r[9]) : '') + (r[10] ? ' · ' + esc(r[10]) + ' log' : '') + '</div>' +
+      '<h3>' + esc(r[8]) + '</h3>' + (SEV[r[3]] || part ? '<div style="margin-top:6px">' + (SEV[r[3]] ? sevCell(r[3]) : '') + part + '</div>' : '') + '<div class="kv3">' + kv + '</div>' +
+      '<div class="raw">Loading the original event data…</div><div class="dbtns">' + btns + '</div>' +
+      '<div class="sub2" style="margin-top:18px">2 minutes either side on ' + esc(r[2]) + '</div><div class="near">Loading…</div>';
     drawer.querySelector('.x').addEventListener('click', closeEvent);
+    drawer.querySelectorAll('.dbtns a').forEach(function (a) { a.addEventListener('click', closeEvent); });
     ov.hidden = false; drawer.hidden = false;
     getData('raw/' + p.ID + '/' + r[15], p.ID + '-' + r[15] + '-raw.js').then(function (raw) {
       // The raw file lists the day's events in the same order as its data file.
@@ -255,6 +297,8 @@
       var box = drawer.querySelector('.raw');
       if (!box) return;
       if (!x) { box.textContent = 'No original event data.'; return; }
+      var tm = drawer.querySelector('.kv3 b');
+      if (x[3] && tm) tm.textContent = x[3];
       var out = '';
       (x[0] || []).forEach(function (d) { out += '<span class="t">' + esc(d.label) + ':</span> <span class="v">' + esc(d.value) + '</span>\n'; });
       var f = x[1] || {};
@@ -264,6 +308,40 @@
     }).catch(function (err) {
       var box = drawer.querySelector('.raw');
       if (box) box.textContent = 'The original event data could not be read: ' + err.message;
+    });
+    nearby(r);
+  }
+
+  // nearby lists every event (on any page) on the same system within two
+  // minutes of r.
+  function nearby(r) {
+    var t0 = r[1], host = r[2], found = [];
+    var jobs = (meta.pages || []).filter(function (p) { return (p.Days || []).indexOf(r[15]) >= 0; }).map(function (p) {
+      return getData(p.ID + '/' + r[15], p.ID + '-' + r[15] + '.js').then(function (c) {
+        var d = c.dict, h = c.dict.indexOf(host);
+        if (h < 0) return;
+        c.rows.forEach(function (x) {
+          var t = c.base + x[1];
+          if (x[2] === h && Math.abs(t - t0) <= 120) found.push({ i: x[0], t: t, sum: x[8], user: d[x[5]], page: p.Title });
+        });
+      });
+    });
+    Promise.all(jobs).then(function () {
+      var box = drawer.querySelector('.near');
+      if (!box) return;
+      found.sort(function (a, b) { return a.t - b.t || a.i - b.i; });
+      // Keep the ones closest to this event.
+      var at = 0;
+      found.forEach(function (x, k) { if (x.i === r[0]) at = k; });
+      var list = found.slice(Math.max(0, at - 6), at + 7);
+      box.innerHTML = list.map(function (x) {
+        var me = x.i === r[0];
+        return '<div' + (me ? ' class="me"' : '') + '><span class="mono">' + when(x.t, r[16]).slice(7) + '</span><span>' +
+          (me ? '<b>This event</b>' : esc(x.sum) + ' <small>' + esc(x.page) + '</small>') + '</span></div>';
+      }).join('') + (found.length > list.length ? '<p class="pm">' + (found.length - list.length) + ' more in this time on ' + esc(host) + '.</p>' : '');
+    }).catch(function () {
+      var box = drawer.querySelector('.near');
+      if (box) box.textContent = 'Could not read the nearby events.';
     });
   }
 

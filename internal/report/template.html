@@ -46,6 +46,7 @@
 {{range .Pages}}
 <section class="view" data-view="{{.ID}}">
   {{template "head" (head $ .Title (eventsCrumb $ .))}}
+  {{with .Top}}{{template "pagetop" .}}{{end}}
   {{template "events" .}}
 </section>
 {{end}}
@@ -80,6 +81,13 @@
 {{if gt .Count (len .Events)}}<p class="pm" style="margin:10px 0 0">Showing the first {{len .Events}} of {{.Count}} events.</p>{{end}}</div>{{end}}
 </div>{{end}}</div></div>{{end}}{{end}}
 
+{{define "pagetop"}}<div class="ev6" style="grid-template-columns:repeat(4,1fr)">{{range .Stats}}<div class="panel ec {{.Level}}"><div class="l">{{icon .Icon 15}}{{.Label}}</div><div class="v">{{.Value}}</div><div class="d">{{.Note}}</div></div>{{end}}</div>
+<div class="row" style="grid-template-columns:1.5fr 1fr">
+<div class="panel"><div class="ph"><h2>{{icon "calendar-range" 17}}{{.ChartTitle}}</h2><span class="pm">By {{lower $.KindWord}}</span></div>{{.Chart}}<div class="legend">{{range .Legend}}<span><i style="background:{{css2 .Color}}"></i>{{.Name}}</span>{{end}}{{if .Hot}}<span><i style="background:none;outline:1.5px solid #D12C2C"></i>Above normal</span>{{end}}</div></div>
+<div class="panel"><div class="ph"><h2>{{icon "list-filter" 17}}{{.TopTitle}}</h2>{{if .Top}}<span class="pm">Red = flagged</span>{{end}}</div>{{if .Top}}<div class="mini">{{range .Top}}<div><span title="{{.Label}}">{{.Label}}</span><s style="width:{{.Pct}}%{{if .Flagged}};background:#D12C2C{{end}}"></s><b>{{commas .N}}</b></div>{{end}}</div>{{else}}<p class="pm" style="margin:0">Nothing this week.</p>{{end}}</div></div>
+<div class="panel" style="margin-bottom:12px"><div class="ph"><h2>{{icon "shield-alert" 17}}Flagged this week</h2><span class="pm">{{.FlaggedNote}}</span></div>{{if .Flagged}}<div class="dstrip">{{range .Flagged}}<a class="dc {{.Severity}}" href="#detections/{{.Index}}"><div class="b"><b>{{.Title}}</b><span>{{.Detail}}</span></div><div class="m2">{{.Host}}<small>{{.Day}} {{.Time}}</small></div></a>{{end}}</div>{{else}}<p class="pm" style="margin:0">None of these events are part of a detection.</p>{{end}}</div>
+{{end}}
+
 {{define "events"}}
 <div class="panel" data-events="{{.ID}}">
   <div class="ph"><h2>{{icon "list-filter" 17}}{{.All}} · {{commas .Total}}</h2><span class="pm">Click a row for the full event</span></div>
@@ -88,9 +96,10 @@
     <select class="dd" data-f="sev"><option value="">Severity: Any</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="info">None (Info)</option></select>
     <select class="dd" data-f="host"><option value="">System: Any</option></select>
     <select class="dd" data-f="user"><option value="">Person: Any</option></select>
+    {{if .KindLabel}}<select class="dd" data-f="kind"><option value="">{{.KindLabel}}: Any</option></select>{{end}}
     <select class="dd" data-f="day"><option value="">Day: All</option></select>
   </div>
-  <div class="vt" tabindex="0"><div class="vt-head"><span>Time</span><span>System</span><span>Person</span><span>What happened</span><span>Severity</span></div><div class="vt-body"><div class="vt-msg">Loading events…</div></div></div>
+  <div class="vt" tabindex="0" style="{{gridCols .Cols}}"><div class="vt-head">{{if .Cols}}{{range .Cols}}<span>{{.Label}}</span>{{end}}{{else}}<span>Time</span><span>System</span><span>Person</span><span>What happened</span><span>Severity</span>{{end}}</div><div class="vt-body"><div class="vt-msg">Loading events…</div></div></div>
   <div class="pager"><span data-count></span><span></span><span data-csv>Export CSV</span></div>
 </div>
 {{end}}

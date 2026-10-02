@@ -82,8 +82,9 @@ func TestDemoReport(t *testing.T) {
 			if rnd.Intn(1500) == 0 {
 				at = at.Add(8 * time.Hour)
 			}
-			if wd := at.Weekday(); wd == time.Saturday || wd == time.Sunday {
-				at = at.Add(48 * time.Hour)
+			weekend := at.Weekday() == time.Saturday || at.Weekday() == time.Sunday
+			if weekend && rnd.Intn(10) > 0 {
+				continue // a little weekend work: logons only
 			}
 			if at.After(last) {
 				continue
@@ -93,6 +94,8 @@ func TestDemoReport(t *testing.T) {
 				u = users[rnd.Intn(len(users))]
 			}
 			switch r := rnd.Intn(100); {
+			case weekend:
+				add(at, s.name, event.CatLogon, event.SevInfo, "logon", u, u+" logged on at the console.")
 			case r < 70:
 				add(at, s.name, event.CatLogon, event.SevInfo, "logon", u, u+" logged on (Remote Desktop) from 10.1.1.42.")
 			case r < 95:
@@ -100,14 +103,15 @@ func TestDemoReport(t *testing.T) {
 			case r < 96 && rnd.Intn(4) == 0:
 				add(at, s.name, event.CatFailedLogon, event.SevLow, "logon_failed", "", "Logon failed for "+u+": bad password.").Target = u
 			default:
-				add(at, s.name, event.CatRemovable, event.SevMedium, "usb_connected", u, "USB storage connected: SanDisk Cruzer Blade.")
+				dev := []string{"SanDisk Cruzer Blade", "Kingston DataTraveler 3.0", "Samsung T7", "Logitech USB receiver"}[rnd.Intn(4)]
+				add(at, s.name, event.CatRemovable, event.SevMedium, "usb_connected", u, "USB storage connected: "+dev+".").Target = dev
 			}
 		}
 	}
 	if !standalone {
 		// The mockups' story: WS-07 cleared its log, someone guessed passwords.
 		day := end.AddDate(0, 0, -2)
-		add(day.Add(9*time.Hour+20*time.Minute), "WS-07", event.CatAccount, event.SevHigh, "group_member_added", "admin_jd", "admin_jd added tempuser to the privileged group Administrators.")
+		add(day.Add(9*time.Hour+20*time.Minute), "WS-07", event.CatAccount, event.SevHigh, "group_member_added", "admin_jd", "admin_jd added tempuser to the privileged group Administrators.").Target = "tempuser"
 		add(day.Add(9*time.Hour+38*time.Minute), "WS-07", event.CatIntegrity, event.SevHigh, "audit_policy_changed", "admin_jd", "admin_jd changed the audit policy: Removable Storage → No auditing.")
 		add(day.Add(12*time.Hour+38*time.Minute), "WS-07", event.CatIntegrity, event.SevHigh, "log_cleared", "admin_jd", "The Security log was cleared by admin_jd.")
 		add(day.Add(12*time.Hour+40*time.Minute), "WS-07", event.CatIntegrity, event.SevHigh, "log_cleared", "admin_jd", "The Security log was cleared by admin_jd.")
@@ -115,14 +119,14 @@ func TestDemoReport(t *testing.T) {
 			e := add(day.Add(6*time.Hour+time.Duration(i*5)*time.Second), "WS-07", event.CatFailedLogon, event.SevLow, "logon_failed", "", "Logon failed for administrator: bad password.")
 			e.Target, e.SourceIP = "administrator", "10.1.1.99"
 		}
-		add(day.Add(-48*time.Hour+11*time.Hour), "SRV-DC01", event.CatAccount, event.SevHigh, "group_member_added", "admin_jd", "admin_jd added mjones to the privileged group Domain Admins.")
+		add(day.Add(-48*time.Hour+11*time.Hour), "SRV-DC01", event.CatAccount, event.SevHigh, "group_member_added", "admin_jd", "admin_jd added mjones to the privileged group Domain Admins.").Target = "mjones"
 		add(day.Add(-60*time.Hour), "WS-11", event.CatFailedLogon, event.SevMedium, "account_locked", "rgarcia", "Account rgarcia was locked out after too many failed logon attempts.")
 	}
 	var history []Summary
 	for w := 11; w >= 1; w-- {
 		history = append(history, Summary{WindowEnd: end.AddDate(0, 0, -7*w), Detections: make([]Detection, 2+rnd.Intn(6)), Events: 70000 + rnd.Intn(15000),
-			Metrics: map[string]int{MHighEvents: rnd.Intn(5), MFailedLogons: 3500 + rnd.Intn(800), MPrivileged: 11000 + rnd.Intn(2000),
-				MSystems: 23 + rnd.Intn(2), MLockouts: 1 + rnd.Intn(2), MUSB: 40 + rnd.Intn(20)}})
+			Metrics: map[string]int{MHighEvents: rnd.Intn(5), MFailedLogons: 110 + rnd.Intn(40), MPrivileged: 11000 + rnd.Intn(2000),
+				MSystems: 23 + rnd.Intn(2), MLockouts: rnd.Intn(2), MUSB: 2000 + rnd.Intn(600), MAccountChanges: 3 + rnd.Intn(4)}})
 	}
 	site := "Lab 3 LAN"
 	if standalone {

@@ -81,12 +81,14 @@ func funcs(loc *time.Location) template.FuncMap {
 		}
 	}
 	return template.FuncMap{
-		"logo":  func() template.URL { return template.URL(brand.LogoDataURI()) },
-		"css":   func() template.CSS { return template.CSS(styleCSS) },
-		"js":    func() template.JS { return template.JS(appJS) },
-		"icon":  icon,
-		"lower": strings.ToLower,
-		"minus": func(a, b int) int { return a - b },
+		"logo":     func() template.URL { return template.URL(brand.LogoDataURI()) },
+		"css":      func() template.CSS { return template.CSS(styleCSS) },
+		"js":       func() template.JS { return template.JS(appJS) },
+		"icon":     icon,
+		"lower":    strings.ToLower,
+		"minus":    func(a, b int) int { return a - b },
+		"gridCols": gridCols,
+		"css2":     func(s string) template.CSS { return template.CSS(s) },
 		"plural": func(n int, unit string) string {
 			if n == 1 {
 				return unit
@@ -130,8 +132,11 @@ func funcs(loc *time.Location) template.FuncMap {
 		"detDayBefore": func(ds []DetectionView, i int) string { return ds[i-1].Day },
 		"eventsCrumb": func(p pageData, e *EventPage) string {
 			unit := "events"
+			if spec, ok := pageSpecs[e.ID]; ok {
+				unit = spec.unit
+			}
 			if e.Total == 1 {
-				unit = "event"
+				unit = strings.TrimSuffix(unit, "s")
 			}
 			s := fmt.Sprintf("%s · Events · %s %s", p.Kind(), commas(e.Total), unit)
 			if n := len(e.Hosts); n > 1 {
@@ -276,6 +281,32 @@ func (r *Report) WriteHTML(w io.Writer, pages []*EventPage) error {
 		return err
 	}
 	meta := map[string]any{"pages": pages, "zone": zoneName(r.Generated, r.Location)}
+	// For the event panel: which detection an event is part of, each
+	// system's original-log zip and what it runs.
+	rowDet, dets := map[int]int{}, []string{}
+	for fi, f := range r.Findings {
+		dets = append(dets, f.Title)
+		for _, id := range append(f.RowIDs, f.RowID) {
+			if i := rowIndex(id); i >= 0 {
+				if _, ok := rowDet[i]; !ok {
+					rowDet[i] = fi
+				}
+			}
+		}
+	}
+	archives, oses := map[string]string{}, map[string]string{}
+	for _, a := range r.Archives {
+		archives[a.Host] = a.Name
+	}
+	for _, sr := range r.SystemRows {
+		oses[sr.Name] = osLabel(sr)
+	}
+	meta["rowdet"], meta["dets"], meta["archives"], meta["os"] = rowDet, dets, archives, oses
+	icons := map[string]string{}
+	for _, n := range []string{"search", "user-round", "server", "shield"} {
+		icons[n] = string(icon(n, 15))
+	}
+	meta["icons"] = icons
 	b, err := json.Marshal(meta)
 	if err != nil {
 		return err
