@@ -1020,22 +1020,40 @@ func (t *Translator) powerShell(r *Raw) *event.Event {
 			break
 		}
 	}
+	name := scriptName(text, r.Get("Path"))
+	var flaggedFor string
 	if rule == nil {
 		if r.Level != 3 {
 			return nil
 		}
 		// Windows logs a script block as a warning, even when Script Block
-		// Logging is off, when it uses commands attackers favour.
+		// Logging is off, when it uses commands attackers favour. Windows'
+		// own modules do too (the cmdlets it generates for Defender,
+		// networking and the like), so those are left out.
+		if WindowsModule(text, r.Get("Path")) {
+			return nil
+		}
 		rule = &psRule{action: "powershell_suspicious", sev: event.SevMedium, cat: event.CatOther,
 			what: "PowerShell itself flagged as suspicious"}
-		line = firstLine(text)
+		flaggedFor, line = suspiciousWord(text)
+		if line == "" {
+			line = firstLine(text)
+		}
 	}
 	user := t.resolve(r.UserSID)
-	e := &event.Event{Category: rule.cat, Severity: rule.sev, Action: rule.action, User: user,
-		Summary: fmt.Sprintf("%s ran a PowerShell script that %s", orUnknown(user), rule.what)}
-	if line != "" {
-		e.Summary += ": " + clip(line, 120)
-	} else {
+	e := &event.Event{Category: rule.cat, Severity: rule.sev, Action: rule.action, User: user, Target: name}
+	switch {
+	case flaggedFor != "":
+		e.Summary = fmt.Sprintf("%s ran %s, which PowerShell flagged as suspicious for using %s", orUnknown(user), name, flaggedFor)
+	case rule.action == "powershell_suspicious":
+		e.Summary = fmt.Sprintf("%s ran %s, which PowerShell flagged as suspicious", orUnknown(user), name)
+	default:
+		e.Summary = fmt.Sprintf("%s ran %s, which %s", orUnknown(user), name, rule.what)
+		if line != "" {
+			e.Summary += ": " + clip(line, 120)
+		}
+	}
+	if !strings.HasSuffix(e.Summary, ".") {
 		e.Summary += "."
 	}
 	// A large script is logged in parts sharing one ID: matching parts are
@@ -1043,6 +1061,10 @@ func (t *Translator) powerShell(r *Raw) *event.Event {
 	if id := r.Get("ScriptBlockId"); id != "" {
 		e.DedupeKey = "psblock|" + strings.ToLower(id)
 		e.Priority = rule.sev.Rank()
+	}
+	e.AddDetail("Script", name)
+	if flaggedFor != "" {
+		e.AddDetail("Flagged for", flaggedFor)
 	}
 	e.AddDetail("Matched line", clip(line, 500))
 	e.AddDetail("Script (excerpt)", clip(strings.TrimSpace(text), 2000))
@@ -1406,4 +1428,77 @@ func decodePowerShell(cmd string) string {
 		out = out[:2000] + " …"
 	}
 	return out
+}
+
+// scriptName names a script block for people: its file, or for a script
+// typed or generated in memory, what it is or its first real line.
+func scriptName(text, path string) string {
+	if path != "" {
+		base := path
+		if i := strings.LastIndexAny(base, `\/`); i >= 0 {
+			base = base[i+1:]
+		}
+		return fmt.Sprintf("the script %s (%s)", base, path)
+	}
+	if m := cimClass.FindStringSubmatch(text); m != nil {
+		return "the PowerShell commands Windows generates for " + m[1]
+	}
+	if l := firstLine(text); l != "" {
+		return "a PowerShell script typed or run from memory (" + clip(l, 80) + ")"
+	}
+	return "a PowerShell script"
+}
+
+// cimClass finds the WMI class a generated (CDXML) module wraps.
+var cimClass = regexp.MustCompile(`(?i)\$script:ClassName\s*=\s*'([^']+)'`)
+
+// WindowsModule reports script blocks Windows itself provides: modules it
+// generates from CDXML for its own WMI classes (Defender, networking,
+// storage …), and modules installed with Windows.
+func WindowsModule(text, path string) bool {
+	if strings.Contains(text, "Microsoft.PowerShell.Cmdletization") {
+		if m := cimClass.FindStringSubmatch(text); m != nil {
+			c := strings.ToLower(strings.ReplaceAll(m[1], "/", `\`))
+			if strings.HasPrefix(c, `root\microsoft\`) || strings.HasPrefix(c, `root\standardcimv2`) || strings.HasPrefix(c, `root\cimv2`) {
+				return true
+			}
+		}
+	}
+	p := strings.ToLower(path)
+	return strings.Contains(p, `\windows\system32\windowspowershell\v1.0\modules\`) ||
+		strings.Contains(p, `\windows\syswow64\windowspowershell\v1.0\modules\`)
+}
+
+// psSuspicious are words that make PowerShell log a script block as a
+// warning (from its own list), with what they are used for.
+var psSuspicious = []struct{ word, what string }{
+	{"VirtualAlloc", "memory allocation in another process"}, {"WriteProcessMemory", "writing into another process"},
+	{"CreateRemoteThread", "starting code in another process"}, {"GetDelegateForFunctionPointer", "calling raw Windows functions"},
+	{"MiniDumpWriteDump", "dumping a process's memory"}, {"ReadProcessMemory", "reading another process's memory"},
+	{"AdjustTokenPrivileges", "changing its privileges"}, {"ImpersonateLoggedOnUser", "acting as another user"},
+	{"DuplicateTokenEx", "copying a logon token"}, {"GetAsyncKeyState", "reading keystrokes"},
+	{"DllImport", "calling Windows functions directly"}, {"Add-Type", "compiling code (Add-Type)"},
+	{"FromBase64String", "decoding hidden (base64) data"}, {"EncodedCommand", "an encoded command"},
+	{"DefineDynamicAssembly", "building code in memory"}, {"InteropServices", "calling Windows functions directly"},
+	{"NonPublic", "reaching into hidden parts of .NET (reflection)"}, {"GetField", "reflection"},
+	{"GetMethod", "reflection"}, {"InvokeMember", "reflection"}, {"Marshal", "raw memory access"},
+	{"CryptoStream", "encryption"}, {"Bypass", "bypassing a restriction"},
+}
+
+// suspiciousWord finds which of PowerShell's warning words a script uses,
+// and the line it is on.
+func suspiciousWord(text string) (string, string) {
+	lower := strings.ToLower(text)
+	for _, s := range psSuspicious {
+		re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(s.word) + `\b`)
+		if loc := re.FindStringIndex(text); loc != nil {
+			start := strings.LastIndex(lower[:loc[0]], "\n") + 1
+			end := strings.Index(text[loc[0]:], "\n")
+			if end < 0 {
+				end = len(text) - loc[0]
+			}
+			return s.word + " (" + s.what + ")", strings.TrimSpace(text[start : loc[0]+end])
+		}
+	}
+	return "", ""
 }

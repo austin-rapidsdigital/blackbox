@@ -395,7 +395,11 @@ func (r *Report) fillPages(pages []*EventPage) {
 		sum := 0
 		for di, d := range days {
 			t, _ := time.ParseInLocation("20060102", d, r.Location)
-			labels = append(labels, t.Format("Mon"))
+			if len(days) > 10 {
+				labels = append(labels, t.Format("2 Jan"))
+			} else {
+				labels = append(labels, t.Format("Mon"))
+			}
 			for ki := range spec.kinds {
 				series[ki].Values = append(series[ki].Values, perDay[d][ki])
 				tot[di] += perDay[d][ki]

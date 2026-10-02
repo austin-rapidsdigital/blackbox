@@ -47,6 +47,8 @@ func (r *Report) verification() Verification {
 		v.Lines = append(v.Lines, l)
 	}
 	switch {
+	case r.Interim:
+		v.Lines = append(v.Lines, VerifyLine{Text: "An interim report, run by hand; it is not part of the weekly chain"})
 	case len(r.History) == 0:
 		v.Lines = append(v.Lines, VerifyLine{Text: "The first scheduled report in this folder"})
 	default:
