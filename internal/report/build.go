@@ -220,6 +220,10 @@ type Report struct {
 	Health     Health
 	Events     []*event.Event // final list (after exclusions and de-duplication)
 	Excluded   int
+	// ExcludedBy counts the events left out per excluded account or
+	// program, and ExcludedOn the systems they came from.
+	ExcludedBy map[string]int
+	ExcludedOn map[string]bool
 	Duplicates int
 	Late       int
 	NewDevices map[string]time.Time
@@ -324,36 +328,80 @@ func (r *Report) exclude(in []*event.Event) []*event.Event {
 	if len(r.ExcludeUsers) == 0 && len(r.ExcludeProcesses) == 0 {
 		return in
 	}
-	users := map[string]bool{}
-	for _, u := range r.ExcludeUsers {
-		users[strings.ToLower(u)] = true
-	}
 	out := in[:0:0]
 	for _, e := range in {
-		u := strings.ToLower(e.User)
-		short := u
-		if i := strings.LastIndex(u, `\`); i >= 0 {
-			short = u[i+1:]
-		}
-		skip := users[u] || users[short]
-		if !skip && e.Process != "" {
-			p := strings.ToLower(e.Process)
-			base := strings.ToLower(filepath.Base(strings.ReplaceAll(e.Process, `\`, "/")))
-			for _, x := range r.ExcludeProcesses {
-				x = strings.ToLower(x)
-				if p == x || base == x {
-					skip = true
-					break
-				}
-			}
-		}
-		if skip {
-			r.Excluded++
+		who := r.excludedBy(e)
+		if who == "" || !routine(e) {
+			out = append(out, e)
 			continue
 		}
-		out = append(out, e)
+		r.Excluded++
+		if r.ExcludedBy == nil {
+			r.ExcludedBy, r.ExcludedOn = map[string]int{}, map[string]bool{}
+		}
+		r.ExcludedBy[who]++
+		r.ExcludedOn[e.Host] = true
 	}
 	return out
+}
+
+// excludedText says what the exclusions left out, e.g. "12 routine
+// events by svc_backup ×10, scan.exe ×2", or "".
+func (r *Report) excludedText() string {
+	if r.Excluded == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s by %s (exclude_users and exclude_processes in the settings)", plural(r.Excluded, "routine event"), joinCounts(r.ExcludedBy))
+}
+
+// routine reports whether an event is everyday activity that an exclusion
+// may leave out. Exclusions never hide failed logons (against the
+// account), account and group changes (to it), log clears and audit
+// changes (by it), or anything of Medium severity or above: excluding an
+// account must not hide an attack on it, or by it.
+func routine(e *event.Event) bool {
+	switch e.Category {
+	case event.CatFailedLogon, event.CatAccount, event.CatIntegrity:
+		return false
+	}
+	return e.Severity.Rank() < event.SevMedium.Rank()
+}
+
+// excludedBy names the exclude_users or exclude_processes entry an event
+// matches, or "". An entry with a domain (CORP\svc_backup) matches that
+// account exactly; one without matches the local account of that name,
+// not a domain account that happens to share it.
+func (r *Report) excludedBy(e *event.Event) string {
+	u := strings.ToLower(e.User)
+	for _, x := range r.ExcludeUsers {
+		lx := strings.ToLower(x)
+		if u == lx {
+			return x
+		}
+		if !strings.Contains(lx, `\`) {
+			if i := strings.LastIndex(u, `\`); i >= 0 && u[i+1:] == lx && strings.EqualFold(u[:i], shortName(e.Host)) {
+				return x
+			}
+		}
+	}
+	if e.Process != "" {
+		p := strings.ToLower(e.Process)
+		base := strings.ToLower(filepath.Base(strings.ReplaceAll(e.Process, `\`, "/")))
+		for _, x := range r.ExcludeProcesses {
+			if lx := strings.ToLower(x); p == lx || base == lx {
+				return x
+			}
+		}
+	}
+	return ""
+}
+
+// shortName is a host name without its domain.
+func shortName(h string) string {
+	if i := strings.Index(h, "."); i > 0 {
+		return h[:i]
+	}
+	return h
 }
 
 // dedupeWindow is how close in time two events with the same key must be
@@ -376,10 +424,11 @@ func dedupeWindow(key string) time.Duration {
 // informative one (highest Priority). Input must be sorted by time.
 func (r *Report) dedupe(in []*event.Event) []*event.Event {
 	type slot struct {
-		idx  int
-		time time.Time
+		idx   int
+		time  time.Time
+		kinds map[string]bool // the kinds of record already merged
 	}
-	last := map[string]slot{}
+	last := map[string]*slot{}
 	out := make([]*event.Event, 0, len(in))
 	for _, e := range in {
 		if e.DedupeKey == "" {
@@ -387,18 +436,37 @@ func (r *Report) dedupe(in []*event.Event) []*event.Event {
 			continue
 		}
 		k := e.Host + "|" + e.DedupeKey
-		if s, ok := last[k]; ok && e.Time.Sub(s.time) <= dedupeWindow(e.DedupeKey) {
+		kind := recordKind(e)
+		s, ok := last[k]
+		// A failed logon is often recorded twice (4625 and 4776, or two
+		// audit records), so those are merged; but two records of the
+		// same kind are two attempts, and password guessing is many
+		// attempts in a second.
+		if ok && e.Time.Sub(s.time) <= dedupeWindow(e.DedupeKey) && !(strings.HasPrefix(e.DedupeKey, "authfail|") && s.kinds[kind]) {
 			r.Duplicates++
+			s.kinds[kind] = true
 			kept := out[s.idx]
 			if e.Priority > kept.Priority {
-				out[s.idx] = e
+				out[s.idx], kept, e = e, e, kept
+			}
+			// One service, recorded under its service name and its
+			// display name: show both.
+			if strings.HasPrefix(e.DedupeKey, "svc|") && e.Target != "" && !strings.EqualFold(e.Target, kept.Target) {
+				kept.AddDetail("Also named", e.Target)
+				kept.Summary = strings.Replace(kept.Summary, kept.Target, kept.Target+" ("+e.Target+")", 1)
 			}
 			continue
 		}
-		last[k] = slot{len(out), e.Time}
+		last[k] = &slot{idx: len(out), time: e.Time, kinds: map[string]bool{kind: true}}
 		out = append(out, e)
 	}
 	return out
+}
+
+// recordKind identifies the kind of record an event came from: its log,
+// event ID and (Linux audit) record type.
+func recordKind(e *event.Event) string {
+	return e.Source + "|" + strconv.Itoa(e.EventID) + "|" + e.RecordType
 }
 
 // attributeDevices names the person most likely using a removable device:
@@ -602,6 +670,18 @@ const (
 	successWindow  = 30 * time.Minute
 )
 
+// acctKey compares account names without their domain: a failed logon
+// over the network carries whatever domain the client sent (WORKGROUP,
+// its own name), while the password check and the logon name the account
+// alone.
+func acctKey(name string) string {
+	name = strings.ToLower(name)
+	if i := strings.LastIndex(name, `\`); i >= 0 {
+		name = name[i+1:]
+	}
+	return name
+}
+
 func (r *Report) findPatterns(rows []*Row) {
 	var fails []*Row
 	for _, row := range rows {
@@ -612,7 +692,7 @@ func (r *Report) findPatterns(rows []*Row) {
 	// Repeated failures for one account.
 	byUser := map[string][]*Row{}
 	for _, f := range fails {
-		k := f.Host + "|" + strings.ToLower(f.Target)
+		k := f.Host + "|" + acctKey(f.Target)
 		byUser[k] = append(byUser[k], f)
 	}
 	for _, list := range byUser {
@@ -664,7 +744,7 @@ func (r *Report) findPatterns(rows []*Row) {
 		}
 		var n int
 		var firstFail *Row
-		for _, f := range byUser[row.Host+"|"+strings.ToLower(row.User)] {
+		for _, f := range byUser[row.Host+"|"+acctKey(row.User)] {
 			if f.Time.Before(row.Time) && row.Time.Sub(f.Time) <= successWindow {
 				if firstFail == nil {
 					firstFail = f
@@ -814,6 +894,7 @@ var actionLabels = map[string][2]string{
 	"audit_rule_added":        {"audit rule added", "audit rules added"},
 	"audit_config_changed":    {"audit configuration change", "audit configuration changes"},
 	"powershell_suspicious":   {"PowerShell script flagged as suspicious", "PowerShell scripts flagged as suspicious"},
+	"powershell_hidden":       {"PowerShell run hidden and around the script policy", "PowerShell runs hidden and around the script policy"},
 	"powershell_tamper":       {"PowerShell script that can clear logs or weaken auditing", "PowerShell scripts that can clear logs or weaken auditing"},
 	"powershell_av_tamper":    {"PowerShell script that weakens Microsoft Defender", "PowerShell scripts that weaken Microsoft Defender"},
 	"powershell_download":     {"PowerShell script that downloads and runs code", "PowerShell scripts that download and run code"},

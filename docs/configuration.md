@@ -16,7 +16,7 @@ file:
 | `report_dir` | *(blank = default)* | Folder for reports. Any full path Blackbox can write to, including one you have locked down |
 | `collect_every` | `1h` | How often events are collected. To change it, run the installer again, which updates the schedule |
 | `retention_days` | `0` | Days to keep reports and collected events; `0` keeps them forever |
-| `exclude_users` | *(none)* | Accounts to leave out of reports, e.g. `svc_backup, svc_scanner` |
+| `exclude_users` | *(none)* | Accounts whose routine activity is left out of reports, e.g. `svc_backup, CORP\svc_scanner`. Failed logons against them, changes to them and anything Medium or above are always shown (see [Exclusions](reports.md#detections)) |
 | `exclude_processes` | *(none)* | Programs to leave out, by name or full path, e.g. `scan.exe` |
 | `working_hours` | *(blank)* | When administrator activity is expected, e.g. `Mon-Fri 06:00-18:00`, `Daily 07:00-19:00` or `Mon-Fri 22:00-06:00` (a night shift). Activity outside these hours is shown under [Detections](reports.md#detections). Blank turns the check off |
 | `data_dir` | platform default | Where reports and collected events are stored |

@@ -409,7 +409,7 @@ func (t *Translator) userLogin(r *Record) *event.Event {
 func (t *Translator) failedLogon(acct, how, label, addr, term, exe, reason string, prio int) *event.Event {
 	e := &event.Event{Category: event.CatFailedLogon, Severity: event.SevLow, Action: "logon_failed",
 		User: acct, Target: acct, Outcome: "failure", SourceIP: addr,
-		DedupeKey: "authfail|" + base(exe) + "|" + addr + "|" + term, Priority: prio,
+		DedupeKey: "authfail|" + base(exe) + "|" + addr + "|" + term + "|" + acct, Priority: prio,
 		Summary: fmt.Sprintf("Failed logon for %s %s%s — %s.", acct, how, fromAddr(addr), reason)}
 	e.AddDetail("Reason", reason)
 	e.AddDetail("Logon type", label)
@@ -501,6 +501,18 @@ func firstWord(cmd string) string {
 	return base(f[0])
 }
 
+// cmdKey identifies a command for merging sudo's record with the program
+// it ran: the program's name without its folder, and every argument, so
+// "systemctl status cron" and "systemctl stop rsyslog" stay apart.
+func cmdKey(cmd string) string {
+	f := strings.Fields(cmd)
+	if len(f) == 0 {
+		return ""
+	}
+	f[0] = base(f[0])
+	return strings.Join(f, " ")
+}
+
 func (t *Translator) userCmd(r *Record) *event.Event {
 	actor := t.actor(r)
 	if actor == "" {
@@ -509,7 +521,7 @@ func (t *Translator) userCmd(r *Record) *event.Event {
 	cmd := r.Get("cmd")
 	t.remember(r.Time, t.hostOf(r), cmd)
 	e := &event.Event{Category: event.CatPrivileged, User: actor, Command: cmd, Process: r.Get("exe"),
-		DedupeKey: "cmd|" + actor + "|" + firstWord(cmd), Priority: 2}
+		DedupeKey: "cmd|" + actor + "|" + cmdKey(cmd), Priority: 2}
 	switch {
 	case r.Get("res") == "failed":
 		e.Action, e.Severity, e.Outcome = "sudo_denied", event.SevMedium, "failure"
@@ -1054,7 +1066,7 @@ func (t *Translator) syscall(ev *Event, r *Record) *event.Event {
 			// A person's command running as root: from a root shell (sudo -i,
 			// su) or started by sudo (then the sudo record is kept instead).
 			e.Action = "root_command"
-			e.DedupeKey, e.Priority = "cmd|"+actor+"|"+prog, 1
+			e.DedupeKey, e.Priority = "cmd|"+actor+"|"+cmdKey(cmd), 1
 			e.Summary = fmt.Sprintf("%s ran as root: %s", actor, shown)
 		} else {
 			e.Action = "privileged_program"

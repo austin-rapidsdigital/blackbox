@@ -368,6 +368,15 @@ func (r *Report) healthPage() *HealthPage {
 			hp.Groups = append(hp.Groups, *g)
 		}
 	}
+	if t := r.excludedText(); t != "" {
+		var on []string
+		for h := range r.ExcludedOn {
+			on = append(on, h)
+		}
+		sort.Slice(on, func(i, j int) bool { return naturalLess(on[i], on[j]) })
+		hp.Gaps = append(hp.Gaps, GapCard{Title: "Left out by your settings", Level: "warn", Systems: on,
+			Explain: "Not in this report: " + t + ". Failed logons against these accounts, changes to them, log clears and audit changes, and anything of Medium severity or above are always included."})
+	}
 	for _, k := range gapOrder {
 		hp.Gaps = append(hp.Gaps, *gapCards[k])
 	}

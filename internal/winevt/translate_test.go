@@ -168,7 +168,7 @@ func TestFailureReason(t *testing.T) {
 
 func TestIsServiceAccount(t *testing.T) {
 	tr := NewTranslator()
-	yes := [][2]string{{"S-1-5-18", "WS-07$"}, {"S-1-5-19", "LOCAL SERVICE"}, {"S-1-5-90-0-1", "DWM-1"}, {"S-1-5-21-1-2-3-1000", "FILESRV$"}}
+	yes := [][2]string{{"S-1-5-18", "WS-07$"}, {"S-1-5-19", "LOCAL SERVICE"}, {"S-1-5-90-0-1", "DWM-1"}}
 	for _, a := range yes {
 		if !tr.isServiceAccount(a[0], a[1]) {
 			t.Errorf("isServiceAccount(%v) = false", a)
@@ -176,6 +176,30 @@ func TestIsServiceAccount(t *testing.T) {
 	}
 	if tr.isServiceAccount("S-1-5-21-1-2-3-1001", "jsmith") {
 		t.Error("jsmith treated as a service account")
+	}
+}
+
+// D2: a name ending in "$" is left out only when it is a computer
+// account: this computer's own, or one from a domain. A local account
+// named like one (bbhid$, made an administrator) keeps its logon and its
+// administrator-rights events.
+func TestDollarAccounts(t *testing.T) {
+	tr := NewTranslator()
+	acct := func(name, domain string) map[string]string {
+		return map[string]string{"TargetUserSid": "S-1-5-21-1-2-3-1009", "TargetUserName": name, "TargetDomainName": domain,
+			"SubjectUserSid": "S-1-5-21-1-2-3-1009", "SubjectUserName": name, "SubjectDomainName": domain,
+			"LogonType": "3", "IpAddress": "10.1.1.50", "PrivilegeList": "SeDebugPrivilege"}
+	}
+	for _, id := range []int{4624, 4672} {
+		if e := tr.Translate(sec(id, acct("bbhid$", "WS-07"))); e == nil {
+			t.Errorf("%d for the local account bbhid$ was dropped", id)
+		}
+		if e := tr.Translate(sec(id, acct("WS-07$", "CORP"))); e != nil {
+			t.Errorf("%d for this computer's own account was kept: %s", id, e.Summary)
+		}
+		if e := tr.Translate(sec(id, acct("FILESRV$", "CORP"))); e != nil {
+			t.Errorf("%d for a domain computer account was kept: %s", id, e.Summary)
+		}
 	}
 }
 
@@ -380,4 +404,61 @@ func utf16le(s string) []byte {
 		b = append(b, byte(r), byte(r>>8))
 	}
 	return b
+}
+
+func elevatedRun(cmd string) *Raw {
+	return sec(4688, map[string]string{"SubjectUserSid": "S-1-5-21-1-2-3-1001", "SubjectUserName": "mallory", "SubjectDomainName": "WS-07",
+		"NewProcessName": `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, "CommandLine": cmd,
+		"TokenElevationType": "%%1937", "ParentProcessName": `C:\Windows\explorer.exe`})
+}
+
+// D4: PowerShell run hidden and around the script policy is flagged even
+// when the script itself looks harmless; one such switch alone is not.
+func TestHiddenPowerShell(t *testing.T) {
+	tr := NewTranslator()
+	enc := "dwBoAG8AYQBtAGkA" // "whoami"
+	for cmd, want := range map[string]string{
+		`powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ` + enc: "powershell_hidden",
+		`"powershell.exe" -w hidden -nop -noni -c Get-Date`:                                 "powershell_hidden",
+		`powershell.exe -ep bypass -file C:\Scripts\backup.ps1`:                             "elevated_process",
+		`powershell.exe -NoProfile -Command Get-Service`:                                    "elevated_process",
+	} {
+		e := tr.Translate(elevatedRun(cmd))
+		if e == nil || e.Action != want {
+			t.Errorf("%s: got %v, want %s", cmd, e, want)
+			continue
+		}
+		if want == "powershell_hidden" && e.Severity != event.SevMedium {
+			t.Errorf("%s: severity %s, want medium", cmd, e.Severity)
+		}
+	}
+}
+
+// D9: log clearing and auditpol are caught when PowerShell quotes the
+// program's path.
+func TestQuotedTamperCommands(t *testing.T) {
+	tr := NewTranslator()
+	for _, cmd := range []string{`"C:\Windows\system32\wevtutil.exe" cl Security`, `"C:\Windows\System32\auditpol.exe" /set /subcategory:"Logon" /success:disable`} {
+		r := elevatedRun(cmd)
+		r.Data["NewProcessName"] = strings.Trim(strings.Fields(cmd)[0], `"`)
+		if e := tr.Translate(r); e == nil || e.Action != "audit_tamper_command" || e.Severity != event.SevHigh {
+			t.Errorf("%s: got %+v", cmd, e)
+		}
+	}
+}
+
+// D9: SYSTEM turning auditing on is Group Policy at work; turning it off
+// stays High, since anyone running auditpol as SYSTEM looks the same.
+func TestAuditPolicyBySystem(t *testing.T) {
+	tr := NewTranslator()
+	pol := func(change string) *Raw {
+		return sec(4719, map[string]string{"SubjectUserSid": "S-1-5-18", "SubjectUserName": "WS-07$", "SubjectDomainName": "CORP",
+			"SubcategoryGuid": "{0CCE9215-69AE-11D9-BED3-505054503030}", "AuditPolicyChanges": change})
+	}
+	if e := tr.Translate(pol("%%8449")); e == nil || e.Severity != event.SevMedium {
+		t.Errorf("success added by SYSTEM: %+v", e)
+	}
+	if e := tr.Translate(pol("%%8448, %%8450")); e == nil || e.Severity != event.SevHigh {
+		t.Errorf("auditing removed by SYSTEM: %+v", e)
+	}
 }

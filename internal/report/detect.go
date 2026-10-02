@@ -50,8 +50,11 @@ func tamperAction(r *Row) bool {
 	switch r.Action {
 	case "log_cleared", "log_tampered":
 		return r.User == "" || person(r.User)
-	case "audit_disabled", "audit_policy_changed", "audit_rule_added", "audit_rule_removed", "audit_config_changed", "av_disabled":
+	case "audit_disabled", "audit_policy_changed", "audit_rule_added", "audit_rule_removed", "audit_config_changed",
+		"audit_tamper_command", "powershell_tamper", "powershell_av_tamper":
 		return person(r.User)
+	case "av_disabled":
+		return r.User == "" || person(r.User) // Defender's own events name no user
 	case "audit_stopped":
 		return r.Severity == event.SevHigh // stopped by a person, not at shutdown
 	}
