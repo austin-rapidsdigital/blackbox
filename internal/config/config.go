@@ -113,7 +113,7 @@ func parse(r io.Reader, path string) (*Config, error) {
 			return nil, fmt.Errorf("%s:%d: expected key = value", path, n)
 		}
 		k = strings.ToLower(strings.TrimSpace(k))
-		v = strings.TrimSpace(stripComment(v))
+		v = unquote(strings.TrimSpace(v))
 		if err := c.set(k, v); err != nil {
 			return nil, fmt.Errorf("%s:%d: %w", path, n, err)
 		}
@@ -122,6 +122,30 @@ func parse(r io.Reader, path string) (*Config, error) {
 		return nil, err
 	}
 	return c, c.Validate()
+}
+
+// unquote reads a value: "a value in quotes" is taken as it is (it may
+// contain " #"); otherwise a trailing " # comment" is removed.
+func unquote(v string) string {
+	if strings.HasPrefix(v, `"`) {
+		if j := strings.Index(v[1:], `"`); j >= 0 {
+			return v[1 : 1+j]
+		}
+	}
+	return strings.TrimSpace(stripComment(v))
+}
+
+// quote writes a value so that it reads back the same: in quotes when it
+// contains " #" (which would otherwise start a comment) or starts with a
+// quote.
+func quote(v string) (string, error) {
+	if !strings.Contains(v, " #") && !strings.HasPrefix(v, `"`) {
+		return v, nil
+	}
+	if strings.Contains(v, `"`) {
+		return "", fmt.Errorf("a value can't contain both \" #\" and a quote mark: %s", v)
+	}
+	return `"` + v + `"`, nil
 }
 
 // stripComment removes a trailing " # comment" (a # preceded by space).
@@ -303,7 +327,11 @@ func SetValues(path string, kv [][2]string) error {
 		if strings.ContainsAny(value, "\r\n") {
 			return fmt.Errorf("%s: value must be a single line", key)
 		}
-		newLine := key + " = " + value
+		written, err := quote(value)
+		if err != nil {
+			return fmt.Errorf("%s: %w", key, err)
+		}
+		newLine := key + " = " + written
 		replaced := false
 		for i, l := range lines {
 			t := strings.TrimSpace(l)
@@ -441,6 +469,9 @@ working_hours =
 func Render(site, reportEvery string, reportAt ReportAt, reportDir string, collectEvery time.Duration) string {
 	if collectEvery == 0 {
 		collectEvery = time.Hour
+	}
+	if q, err := quote(site); err == nil {
+		site = q
 	}
 	return strings.NewReplacer("{{SITE}}", site, "{{REPORT_EVERY}}", reportEvery, "{{REPORT_AT}}", reportAt.String(),
 		"{{REPORT_DIR}}", reportDir, "{{DEFAULT_REPORTS}}", filepath.Join(DefaultDataDir(), "reports"),

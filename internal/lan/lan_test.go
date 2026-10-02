@@ -346,3 +346,48 @@ func TestLogArchivesAreDeliveredAndFiled(t *testing.T) {
 		t.Error("damaged archive not in rejected")
 	}
 }
+
+// R8: a batch that arrives after a later one (out of order) is imported,
+// and its gap is cleared.
+func TestLateBatchFillsTheGap(t *testing.T) {
+	in := inbox(t)
+	ws := system(t, "WS-01", "windows", 1, t0)
+	Export(ws, "WS-01", "test", t0) // batch 1
+	collect(t, ws, "WS-01", "windows", 1, t0.Add(time.Hour))
+	Export(ws, "WS-01", "test", t0.Add(time.Hour)) // batch 2
+	collect(t, ws, "WS-01", "windows", 1, t0.Add(2*time.Hour))
+	Export(ws, "WS-01", "test", t0.Add(2*time.Hour)) // batch 3
+	if _, err := Deliver(ws, in, "WS-01"); err != nil {
+		t.Fatal(err)
+	}
+	id := ws.State.Send.ID
+	two := filepath.Join(in, InboxName("WS-01", id, 2))
+	held, _ := os.ReadFile(two)
+	os.Remove(two) // delayed
+
+	col, _ := store.Open(t.TempDir())
+	Import(col, in, "", t0.Add(3*time.Hour), nil)
+	if s := col.State.Senders[id]; len(s.Missing) != 1 {
+		t.Fatalf("gap not noted: %+v", s)
+	}
+	os.WriteFile(two, held, 0o644) // arrives late
+	res, err := Import(col, in, "", t0.Add(4*time.Hour), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := col.State.Senders[id]
+	evs, _ := col.ReadEvents(time.Time{})
+	if res.Records == 0 || len(s.Missing) != 0 || s.LastSeq != 3 || len(evs) != 3 {
+		t.Errorf("late batch: %d records, missing %v, last %d, %d events", res.Records, s.Missing, s.LastSeq, len(evs))
+	}
+}
+
+func TestFillGap(t *testing.T) {
+	g := fillGap([]store.SeqGap{{From: 2, To: 6}}, 4)
+	if len(g) != 2 || g[0].To != 3 || g[1].From != 5 {
+		t.Errorf("split: %+v", g)
+	}
+	if g := fillGap([]store.SeqGap{{From: 2, To: 2}}, 2); len(g) != 0 {
+		t.Errorf("filled: %+v", g)
+	}
+}

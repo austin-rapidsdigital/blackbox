@@ -13,6 +13,7 @@ import (
 	"html/template"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -98,8 +99,19 @@ func (r *Report) summary() Summary {
 	for _, g := range r.Medium {
 		s.Medium += g.Count
 	}
-	for _, sec := range r.Sections {
-		s.ByCategory[string(sec.Info.ID)] = sec.Total
+	// Counted as the event pages list them: PowerShell has a page of its
+	// own, so it has a key of its own and is not under other_security.
+	for _, p := range eventPages() {
+		key := string(p.Category)
+		if p.Category == "" {
+			key = p.ID
+		}
+		s.ByCategory[key] = 0
+		for _, e := range r.Events {
+			if p.on(e) {
+				s.ByCategory[key]++
+			}
+		}
 	}
 	for _, g := range r.Health.Gaps {
 		s.Lost += g.Lost
@@ -244,9 +256,9 @@ func (r *Report) writeCSV(w io.Writer) error {
 		if e.EventID == 0 {
 			eventID = ""
 		}
-		cw.Write([]string{e.Time.In(r.Location).Format("2006-01-02 15:04:05"), e.Host, e.Category.Info().Title,
+		cw.Write(csvSafe([]string{e.Time.In(r.Location).Format("2006-01-02 15:04:05"), e.Host, e.Category.Info().Title,
 			string(e.Severity), e.Summary, e.User, e.Target, e.SourceIP, e.Process, e.Command, e.Outcome,
-			e.Action, e.Source, eventID, e.RecordType, rec, map[bool]string{true: "yes", false: ""}[e.Late]})
+			e.Action, e.Source, eventID, e.RecordType, rec, map[bool]string{true: "yes", false: ""}[e.Late]}))
 	}
 	cw.Flush()
 	return cw.Error()
@@ -285,8 +297,11 @@ func UniqueDir(parent, name string) string {
 	}
 }
 
-// Verify re-hashes the files listed in dir/manifest.sha256. It returns a
-// list of problems (empty if everything matches).
+// Verify re-hashes the files listed in dir/manifest.sha256, and reports
+// files missing from it or added since. The manifest is not signed: this
+// finds accidental damage and careless edits, not someone who changes a
+// file and re-writes its hash (see docs/reports.md). It returns a list of
+// problems (empty if everything matches).
 func Verify(dir string) ([]string, error) {
 	f, err := os.Open(filepath.Join(dir, "manifest.sha256"))
 	if err != nil {
@@ -295,6 +310,7 @@ func Verify(dir string) ([]string, error) {
 	defer f.Close()
 	var problems []string
 	n := 0
+	listed := map[string]bool{}
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		want, name, ok := strings.Cut(strings.TrimSpace(sc.Text()), "  ")
@@ -302,6 +318,7 @@ func Verify(dir string) ([]string, error) {
 			continue
 		}
 		n++
+		listed[name] = true
 		// Files are in the report folder, or (event data) in its data folder.
 		base := strings.TrimPrefix(name, "data/")
 		if strings.ContainsAny(base, `/\`) || base == ".." || base == "." || base == "" {
@@ -323,8 +340,29 @@ func Verify(dir string) ([]string, error) {
 	if n == 0 {
 		return nil, fmt.Errorf("manifest.sha256 lists no files")
 	}
+	// Every report lists its page and its summary; a manifest without
+	// them was cut down.
+	for _, name := range []string{"report.html", "summary.json"} {
+		if !listed[name] {
+			problems = append(problems, fmt.Sprintf("%s: not in the manifest", name))
+		}
+	}
+	// A file the manifest doesn't list was added (or renamed) afterwards.
+	for _, sub := range []string{"", "data"} {
+		entries, _ := os.ReadDir(filepath.Join(dir, sub))
+		for _, e := range entries {
+			name := path.Join(sub, e.Name())
+			if e.IsDir() || listed[name] || name == "manifest.sha256" || ignoredFile[strings.ToLower(e.Name())] {
+				continue
+			}
+			problems = append(problems, fmt.Sprintf("%s: not in the manifest (added after the report was produced)", name))
+		}
+	}
 	return problems, nil
 }
+
+// ignoredFile are files Windows and macOS add to folders by themselves.
+var ignoredFile = map[string]bool{"desktop.ini": true, "thumbs.db": true, ".ds_store": true}
 
 // IndexEntry is one row on the index page.
 type IndexEntry struct {

@@ -62,6 +62,10 @@ func (s SystemRow) OSName() string {
 	return s.OS
 }
 
+// expectedInterval is how often computers are expected to collect: the
+// default, and the longest interval setup offers.
+const expectedInterval = time.Hour
+
 // silentAfter is how long a computer can go without a collection before
 // the Systems page points it out, even within a period it did report in.
 const silentAfter = 36 * time.Hour
@@ -149,6 +153,10 @@ func (r *Report) buildSystems(runs []*store.Run, events []*event.Event) {
 		case !live:
 		case vm && s.Runs == 0:
 			// A VM is on only part of the time; being off is not a problem.
+		case s.Runs == 0 && r.WindowEnd.Sub(r.PeriodStart()) <= 2*expectedInterval && !s.LastRun.IsZero():
+			// A short report (an interim one run by hand) can end before a
+			// computer's next collection is due; that is not silence.
+			s.StatusMsg = fmt.Sprintf("No collection in this short period yet. Last collection: %s.", r.stamp(s.LastRun))
 		case s.Runs == 0:
 			s.Status = "silent"
 			if s.LastRun.IsZero() {

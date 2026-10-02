@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -164,5 +165,58 @@ func TestLANSettings(t *testing.T) {
 		if IsShare(s) {
 			t.Errorf("IsShare(%q) = true", s)
 		}
+	}
+}
+
+// R3: every setting reads back exactly as it was set, including values
+// with " #" in them (which would otherwise start a comment).
+func TestEverySettingRoundTrips(t *testing.T) {
+	abs := func(p string) string {
+		if runtime.GOOS == "windows" {
+			return `D:\` + p
+		}
+		return "/srv/" + p
+	}
+	cases := []struct {
+		key, value string
+		got        func(*Config) string
+	}{
+		{"site_name", "HOME-LAB #2", func(c *Config) string { return c.SiteName }},
+		{"site_name", `Lab "3"`, func(c *Config) string { return c.SiteName }},
+		{"report_every", "monthly", func(c *Config) string { return c.ReportEvery }},
+		{"report_at", "Friday 12:00", func(c *Config) string { return c.ReportAt.String() }},
+		{"report_dir", abs("Audit #1"), func(c *Config) string { return c.ReportDir }},
+		{"retention_days", "90", func(c *Config) string { return strconv.Itoa(c.RetentionDays) }},
+		{"exclude_users", "svc_backup, CORP\\svc_scan", func(c *Config) string { return strings.Join(c.ExcludeUsers, ", ") }},
+		{"exclude_processes", "scan.exe", func(c *Config) string { return strings.Join(c.ExcludeProcesses, ", ") }},
+		{"working_hours", "Mon-Fri 06:00-18:00", func(c *Config) string { return c.WorkingHours.Text }},
+		{"send_to", abs("inbox #2"), func(c *Config) string { return c.SendTo }},
+		{"inbox", abs("inbox"), func(c *Config) string { return c.Inbox }},
+		{"share_user", "bbsend", func(c *Config) string { return c.ShareUser }},
+	}
+	seen := map[string]bool{}
+	for _, tc := range cases {
+		seen[tc.key] = true
+		p := filepath.Join(t.TempDir(), "blackbox.conf")
+		if err := SetValue(p, tc.key, tc.value); err != nil {
+			t.Errorf("%s = %q: %v", tc.key, tc.value, err)
+			continue
+		}
+		c, err := Load(p)
+		if err != nil {
+			t.Errorf("%s = %q: load: %v", tc.key, tc.value, err)
+			continue
+		}
+		if got := tc.got(c); got != tc.value {
+			t.Errorf("%s: set %q, read back %q", tc.key, tc.value, got)
+		}
+	}
+	for _, k := range Settable {
+		if !seen[k] {
+			t.Errorf("no round-trip case for %s", k)
+		}
+	}
+	if err := SetValue(filepath.Join(t.TempDir(), "c"), "site_name", `A "b" #2`); err == nil {
+		t.Error("a value with both a quote and \" #\" should be refused")
 	}
 }

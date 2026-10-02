@@ -293,7 +293,13 @@
 
   Table.prototype.csv = function () {
     if (!this.shown.length) return;
-    var q = function (s) { s = String(s == null ? '' : s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    // A field starting with = + - @ (or a tab or return) is a formula to a
+    // spreadsheet: a user name like =HYPERLINK(…) must stay text.
+    var q = function (s) {
+      s = String(s == null ? '' : s);
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
     var kind = (this.page.KindLabel || 'kind').toLowerCase();
     var lines = ['time,system,person,target,source,what happened,' + kind + ',severity,event id,log,process,command,outcome'];
     this.shown.forEach(function (r) {
