@@ -176,7 +176,7 @@ func (t *Translator) audit(ev *Event) *event.Event {
 			return nil
 		}
 		return &event.Event{Category: event.CatLogon, Action: "logoff", User: user, Outcome: "success",
-			Summary: fmt.Sprintf("%s logged off.", user)}
+			Summary: fmt.Sprintf("%s logged off.", user), DedupeKey: "lxlogoff|" + user}
 	case "USER_CHAUTHTOK":
 		return t.chauthtok(r)
 	case "ADD_USER", "DEL_USER", "ADD_GROUP", "DEL_GROUP", "USER_MGMT", "GRP_MGMT", "CHUSER_ID", "CHGRP_ID":
@@ -389,7 +389,7 @@ func (t *Translator) userLogin(r *Record) *event.Event {
 			return nil
 		}
 		e := &event.Event{Category: event.CatLogon, Action: "logon", User: acct, Outcome: "success", SourceIP: addr,
-			Interactive: true, Summary: fmt.Sprintf("%s logged on %s%s.", acct, how, fromAddr(addr))}
+			Interactive: true, Summary: fmt.Sprintf("%s logged on %s%s.", acct, how, fromAddr(addr)), DedupeKey: logonKey(acct, addr)}
 		e.AddDetail("Logon type", label)
 		e.AddDetail("Source address", addr)
 		e.AddDetail("Terminal", term)

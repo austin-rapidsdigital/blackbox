@@ -121,7 +121,7 @@ prompt. Untick the box on the Collection page of setup to turn it off.
 | Dot | Means |
 |---|---|
 | Green | Collecting on schedule; nothing needs attention |
-| Amber | Something to look at: audit settings to fix, Defender intelligence out of date, a computer that has stopped sending, or files set aside in the inbox |
+| Amber | Something to look at: audit settings to fix, Defender intelligence out of date, events lost because a log filled up before it was collected, a computer that has stopped sending, or files set aside in the inbox |
 | Red | Collection has stopped (no run for twice the interval plus 15 minutes), or the last run failed |
 | Grey (no dot) | The status can't be read |
 

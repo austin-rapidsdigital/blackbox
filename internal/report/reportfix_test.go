@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/casea1/blackbox/internal/collect"
 	"github.com/casea1/blackbox/internal/event"
 	"github.com/casea1/blackbox/internal/store"
 )
@@ -107,5 +108,80 @@ func TestShortReportIsNotSilence(t *testing.T) {
 	week := Build(ev, runs, Options{WindowStart: end.AddDate(0, 0, -7), WindowEnd: end, Generated: end, Location: time.UTC, Source: "Live collection", Systems: sys})
 	if len(week.Silent) != 1 {
 		t.Errorf("a week without collection should be silent: %v", week.Silent)
+	}
+}
+
+// C4: one SSH sign-in and sign-out is one row each, whether it comes from
+// auth.log read through two logs, or from auditd's two login records.
+func TestLinuxSessionCountedOnce(t *testing.T) {
+	saved := time.Local
+	time.Local = time.UTC
+	defer func() { time.Local = saved }()
+	count := func(evs []*event.Event, action string) int {
+		r := Build(evs, nil, Options{Location: time.UTC, WindowEnd: time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)})
+		n := 0
+		for _, e := range r.Events {
+			if e.Action == action {
+				n++
+			}
+		}
+		return n
+	}
+	auth := "../../testdata/linux/ssh-session-auth.log"
+	evs, _, err := collect.LinuxFiles(nil, []string{auth, auth}, "", "", time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := count(evs, "logon"); n != 1 {
+		t.Errorf("auth.log: %d logon rows, want 1", n)
+	}
+	if n := count(evs, "logoff"); n != 1 {
+		t.Errorf("auth.log: %d logoff rows, want 1", n)
+	}
+	evs, _, err = collect.LinuxFiles([]string{"../../testdata/linux/ssh-session-audit.log"}, nil, "claude-code", "", time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := count(evs, "logon"); n != 1 {
+		t.Errorf("audit.log: %d logon rows, want 1", n)
+	}
+	if n := count(evs, "logoff"); n != 1 {
+		t.Errorf("audit.log: %d logoff rows, want 1", n)
+	}
+}
+
+// C5: Audit health says when each system's settings were checked.
+func TestHealthShowsCheckTime(t *testing.T) {
+	end := fx0.Add(24 * time.Hour)
+	r := Build([]*event.Event{{Time: fx0, Host: "claude-code", Category: event.CatLogon, Severity: event.SevInfo, Action: "logon", Summary: "x"}}, nil,
+		Options{WindowEnd: end, Location: time.UTC, Systems: []SystemInfo{{Name: "claude-code", OS: "linux", LastRun: end}},
+			CheckSets: []CheckSet{{Host: "claude-code", Time: fx0.Add(90 * time.Minute)}}})
+	hp := r.healthPage()
+	if hp == nil || len(hp.Groups) == 0 || hp.Groups[0].Rows[0].CheckedAt == "" {
+		t.Fatalf("no check time: %+v", hp)
+	}
+}
+
+// C6: auditd stopping in a planned restart is routine; stopped on its own
+// it stays High.
+func TestRebootIsNotAuditTampering(t *testing.T) {
+	stop := func() *event.Event {
+		return &event.Event{Time: fx0.Add(10 * time.Second), Host: "claude-code", OS: "linux", Category: event.CatIntegrity,
+			Severity: event.SevHigh, Action: "audit_stopped", User: "root", Summary: "auditd stopped by root"}
+	}
+	reboot := &event.Event{Time: fx0, Host: "claude-code", OS: "linux", Category: event.CatPrivileged, Severity: event.SevLow,
+		Action: "sudo_command", User: "austin", Command: "/usr/sbin/reboot", Summary: "austin ran reboot with sudo"}
+	r := buildFrom([]*event.Event{reboot, stop()}, Options{})
+	for _, e := range r.Events {
+		if e.Action == "audit_stopped" && e.Severity != event.SevInfo {
+			t.Errorf("auditd stop in a reboot is %s", e.Severity)
+		}
+	}
+	if hasFinding(r, "Auditing was switched off") {
+		t.Error("a reboot raised \"Auditing was switched off\"")
+	}
+	r = buildFrom([]*event.Event{stop()}, Options{})
+	if !hasFinding(r, "Auditing was switched off") {
+		t.Errorf("auditd stopped by root, no restart: want a finding, got %v", findingTitles(r))
 	}
 }

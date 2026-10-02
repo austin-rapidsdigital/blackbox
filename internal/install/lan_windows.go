@@ -108,9 +108,12 @@ func removeInbox(logf func(string, ...any)) {
 		hidden.Command("net.exe", "share", ShareName, "/delete", "/y").Run()
 		logf("Removed the %s network share (the folder was kept).", ShareName)
 	}
+	// The "Blackbox Senders" group is kept. A sender's open connection
+	// carries the group's identity: deleting it and making a new one on
+	// reinstall would lock out a Linux sender, whose mount never signs in
+	// again by itself. It grants nothing once the share is gone.
 	if hidden.Command("net.exe", "localgroup", SendersGroup).Run() == nil {
-		hidden.Command("net.exe", "localgroup", SendersGroup, "/delete").Run()
-		logf("Removed the %q group.", SendersGroup)
+		logf("Kept the %q group, so its members can deliver again if this becomes a collector again.", SendersGroup)
 	}
 }
 

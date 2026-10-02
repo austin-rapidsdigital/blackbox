@@ -296,3 +296,10 @@ This section is for reviewers.
 - **Identity.** Each sender has a random ID created when it first sends.
   A computer that is reinstalled or renamed starts a new sequence instead
   of looking like a gap.
+
+**The "Blackbox Senders" group is kept when Blackbox is uninstalled.** A
+sender's open connection to the share carries the group's identity, so
+deleting the group and making a new one on reinstall would lock out a
+sender (a Linux mount never signs in again by itself). On a collector,
+`blackbox status` notes "no batch since …" for a sender with nothing
+delivered for more than two hours, well before it counts as silent.

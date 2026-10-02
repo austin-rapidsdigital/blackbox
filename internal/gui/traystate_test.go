@@ -120,3 +120,23 @@ func TestTrayImage(t *testing.T) {
 		}
 	}
 }
+
+// C1: events lost to rollover are something to look at (amber), named by
+// log, and notified once per report period.
+func TestLostEvents(t *testing.T) {
+	h := healthy()
+	h.PeriodStart = trayNow.AddDate(0, 0, -2)
+	h.Lost = []app.LostLog{{Host: "DSK1", Channel: "Security", Count: 17925, Since: trayNow.Add(-3 * time.Hour)}}
+	v := classify(h, nil, trayNow)
+	if v.State != stateLook || len(v.Items) != 1 || !strings.HasPrefix(v.Items[0], "Security log on DSK1: 17,925 events lost to rollover since") {
+		t.Errorf("lost events: %+v", v)
+	}
+	_, m := notices(trayMemory{}, healthy(), classify(healthy(), nil, trayNow), "1.0", trayNow)
+	n, m := notices(m, h, v, "1.0", trayNow)
+	if len(n) != 1 || !strings.Contains(n[0].Text, "overwrote 17,925 events") || !strings.Contains(n[0].Text, "15 minutes") {
+		t.Fatalf("notice: %+v", n)
+	}
+	if n, _ = notices(m, h, v, "1.0", trayNow); len(n) != 0 {
+		t.Errorf("notified twice in one period: %+v", n)
+	}
+}
