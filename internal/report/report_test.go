@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"fmt"
+	"html/template"
 	"io"
 	"os"
 	"path/filepath"
@@ -171,8 +172,32 @@ func TestWriteAndVerify(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "events.jsonl")); err == nil {
 		t.Error("events.jsonl is no longer written")
 	}
-	if bytes.Contains(html, []byte("wevtutil  cl Application")) {
-		t.Error("events belong in the data files, not report.html")
+	// Only a detection's own events are in report.html; the rest are in
+	// the data files.
+	inFinding := map[string]bool{}
+	for _, f := range r.Findings {
+		for _, id := range append(f.RowIDs, f.RowID) {
+			inFinding[id] = true
+		}
+	}
+	shown := map[string]bool{}
+	for _, row := range r.rows {
+		if inFinding[row.ID] {
+			shown[row.Summary] = true
+		}
+	}
+	checked := 0
+	for _, row := range r.rows {
+		if shown[row.Summary] || len(row.Summary) < 30 {
+			continue
+		}
+		if checked++; bytes.Contains(html, []byte(template.HTMLEscapeString(row.Summary))) {
+			t.Errorf("events belong in the data files, not report.html: %q", row.Summary)
+			break
+		}
+	}
+	if checked == 0 {
+		t.Error("no routine events to check")
 	}
 	if !strings.Contains(fmt.Sprint(r.summary().Detections), "Possible password guessing") {
 		t.Error("detection missing from summary.json")

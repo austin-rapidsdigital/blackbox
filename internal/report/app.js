@@ -66,8 +66,35 @@
     document.querySelectorAll('[data-nav]').forEach(function (a) { a.classList.toggle('on', a.getAttribute('data-nav') === id); });
     var t = tables[id];
     if (t) t.open();
+    if (id === 'detections') showDetection((location.hash.split('/')[1] || ''));
     window.scrollTo(0, 0);
   }
+
+  // ---- Detections: one shown at a time, the newest unless one is named ----
+  function showDetection(n) {
+    var links = document.querySelectorAll('[data-det]');
+    if (!links.length) return;
+    if (!document.querySelector('[data-detail="' + n + '"]')) {
+      var first = Array.prototype.find.call(links, function (a) { return !a.hidden; }) || links[0];
+      n = first.getAttribute('data-det');
+    }
+    links.forEach(function (a) { a.classList.toggle('sel', a.getAttribute('data-det') === n); });
+    document.querySelectorAll('[data-detail]').forEach(function (d) { d.hidden = d.getAttribute('data-detail') !== n; });
+  }
+  document.querySelectorAll('[data-detsev] span').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      var sev = chip.getAttribute('data-sev');
+      chip.parentNode.querySelectorAll('span').forEach(function (c) { c.classList.toggle('on', c === chip); });
+      var list = chip.closest('.dlist');
+      list.querySelectorAll('[data-det]').forEach(function (a) { a.hidden = !!sev && !a.classList.contains(sev); });
+      // Hide day headings with nothing left under them.
+      list.querySelectorAll('.dayh').forEach(function (h) {
+        var el = h.nextElementSibling, any = false;
+        while (el && !el.classList.contains('dayh')) { if (!el.hidden) any = true; el = el.nextElementSibling; }
+        h.hidden = !any;
+      });
+    });
+  });
 
   // ---- Event tables ----
   // Rows are kept as compact arrays: [index, time, host, sev, action, user,

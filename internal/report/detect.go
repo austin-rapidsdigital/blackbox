@@ -78,9 +78,32 @@ func adminActivity(r *Row) bool {
 
 func inPeriod(r *Row) bool { return r.ID != "" }
 
-func (r *Report) addFinding(sev event.Severity, cat event.Category, at *Row, link *Row, title, detail string) {
+// addFinding records a detection. related are the events it is made of,
+// shown in order on the Detections page (at and link when not given).
+func (r *Report) addFinding(sev event.Severity, cat event.Category, at *Row, link *Row, title, detail string, related ...*Row) {
+	if len(related) == 0 {
+		related = []*Row{at, link}
+	}
 	r.Findings = append(r.Findings, Finding{Severity: sev, Category: cat, Host: at.Host, Time: at.Time,
-		RowID: link.ID, RowIDs: rowIDs([]*Row{at, link}), Title: title, Detail: detail})
+		RowID: link.ID, RowIDs: rowIDs(related), Title: title, Detail: detail})
+}
+
+// between lists the notable events (Low and above) on host from a to b,
+// at most max of them, for a detection's "what happened".
+func between(all []*Row, host string, a, b *Row, max int) []*Row {
+	var out []*Row
+	for _, x := range all {
+		if x.Time.Before(a.Time) || x.Time.After(b.Time) || x.Host != host {
+			continue
+		}
+		if x == a || x == b || x.Severity.Rank() >= event.SevLow.Rank() {
+			out = append(out, x)
+		}
+	}
+	if len(out) > max {
+		out = append(out[:max-1], b)
+	}
+	return out
 }
 
 // detect runs every detection over the rows of this period (rows) and
@@ -136,7 +159,7 @@ func (r *Report) detectSprayAcrossComputers(all []*Row) {
 			r.addFinding(event.SevHigh, event.CatFailedLogon, c[0], firstInPeriod(c),
 				"Same account failing on several computers",
 				fmt.Sprintf("%d failed logons for %s on %d computers (%s) between %s and %s. Someone may be trying a password across the network.",
-					len(c), c[0].Target, len(hosts), strings.Join(hosts, ", "), r.stamp(c[0].Time), r.clock(last.Time)))
+					len(c), c[0].Target, len(hosts), strings.Join(hosts, ", "), r.stamp(c[0].Time), r.clock(last.Time)), c...)
 		}
 	}
 }
@@ -164,7 +187,8 @@ func (r *Report) detectCoverTracks(all []*Row) {
 			}
 			r.addFinding(event.SevHigh, event.CatIntegrity, t, link, "Possible covering of tracks",
 				fmt.Sprintf("On %s at %s: %s %s later: %s The second step can hide what was done with the first.",
-					t.Host, r.stamp(s.Time), s.Summary, capitalize(roughDuration(t.Time.Sub(s.Time))), t.Summary))
+					t.Host, r.stamp(s.Time), s.Summary, capitalize(roughDuration(t.Time.Sub(s.Time))), t.Summary),
+				between(all, t.Host, s, t, 12)...)
 			break
 		}
 	}
@@ -277,7 +301,7 @@ func (r *Report) detectOffHours(rows []*Row) {
 		r.addFinding(event.SevMedium, event.CatPrivileged, first, first, "Administrator activity outside working hours",
 			fmt.Sprintf("%s used administrator rights on %s %s on %s (%s; working hours are %s).",
 				first.User, first.Host, when, first.Time.In(r.Location).Format("Mon 2 Jan"),
-				plural(len(g), "action"), r.WorkingHours.Text))
+				plural(len(g), "action"), r.WorkingHours.Text), g...)
 	}
 }
 

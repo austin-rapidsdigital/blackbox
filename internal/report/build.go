@@ -38,6 +38,10 @@ type Options struct {
 	// the schedule; the next scheduled report covers that time again.
 	Interim bool
 
+	// History is the summaries of earlier scheduled reports, oldest first
+	// (up to eleven), for twelve-week trends.
+	History []Summary
+
 	// Period is how often reports are made ("weekly"), shown as "Weekly
 	// report". Empty for a report from exported files.
 	Period string

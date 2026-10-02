@@ -29,9 +29,11 @@ var appJS string
 // while rendering one category's view.
 type pageData struct {
 	*Report
-	Section *Section
-	Pages   []*EventPage
-	Meta    template.JS // settings for app.js, as JSON
+	Section    *Section
+	Pages      []*EventPage
+	Overview   *Overview
+	Detections []DetectionView
+	Meta       template.JS // settings for app.js, as JSON
 }
 
 // headData is a page's heading.
@@ -39,8 +41,23 @@ type headData struct {
 	Crumb, Title, Range string
 }
 
-// IsLAN says whether the report covers more than one computer.
-func (r *Report) IsLAN() bool { return len(r.Hosts) > 1 || r.Collector }
+// IsLAN says whether this is a network report (a collector's, or more
+// than three computers); otherwise it is a standalone computer's, with
+// any virtual machines on it.
+func (r *Report) IsLAN() bool { return r.Collector || len(r.Hosts) > 3 }
+
+// MainSystem is a standalone report's computer (not its VMs).
+func (r *Report) MainSystem() string {
+	for _, s := range r.SystemRows {
+		if s.Via == "" {
+			return s.Name
+		}
+	}
+	if len(r.Hosts) > 0 {
+		return r.Hosts[0]
+	}
+	return ""
+}
 
 // PeriodStart is the start of the report period (the oldest event on a
 // first report).
@@ -69,12 +86,48 @@ func funcs(loc *time.Location) template.FuncMap {
 		"js":    func() template.JS { return template.JS(appJS) },
 		"icon":  icon,
 		"lower": strings.ToLower,
+		"minus": func(a, b int) int { return a - b },
 		"plural": func(n int, unit string) string {
 			if n == 1 {
 				return unit
 			}
 			return unit + "s"
 		},
+		"overviewTitle": func(p pageData) string {
+			if p.IsLAN() && !p.Overview.Standalone {
+				return "Network overview"
+			}
+			return "Overview"
+		},
+		"dayBefore": func(ds []DetectionCard, i int) string { return ds[i-1].Day },
+		"detectionsCrumb": func(p pageData) string {
+			high, med := 0, 0
+			for _, d := range p.Detections {
+				if d.Severity == "high" {
+					high++
+				} else {
+					med++
+				}
+			}
+			n := len(p.Detections)
+			c := p.Crumb()
+			c = c[:strings.LastIndex(c, " · generated")]
+			s := fmt.Sprintf("%s · %s %s", c, commas(n), map[bool]string{true: "detection", false: "detections"}[n == 1])
+			if n > 0 {
+				s += fmt.Sprintf(" · %d high, %d medium", high, med)
+			}
+			return s
+		},
+		"sevCount": func(ds []DetectionView, sev string) int {
+			n := 0
+			for _, d := range ds {
+				if d.Severity == sev {
+					n++
+				}
+			}
+			return n
+		},
+		"detDayBefore": func(ds []DetectionView, i int) string { return ds[i-1].Day },
 		"eventsCrumb": func(p pageData, e *EventPage) string {
 			unit := "events"
 			if e.Total == 1 {
@@ -184,8 +237,21 @@ func (r *Report) Crumb() string {
 	parts := []string{r.Kind()}
 	if r.IsLAN() {
 		parts = append(parts, fmt.Sprintf("%d systems", len(r.Hosts)))
-	} else if len(r.Hosts) == 1 {
-		parts = append(parts, r.Hosts[0])
+	} else {
+		vms := 0
+		for _, s := range r.SystemRows {
+			if s.Via != "" {
+				vms++
+			}
+		}
+		desc := "standalone · 1 system"
+		if vms > 0 {
+			desc += fmt.Sprintf(" + %d VM", vms)
+			if vms > 1 {
+				desc += "s"
+			}
+		}
+		parts = append(parts, desc)
 	}
 	parts = append(parts, "generated "+r.Generated.In(r.Location).Format("2 Jan 2006 15:04"))
 	return strings.Join(parts, " · ")
@@ -214,7 +280,8 @@ func (r *Report) WriteHTML(w io.Writer, pages []*EventPage) error {
 	if err != nil {
 		return err
 	}
-	return t.ExecuteTemplate(w, "layout", pageData{Report: r, Pages: pages, Meta: template.JS(b)})
+	return t.ExecuteTemplate(w, "layout", pageData{Report: r, Pages: pages, Overview: r.overview(pages),
+		Detections: r.detectionViews(), Meta: template.JS(b)})
 }
 
 func zoneName(t time.Time, loc *time.Location) string {

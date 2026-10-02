@@ -43,6 +43,8 @@ type Summary struct {
 	Systems     []SystemStatus `json:"systems,omitempty"`
 	Detections  []Detection    `json:"detections,omitempty"`
 	Archives    []ArchiveJSON  `json:"log_archives,omitempty"`
+	// Metrics are the counts the Trends page charts (see metrics.go).
+	Metrics map[string]int `json:"metrics,omitempty"`
 }
 
 // ArchiveJSON is one archive of original logs in summary.json.
@@ -78,7 +80,7 @@ type SystemStatus struct {
 func (r *Report) summary() Summary {
 	s := Summary{Site: r.Site, WindowStart: r.WindowStart, WindowEnd: r.WindowEnd,
 		Generated: r.Generated, Hosts: r.Hosts, Events: len(r.Events), ByCategory: map[string]int{}, Interim: r.Interim,
-		LogClears: r.Health.LogClears, Version: r.Version, Source: r.Source}
+		LogClears: r.Health.LogClears, Version: r.Version, Source: r.Source, Metrics: r.metrics()}
 	if s.WindowStart.IsZero() {
 		s.WindowStart = r.FirstEvent
 	}
@@ -319,6 +321,29 @@ func Verify(dir string) ([]string, error) {
 type IndexEntry struct {
 	Summary
 	Dir string
+}
+
+// History reads the summaries of the scheduled reports in reportsDir that
+// ended before end, oldest first, keeping the last n.
+func History(reportsDir string, end time.Time, n int) []Summary {
+	matches, _ := filepath.Glob(filepath.Join(reportsDir, "*", "summary.json"))
+	var out []Summary
+	for _, m := range matches {
+		b, err := os.ReadFile(m)
+		if err != nil {
+			continue
+		}
+		var s Summary
+		if json.Unmarshal(b, &s) != nil || s.Interim || !s.WindowEnd.Before(end) {
+			continue
+		}
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].WindowEnd.Before(out[j].WindowEnd) })
+	if len(out) > n {
+		out = out[len(out)-n:]
+	}
+	return out
 }
 
 // WriteIndex rebuilds reportsDir/index.html from every report's
