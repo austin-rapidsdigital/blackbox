@@ -11,11 +11,10 @@ import (
 	"image/png"
 )
 
-const (
-	Company = "GE Aerospace"
-	Product = "Blackbox"
-	Name    = Company + " " + Product // shown in reports, the installer and Settings > Apps
-)
+// Name is the product's name, shown in reports, the installer and
+// Settings > Apps. Reports carry the GE Aerospace logo, not the company's
+// name.
+const Name = "Blackbox"
 
 // LogoPNG is the GE Aerospace monogram, 256×256 with a transparent
 // background.

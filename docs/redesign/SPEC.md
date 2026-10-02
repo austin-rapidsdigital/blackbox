@@ -15,6 +15,7 @@ If something can't be built as shown, stop and ask.
 | Panels | Frosted white glass: `rgba(255,255,255,.82)` → `.64`, 1px white border, faint navy outline, soft shadow, **square corners** |
 | Accent | `#0B5FFF` (charts, links); dark navy `#0A2A7A` (numbers, primary buttons, selected chips) |
 | Severity | High `#D12C2C`, Medium `#E08A00`, OK `#1A9A50`; severity is a small square plus a word, never a pill |
+| Name | "Blackbox" with the GE Aerospace logo; the company name is not written out (changed 2 Oct 2026) |
 | Fonts | Public Sans (text), Source Code Pro (times, IDs, hashes, numbers in tables) |
 | Icons | Lucide (lucide-static 0.460.0), 1.6 stroke |
 | Corners | Square everywhere: no rounded cards, pills or oval buttons |

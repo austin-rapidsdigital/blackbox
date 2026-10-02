@@ -1,4 +1,4 @@
-# GE Aerospace Blackbox
+# Blackbox
 
 <img src="internal/brand/logo.png" alt="GE Aerospace" width="72" align="right">
 
@@ -12,7 +12,7 @@ whole air-gapped LAN can be covered by one report.
 
 **[⬇ Download the latest release](https://github.com/casea1/blackbox/releases/latest)** · [Windows guide](docs/windows.md) · [Linux guide](docs/linux.md) · [Security review notes](docs/security.md)
 
-![GE Aerospace Blackbox report overview](docs/images/overview.png)
+![Blackbox report overview](docs/images/overview.png)
 
 ## Why Blackbox
 
