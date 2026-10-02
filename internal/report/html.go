@@ -34,6 +34,7 @@ type pageData struct {
 	Overview    *Overview
 	Detections  []DetectionView
 	SystemsPage *SystemsPage
+	PeoplePage  *PeoplePage
 	Meta        template.JS // settings for app.js, as JSON
 }
 
@@ -103,6 +104,13 @@ func funcs(loc *time.Location) template.FuncMap {
 			return "Overview"
 		},
 		"dayBefore": func(ds []DetectionCard, i int) string { return ds[i-1].Day },
+		"peopleCrumb": func(p pageData) string {
+			n := 0
+			if p.PeoplePage != nil {
+				n = p.PeoplePage.Count
+			}
+			return fmt.Sprintf("%s · %s active on %s", p.Kind(), plural(n, "account"), plural(len(p.Hosts), "system"))
+		},
 		"detectionsCrumb": func(p pageData) string {
 			high, med := 0, 0
 			for _, d := range p.Detections {
@@ -313,7 +321,7 @@ func (r *Report) WriteHTML(w io.Writer, pages []*EventPage) error {
 		return err
 	}
 	return t.ExecuteTemplate(w, "layout", pageData{Report: r, Pages: pages, Overview: r.overview(pages),
-		Detections: r.detectionViews(), SystemsPage: r.systemsPage(), Meta: template.JS(b)})
+		Detections: r.detectionViews(), SystemsPage: r.systemsPage(), PeoplePage: r.peoplePage(), Meta: template.JS(b)})
 }
 
 func zoneName(t time.Time, loc *time.Location) string {

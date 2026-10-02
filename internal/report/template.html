@@ -42,7 +42,7 @@
 <section class="view" data-view="systems">{{template "head" (head . "Systems" "")}}{{with .SystemsPage}}{{template "systems" .}}{{end}}</section>
 <section class="view" data-view="detections">{{template "head" (head . "Detections" (detectionsCrumb .))}}{{template "detections" .}}</section>
 <section class="view" data-view="search">{{template "head" (head . "Search" "")}}{{template "soon" "Search (design Q2) is built in step 3."}}</section>
-<section class="view" data-view="people">{{template "head" (head . "People" "")}}{{template "soon" "People (design P1) is built in step 3."}}</section>
+<section class="view" data-view="people">{{template "head" (head . "People" (peopleCrumb .))}}{{with .PeoplePage}}{{template "people" .}}{{else}}<div class="panel"><p class="pm" style="margin:0">No one's account did anything in this report.</p></div>{{end}}</section>
 {{range .Pages}}
 <section class="view" data-view="{{.ID}}">
   {{template "head" (head $ .Title (eventsCrumb $ .))}}
@@ -80,6 +80,18 @@
 {{if .FailedItems}}<details class="fails" open><summary>Audit settings that need attention · {{len .FailedItems}}</summary>{{range .FailedItems}}<div><b>{{.Item}}</b><span>Set to {{or .Have "—"}}; STIG expects {{or .Want "—"}}{{if .STIG}} · {{.STIG}}{{end}}</span></div>{{end}}</details>{{end}}</div>
 <div class="panel"><div class="ph"><h2>{{icon "layers" 17}}{{if $lan}}Activity vs. typical system{{else}}Activity this period{{end}}</h2>{{if $lan}}<span class="pm">Line = network median</span>{{end}}</div><div class="vs">{{range .Activity}}<div><a class="link" href="#{{.PageID}}" style="color:inherit">{{.Label}}</a><div class="tr2{{if .Above}} hot{{end}}"><s style="width:{{.Pct}}%"></s>{{if $lan}}<em style="left:{{.Median}}%"></em>{{end}}</div><b>{{commas .N}}</b></div>{{end}}</div></div></div>
 <div class="panel"><div class="ph"><h2>{{icon "shield-alert" 17}}Detections on {{.Name}}</h2><span class="pm">{{len .Detections}} this period</span></div>{{if .Detections}}<div class="dl">{{range .Detections}}<a class="dc {{.Severity}}" href="#detections/{{.Index}}"><div class="b"><b>{{.Title}}</b><span>{{.Detail}}</span></div><div class="m2">{{.Day}}<small>{{.Time}}</small></div></a>{{end}}</div>{{else}}<p class="pm" style="margin:0">No detections on this system.</p>{{end}}</div>
+</div>{{end}}{{end}}</div></div>{{end}}
+
+{{define "people"}}<div class="md2" style="grid-template-columns:280px 1fr"><div class="panel plist slist" data-picklist>
+<label class="search">{{icon "search" 14}}<input type="search" placeholder="Find a person" data-find></label>
+{{range .Groups}}<div class="grp2">{{.Title}} · {{len .People}}</div>{{range .People}}<a data-pick="{{.Key}}" href="#people/{{.Key}}"><div class="av {{.Level}}">{{.Initials}}</div><div><b>{{.Name}}</b><span>{{.Kind}}</span></div><small>{{.Systems}} sys</small></a>{{end}}{{end}}</div>
+<div style="min-width:0">{{range .Groups}}{{range .People}}<div data-pane="{{.Key}}" hidden>
+<div class="panel" style="margin-bottom:12px"><div class="dh"><div class="ph2"><div class="av {{.Level}}">{{.Initials}}</div><div><h3>{{.Name}}</h3><p>{{.Line}}</p></div></div>{{if .Level}}<span class="sv {{if eq .Level "bad"}}high{{else}}medium{{end}}">Needs a look</span>{{end}}</div>
+<div class="facts4">{{range .Facts}}<div>{{.Label}}<b{{if .Bad}} class="bad"{{end}}>{{.Value}}</b></div>{{end}}</div></div>
+<div class="row" style="grid-template-columns:1.2fr 1fr;margin-bottom:12px">
+<div class="panel"><div class="ph"><h2>{{icon "triangle-alert" 17}}Notable actions</h2><span class="pm">{{.NotableCount}} this period</span></div>{{if .Notable}}{{range .Notable}}<div class="ck2 {{.Level}}"><div class="i">{{icon .Icon 14}}</div><div><b>{{.Title}}</b><span>{{.What}}</span></div><div></div></div>{{end}}{{else}}<p class="pm" style="margin:0">Nothing out of the ordinary.</p>{{end}}</div>
+<div style="display:grid;gap:12px;align-content:start"><div class="panel"><div class="ph"><h2>{{icon "activity" 17}}When they were active</h2><span class="pm">Red = detection</span></div>{{.Heat}}</div>
+<div class="panel"><div class="ph"><h2>{{icon "server" 17}}Systems used</h2><span class="pm">Events</span></div><div class="mini">{{range .Used}}<div><a class="link" style="color:inherit" href="#systems/{{.Label}}">{{.Label}}</a><s style="width:{{.Pct}}%"></s><b>{{commas .N}}</b></div>{{end}}</div></div></div></div>
 </div>{{end}}{{end}}</div></div>{{end}}
 
 {{define "detections"}}{{if not .Detections}}<div class="panel"><p class="pm" style="margin:0">No detections in this report.</p></div>{{else}}
