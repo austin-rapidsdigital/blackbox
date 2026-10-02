@@ -247,6 +247,9 @@ Each chart shows this week's value, its % vs. the 12-week average, 12 weekly bar
   - Show "VM on 41%" in neutral grey, and never flag a VM for being off.
   - Flag a VM only for real problems: a cleared log, missing settings, or an unsent report while it was on.
 - **Event pages list every event of their type**, not just flagged ones, and are filterable by severity, person, system and the rest.
+- **Size safeguard (approved 2 Oct 2026).** A report embeds at most about 2 million events. Above that, routine Info rows beyond the limit are counted and charted but not listed, and the page says so plainly and points to the archived original logs. High, Medium and Low events, and every event a detection refers to, are always listed.
+- **Event data is split by page and compressed.** `report.html` opens without loading event data. Each event page and Search load their own data files from the report folder only when opened, and tables draw only the rows on screen.
+- **Schedule (v0.8.1).** Reports end at `report_at` (default Wednesday 00:00). Reports run by hand are *Interim* (labelled in the report and on the index) and don't move the schedule. The raw-log export stays daily.
 - **No in-report review or sign-off.** Review happens in the ticketing system, so there is no Review page, no review column and no outcome fields.
 - **Audit settings: report only; never change them.**
 - **ADM-Toolkit logons and actions stay out of reports.**
