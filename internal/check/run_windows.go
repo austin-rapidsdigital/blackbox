@@ -5,6 +5,7 @@ package check
 import (
 	"errors"
 	"os/exec"
+	"time"
 
 	"github.com/casea1/blackbox/internal/winevt"
 )
@@ -36,6 +37,8 @@ func Run() []Result {
 		return string(b), err
 	})...)
 	out = append(out, EvaluateLogs(base, winevt.GetLogSettings, winevt.GetLogHistory)...)
+	ps, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", DefenderQuery).Output()
+	out = append(out, EvaluateDefender(string(ps), err, time.Now())...)
 	return out
 }
 

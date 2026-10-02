@@ -16,7 +16,7 @@ import (
 
 // healthCols are the grid's columns, in order.
 var healthCols = []string{"Logon", "Account mgmt", "Policy change", "Privilege use", "Process creation",
-	"Removable storage", "PowerShell logging", "Log size", "Reporting", "Logs intact"}
+	"Removable storage", "PowerShell logging", "Antivirus", "Log size", "Reporting", "Logs intact"}
 
 // healthColumn says which grid column a check result belongs to ("" for
 // checks only listed in the system's own table).
@@ -34,6 +34,8 @@ func healthColumn(res check.Result) string {
 	switch {
 	case area == "baseline":
 		return ""
+	case area == "antivirus":
+		return "Antivirus"
 	case area == "event log size", has("audit log space", "audit backlog"):
 		return "Log size"
 	case has("powershell"):

@@ -1,6 +1,7 @@
 package check
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -285,5 +286,30 @@ func TestFixesAreGroupPolicy(t *testing.T) {
 		if _, ok := auditCategories[q.name]; !ok {
 			t.Errorf("no Group Policy location for %s", q.name)
 		}
+	}
+}
+
+func TestDefender(t *testing.T) {
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	fresh := `{"AMServiceEnabled":true,"AntivirusEnabled":true,"RealTimeProtectionEnabled":true,"AntivirusSignatureVersion":"1.419.231.0",` +
+		`"AntivirusSignatureLastUpdated":"\/Date(1790848800000)\/","AMProductVersion":"4.18.25080.5"}`
+	rs := EvaluateDefender(fresh, nil, now)
+	if len(rs) != 2 || rs[0].Status != Pass || !strings.Contains(rs[0].Have, "1.419.231.0 · version created on 1 Oct 2026") || rs[1].Status != Pass {
+		t.Errorf("fresh definitions: %+v", rs)
+	}
+	old := strings.Replace(strings.Replace(fresh, "1790848800000", "1789639200000", 1), `"RealTimeProtectionEnabled":true`, `"RealTimeProtectionEnabled":false`, 1)
+	rs = EvaluateDefender(old, nil, now)
+	if rs[0].Status != Fail || !strings.Contains(rs[0].Have, "15 days old") || !strings.Contains(rs[0].Fix, "Security Intelligence Updates") {
+		t.Errorf("old definitions: %+v", rs[0])
+	}
+	if rs[1].Status != Fail || !strings.Contains(rs[1].Fix, "Real-time Protection > Turn off real-time protection: Disabled") {
+		t.Errorf("real-time protection off: %+v", rs[1])
+	}
+	iso := `{"AMServiceEnabled":true,"AntivirusEnabled":true,"RealTimeProtectionEnabled":true,"AntivirusSignatureVersion":"1.1","AntivirusSignatureLastUpdated":"2026-09-30T08:00:00Z"}`
+	if rs := EvaluateDefender(iso, nil, now); rs[0].Status != Pass {
+		t.Errorf("PowerShell 7 date: %+v", rs[0])
+	}
+	if rs := EvaluateDefender("", errors.New("not installed"), now); len(rs) != 1 || rs[0].Status != Warn {
+		t.Errorf("no Defender: %+v", rs)
 	}
 }

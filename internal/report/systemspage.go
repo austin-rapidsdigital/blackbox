@@ -198,7 +198,7 @@ func (r *Report) systemsPage() *SystemsPage {
 		v.Health = r.systemHealth(s, cleared[h], on)
 		if s.Checks != nil {
 			for _, res := range s.Checks.Results {
-				if res.Status == check.Fail {
+				if res.Status == check.Fail && res.Area != "Antivirus" {
 					v.FailedItems = append(v.FailedItems, res)
 				}
 			}
@@ -357,7 +357,7 @@ func (r *Report) systemHealth(s SystemRow, cleared []*Row, on int) []CheckLine {
 	case s.Checks.Fail > 0:
 		var items []string
 		for _, res := range s.Checks.Results {
-			if res.Status == check.Fail {
+			if res.Status == check.Fail && res.Area != "Antivirus" {
 				t := res.Item
 				if res.STIG != "" {
 					t += " (" + res.STIG + ")"
@@ -391,6 +391,19 @@ func (r *Report) systemHealth(s SystemRow, cleared []*Row, on int) []CheckLine {
 		}
 		lines = append(lines, CheckLine{Level: lv, Icon: "clock-alert", Title: "Reporting",
 			What: fmt.Sprintf("%s this period, last %s", plural(len(s.runTimes), "collection run"), s.LastRun.In(r.Location).Format("2 Jan 15:04"))})
+	}
+
+	if s.Checks != nil {
+		for _, res := range s.Checks.Results {
+			if res.Area != "Antivirus" || !strings.HasPrefix(res.Item, "Defender security") {
+				continue
+			}
+			lv := map[check.Status]string{check.Pass: "ok", check.Fail: "bad"}[res.Status]
+			if lv == "" {
+				lv = "warn"
+			}
+			lines = append(lines, CheckLine{Level: lv, Icon: "shield", Title: "Antivirus definitions current", What: "Defender " + res.Have})
+		}
 	}
 
 	if len(s.gaps) > 0 {
