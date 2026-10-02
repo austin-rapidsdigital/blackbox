@@ -103,9 +103,9 @@ func (r *Report) healthCSV(hp *HealthPage) string {
 // PrintOut is the printed summary.
 type PrintOut struct {
 	Kicker, Title, Sub string
-	Totals     []Fact
-	Detections []DetectionCard
-	Trail      []KV
+	Totals             []Fact
+	Detections         []DetectionCard
+	Trail              []KV
 }
 
 func (r *Report) printOut(o *Overview, hp *HealthPage) PrintOut {
