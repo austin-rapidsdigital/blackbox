@@ -2,6 +2,7 @@ package report
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/casea1/blackbox/internal/archive"
 	"math/rand"
@@ -175,6 +176,39 @@ func TestDemoReport(t *testing.T) {
 	os.RemoveAll(out)
 	if err := r.Write(out); err != nil {
 		t.Fatal(err)
+	}
+	// BLACKBOX_DEMO_INDEX: a reports folder with the earlier weeks too.
+	if idx := os.Getenv("BLACKBOX_DEMO_INDEX"); idx != "" {
+		os.RemoveAll(idx)
+		for i, h := range history {
+			h.WindowStart, h.Hosts = h.WindowEnd.AddDate(0, 0, -7), r.Hosts
+			for k := range h.Detections {
+				h.Detections[k] = Detection{Severity: []string{"high", "medium", "medium"}[rnd.Intn(3)], Host: r.Hosts[rnd.Intn(len(r.Hosts))]}
+				if h.Detections[k].Severity == "high" {
+					h.High++
+				} else {
+					h.Medium++
+				}
+			}
+			if i == 7 {
+				h.Metrics["late_events"] = 1
+			}
+			b, _ := json.Marshal(h)
+			d := filepath.Join(idx, h.WindowEnd.Format("2006-01-02_1504"))
+			os.MkdirAll(d, 0o750)
+			os.WriteFile(filepath.Join(d, "summary.json"), b, 0o640)
+		}
+		for i, a := range r.Archives { // the first Write moved them
+			b, _ := os.ReadFile(filepath.Join(out, a.Name))
+			r.Archives[i].Path = filepath.Join(tmp, "again-"+a.Name)
+			os.WriteFile(r.Archives[i].Path, b, 0o640)
+		}
+		if err := r.Write(filepath.Join(idx, end.Format("2006-01-02_1504")+"_Lab3")); err != nil {
+			t.Fatal(err)
+		}
+		if err := WriteIndex(idx, site, "weekly, ready Wednesday 00:00 (each covers the week to Tuesday night)", time.UTC); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

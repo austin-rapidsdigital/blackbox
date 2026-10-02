@@ -6,60 +6,62 @@
 <title>{{brandName}} · Audit reports{{if .Site}} · {{.Site}}{{end}}</title>
 <link rel="icon" href="{{logo}}">
 <style>
-{{fontCSS}}/* GE Aerospace navy theme, shared with the reports and ADM-Toolkit. */
-:root{--navy-900:#001E62;--navy-600:#0047BB;--navy-100:#E8EEFF;--navy-50:#F3F6FE;
-  --ink-950:#0B1020;--ink-700:#384055;--ink-600:#545C72;--ink-500:#7A8299;--ink-300:#CDD2DE;--ink-200:#E2E5EC;--ink-150:#EDEFF3;--ink-100:#F3F4F7;--ink-50:#F7F8FA;
-  --ok:#15803D;--ok-bg:#E7F6EC;--ok-border:#C9E8D3;--warn:#B45309;--err:#B91C1C;--err-bg:#FCECEC;--err-border:#F3CBCB;
-  --sans:'Public Sans',"Segoe UI",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;--mono:'Source Code Pro',Consolas,"Cascadia Mono","SF Mono",Menlo,monospace}
-*{box-sizing:border-box}
-body{margin:0;background:var(--ink-50);color:var(--ink-950);font:14px/1.55 var(--sans);font-feature-settings:"cv11";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-a{color:var(--navy-600);text-decoration:none}a:hover{text-decoration:underline}
-.topbar{height:56px;background:var(--navy-900);color:#fff;display:flex;align-items:center;gap:16px;padding:0 24px}
-.topbar .logo{width:34px;height:34px;display:block;background:#fff;border-radius:50%;padding:2px}
-.wordmark{font-weight:600;font-size:15px;letter-spacing:-.2px}
-.topbar .site{color:rgba(255,255,255,.6);font-size:12.5px;border-left:1px solid rgba(255,255,255,.2);padding-left:16px}
-main{padding:32px 40px 64px;max-width:1880px}
-h1{font-size:22px;font-weight:700;letter-spacing:-.02em;margin:0 0 4px}
-.lede{color:var(--ink-600);margin:0 0 20px}
-table{border-collapse:separate;border-spacing:0;width:100%;font-size:13.5px;background:#fff;border:1px solid var(--ink-200);border-radius:8px;box-shadow:0 1px 2px rgba(11,16,32,.04);overflow:hidden}
-thead th{text-align:left;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-500);background:var(--ink-50);border-bottom:1px solid var(--ink-200);padding:9px 12px;white-space:nowrap}
-tbody td{border-bottom:1px solid var(--ink-150);padding:10px 12px;white-space:nowrap}
-tbody tr:last-child td{border-bottom:0}
-tbody tr:hover td{background:var(--ink-100)}
-td.mono{font-family:var(--mono);font-size:12.5px;color:var(--ink-700)}
-td.num,th.num{text-align:right;font-family:var(--mono)}
-.arrow{color:var(--ink-500);margin:0 8px}
-.c-high{color:var(--err);font-weight:600}.c-med{color:var(--warn);font-weight:600}.muted{color:var(--ink-500)}
-.st{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border-radius:3px;border:1px solid}
-.st.ok{color:#166534;background:var(--ok-bg);border-color:var(--ok-border)}
-.st.bad{color:#991B1B;background:var(--err-bg);border-color:var(--err-border)}
-.st.int{color:#78350F;background:#FEF3C7;border-color:#FCD34D;margin-left:8px}
-tr.interim td{color:var(--ink-600)}
-.btn{display:inline-block;padding:4px 12px;border:1px solid var(--ink-300);border-radius:6px;background:#fff;font-size:12.5px;font-weight:500}
-.btn:hover{border-color:var(--navy-600);background:var(--navy-50);text-decoration:none}
-.empty{color:var(--ink-500);padding:14px 16px;background:#fff;border:1px dashed var(--ink-300);border-radius:8px}
+{{fontCSS}}{{css}}
+table.rx{width:100%;border-collapse:collapse}table.rx th{padding:0 12px 9px;white-space:nowrap}table.rx th.n{text-align:right}
+table.rx td{padding:14px 12px;border-bottom:1px solid rgba(0,30,98,.07);font-size:13px;white-space:nowrap}table.rx td.n{text-align:right;font:12.5px 'Source Code Pro'}
+table.rx tr:first-child td{background:rgba(11,95,255,.05)}table.rx td b{font-weight:650}
+table.rx .hi{color:#C22020;font-weight:600}table.rx .md{color:#A35A00;font-weight:600}table.rx .z{color:#9AA5BF}
+.trail.ok{color:#147A3D;font-weight:550}.trail.bad{color:#B01C1C;font-weight:550}.trail.warn{color:#8F4F00;font-weight:550}
+.int{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border:1px solid #F3D9A8;background:#FDF3E1;color:#7A4300;margin-left:8px}
+a.open{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border:1px solid rgba(0,30,98,.18);background:#fff;color:#0B1630;font-size:12.5px;font-weight:550;text-decoration:none}
+a.open:hover{border-color:#0B5FFF}.find{display:inline-flex;align-items:center;gap:8px}.find input{border:0;background:none;outline:0;font:inherit;width:150px}
+.chips span{cursor:pointer}
 </style>
 </head>
 <body>
-<header class="topbar"><img class="logo" src="{{logo}}" alt="GE Aerospace"><span class="wordmark">{{brandName}}</span><span class="site">{{if .Site}}{{.Site}} · {{end}}Audit reports</span></header>
+<aside>
+  <div class="brand"><img src="{{logo}}" alt=""><div><b>Blackbox</b><span>GE Aerospace</span></div></div>
+  {{if .Site}}<div class="site"><span>Network</span><b>{{.Site}}</b></div>{{end}}
+  <nav><a class="on" href="#">{{icon "scroll-text" 17}}<span>All reports</span><small>{{len .Entries}}</small></a></nav>
+</aside>
 <main>
-<h1>Audit reports</h1>
-<p class="lede">Newest first. Each scheduled report starts where the previous one ended, so together they form a continuous audit record, and each one's folder also holds the original logs it was made from. Reports marked Interim were run by hand between scheduled ones; the next scheduled report covers the same time again.</p>
+<div class="head"><div><div class="crumb"><span data-folder>Reports folder</span>{{if .Schedule}} · {{.Schedule}}{{end}}</div><h1>Audit reports</h1></div>
+<div class="tools"><label class="btn find">{{icon "search" 15}}<input type="search" placeholder="Find a report" data-findreport></label></div></div>
 {{if .Entries}}
-<table>
-<thead><tr><th>From</th><th></th><th>To</th><th>Systems</th><th class="num">Events</th><th class="num">Detections</th><th class="num">High</th><th class="num">Medium</th><th>Collection</th><th></th></tr></thead>
-<tbody>
-{{range .Entries}}<tr{{if .Interim}} class="interim"{{end}}>
-<td class="mono">{{stamp .WindowStart}}</td><td class="arrow">→</td><td class="mono">{{stamp .WindowEnd}} {{zone .WindowEnd}}{{if .Interim}}<span class="st int">Interim</span>{{end}}</td>
-<td>{{join .Hosts ", "}}</td><td class="num">{{commas .Events}}</td>
-<td class="num">{{with len .Detections}}<span class="c-med">{{.}}</span>{{else}}0{{end}}</td>
-<td class="num">{{if .High}}<span class="c-high">{{.High}}</span>{{else}}0{{end}}</td>
-<td class="num">{{if .Medium}}<span class="c-med">{{.Medium}}</span>{{else}}0{{end}}</td>
-<td>{{if .Lost}}<span class="st bad">{{commas .Lost}} events lost</span>{{else if .LogClears}}<span class="st bad">log cleared</span>{{else if .AuditOff}}<span class="st bad">auditing was off</span>{{else}}<span class="st ok">complete</span>{{end}}</td>
-<td><a class="btn" href="{{.Dir}}/report.html">Open report</a></td>
-</tr>{{end}}
-</tbody></table>
-{{else}}<p class="empty">No reports yet.</p>{{end}}
+{{if .Chart}}<div class="panel" style="margin-bottom:12px"><div class="row" style="grid-template-columns:260px 1fr;margin:0;align-items:center"><div><div class="ph" style="margin-bottom:6px"><h2>{{icon "trending-up" 17}}Detections per week</h2></div><p class="pm" style="margin:0 0 10px">Last {{.Weeks}} reports</p>
+<div class="legend"><span><i style="background:#D12C2C"></i>High</span><span><i style="background:#E08A00"></i>Medium</span><span>Faded = earlier weeks</span></div></div><div>{{.Chart}}</div></div></div>{{end}}
+<div class="panel"><div class="toolbar"><h2>{{icon "scroll-text" 17}}Reports · newest first</h2><div class="chips" data-chips><span class="on" data-show="">All<i>{{len .Entries}}</i></span><span data-show="bad">Incomplete<i>{{.Incomplete}}</i></span></div></div>
+<table class="rx"><thead><tr><th>Week</th><th class="n">Systems</th><th class="n">Events</th><th class="n">High</th><th class="n">Medium</th><th>Audit trail</th><th></th></tr></thead><tbody>
+{{range .Rows}}<tr data-row="{{.Search}}"{{if .Incomplete}} data-bad{{end}}><td><b>{{.Week}}</b>{{if .Interim}}<span class="int">Interim</span>{{end}}</td><td class="n">{{.Systems}}</td><td class="n">{{commas .Events}}</td>
+<td class="n {{if .High}}hi{{else}}z{{end}}">{{.High}}</td><td class="n {{if .Medium}}md{{else}}z{{end}}">{{.Medium}}</td><td><span class="trail {{.TrailClass}}">{{.Trail}}</span></td>
+<td><a class="open" href="{{.Dir}}/report.html">Open {{icon "chevron-right" 14}}</a></td></tr>{{end}}
+</tbody></table></div>
+{{else}}<div class="panel"><p class="pm" style="margin:0">No reports yet. The first scheduled report appears here once it has been made.</p></div>{{end}}
 </main>
+<script>
+(function () {
+  var p = decodeURIComponent(location.pathname).replace(/[^/]*$/, '');
+  if (location.protocol === 'file:') {
+    if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1).replace(/\//g, '\\');
+    else if (location.host) p = '\\\\' + location.host + p.replace(/\//g, '\\');
+    var f = document.querySelector('[data-folder]'); if (f) f.textContent = p;
+  }
+  var show = '', q = '';
+  function apply() {
+    document.querySelectorAll('[data-row]').forEach(function (r) {
+      r.hidden = (show === 'bad' && !r.hasAttribute('data-bad')) || (q && r.getAttribute('data-row').toLowerCase().indexOf(q) < 0);
+    });
+  }
+  document.querySelectorAll('[data-chips] span').forEach(function (c) {
+    c.addEventListener('click', function () {
+      show = c.getAttribute('data-show');
+      document.querySelectorAll('[data-chips] span').forEach(function (x) { x.classList.toggle('on', x === c); });
+      apply();
+    });
+  });
+  var box = document.querySelector('[data-findreport]');
+  if (box) box.addEventListener('input', function () { q = box.value.toLowerCase(); apply(); });
+})();
+</script>
 </body>
 </html>

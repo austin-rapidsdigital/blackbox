@@ -25,6 +25,7 @@ const (
 	MNewUSB         = "new_usb_devices"
 	MSuspiciousPS   = "suspicious_powershell"
 	MAccountsOff    = "accounts_disabled"
+	MLate           = "late_events"
 )
 
 // metrics counts what this report's pages and trends show.
@@ -33,6 +34,7 @@ func (r *Report) metrics() map[string]int {
 		MDetections: len(r.Findings),
 		MEvents:     len(r.Events),
 		MNewUSB:     len(r.NewDevices),
+		MLate:       r.Late,
 	}
 	for _, row := range r.rows {
 		e := row.Event

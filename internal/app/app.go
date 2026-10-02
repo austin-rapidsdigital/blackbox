@@ -442,7 +442,7 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 			}
 		}
 	}
-	if err := report.WriteIndex(a.ReportsDir(), a.Cfg.SiteName, a.loc()); err != nil {
+	if err := report.WriteIndex(a.ReportsDir(), a.Cfg.SiteName, a.Cfg.ReportAt.Describe(a.Cfg.ReportEvery), a.loc()); err != nil {
 		a.logf("updating report index: %v", err)
 	}
 	return dir, nil

@@ -355,9 +355,73 @@ func History(reportsDir string, end time.Time, n int) []Summary {
 	return out
 }
 
+// IndexRow is one report's line on the index page.
+type IndexRow struct {
+	Week, Dir, Trail, TrailClass, Search string
+	Systems, Events, High, Medium        int
+	Interim, Incomplete                  bool
+}
+
+// indexRow describes one report: its week and whether its audit trail is
+// complete (nothing lost, no log cleared, every system reporting).
+func indexRow(e IndexEntry, loc *time.Location) IndexRow {
+	start := e.WindowStart
+	if start.IsZero() {
+		start = e.WindowEnd.AddDate(0, 0, -7)
+	}
+	a, b := start.In(loc), e.WindowEnd.Add(-time.Second).In(loc)
+	week := a.Format("2") + " – " + b.Format("2 Jan 2006")
+	switch {
+	case a.Year() != b.Year():
+		week = a.Format("2 Jan 2006") + " – " + b.Format("2 Jan 2006")
+	case a.Month() != b.Month():
+		week = a.Format("2 Jan") + " – " + b.Format("2 Jan 2006")
+	}
+	row := IndexRow{Week: week, Dir: e.Dir, Systems: len(e.Hosts), Events: e.Events, Interim: e.Interim}
+	for _, d := range e.Detections { // detections by severity, as in the chart
+		if d.Severity == "high" {
+			row.High++
+		} else {
+			row.Medium++
+		}
+	}
+	var bad, warn []string
+	if e.Lost > 0 {
+		bad = append(bad, plural(int(e.Lost), "event")+" lost")
+	}
+	if e.LogClears > 0 {
+		bad = append(bad, plural(e.LogClears, "log")+" cleared")
+	}
+	if e.AuditOff > 0 {
+		bad = append(bad, "auditing was off")
+	}
+	silent := 0
+	for _, s := range e.Systems {
+		if s.Status == "silent" {
+			silent++
+		}
+	}
+	if silent > 0 {
+		bad = append(bad, fmt.Sprintf("%d silent", silent))
+	}
+	if n := e.Metrics["late_events"]; n > 0 {
+		warn = append(warn, fmt.Sprintf("%d late", n))
+	}
+	switch {
+	case len(bad) > 0:
+		row.Trail, row.TrailClass, row.Incomplete = strings.Join(append(bad, warn...), " · "), "bad", true
+	case len(warn) > 0:
+		row.Trail, row.TrailClass = strings.Join(warn, " · "), "warn"
+	default:
+		row.Trail, row.TrailClass = "Complete", "ok"
+	}
+	row.Search = week + " " + e.Dir + " " + strings.Join(e.Hosts, " ")
+	return row
+}
+
 // WriteIndex rebuilds reportsDir/index.html from every report's
-// summary.json.
-func WriteIndex(reportsDir, site string, loc *time.Location) error {
+// summary.json. schedule describes when reports are made.
+func WriteIndex(reportsDir, site, schedule string, loc *time.Location) error {
 	matches, err := filepath.Glob(filepath.Join(reportsDir, "*", "summary.json"))
 	if err != nil {
 		return err
@@ -381,7 +445,48 @@ func WriteIndex(reportsDir, site string, loc *time.Location) error {
 		return err
 	}
 	var buf bytes.Buffer
-	err = t.Execute(&buf, map[string]any{"Site": site, "Entries": entries})
+	var rows []IndexRow
+	incomplete := 0
+	for _, e := range entries {
+		row := indexRow(e, loc)
+		if row.Incomplete {
+			incomplete++
+		}
+		rows = append(rows, row)
+	}
+	// Detections per week: the last twelve scheduled reports.
+	var weekly []IndexEntry
+	for _, e := range entries {
+		if !e.Interim && len(weekly) < 12 {
+			weekly = append([]IndexEntry{e}, weekly...)
+		}
+	}
+	var chart template.HTML
+	if len(weekly) > 1 {
+		var labels []string
+		hi, md := Series{Name: "High", Color: colBad}, Series{Name: "Medium", Color: colWarn}
+		for i, e := range weekly {
+			l := weekLabel(e.WindowEnd)
+			if i == len(weekly)-1 {
+				l = "Latest"
+			} else if i%2 == 1 {
+				l = ""
+			}
+			labels = append(labels, l)
+			h, m := 0, 0
+			for _, d := range e.Detections {
+				if d.Severity == "high" {
+					h++
+				} else {
+					m++
+				}
+			}
+			hi.Values, md.Values = append(hi.Values, h), append(md.Values, m)
+		}
+		chart = stackedBars(labels, []Series{hi, md}, nil, true, 820, 100)
+	}
+	err = t.Execute(&buf, map[string]any{"Site": site, "Entries": entries, "Rows": rows, "Incomplete": incomplete,
+		"Chart": chart, "Weeks": len(weekly), "Schedule": schedule})
 	if err != nil {
 		return err
 	}

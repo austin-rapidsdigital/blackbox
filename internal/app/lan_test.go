@@ -145,7 +145,7 @@ func TestLANEndToEnd(t *testing.T) {
 	if err := json.Unmarshal([]byte(readFile(t, interim, "summary.json")), &isum); err != nil || !isum.Interim {
 		t.Errorf("summary.json interim flag: %+v %v", isum.Interim, err)
 	}
-	if idx := readFile(t, filepath.Dir(interim), "index.html"); !strings.Contains(idx, `class="st int">Interim`) {
+	if idx := readFile(t, filepath.Dir(interim), "index.html"); !strings.Contains(idx, `class="int">Interim`) {
 		t.Error("the list of reports does not mark the interim report")
 	}
 	if out := os.Getenv("BLACKBOX_SAMPLE_OUT"); out != "" {
