@@ -78,7 +78,7 @@ func logonSource(e *event.Event) string {
 }
 
 func logonHow(e *event.Event) string {
-	t := strings.ToLower(detail(e, "Logon type") + " " + e.Process + " " + e.RecordType)
+	t := strings.ToLower(detail(e, "Logon type") + " " + e.Process + " " + e.RecordType + " " + e.Summary)
 	switch {
 	case strings.Contains(t, "remote"):
 		return "Remote Desktop"
@@ -265,9 +265,12 @@ func usbDevice(e *event.Event) string {
 	return ""
 }
 
+// searchCols are the Search results' columns.
+var searchCols = []Column{{"Time", "time"}, {"System", "host"}, {"Event", "event"}, {"Person", "user"}, {"Details", "sum"}, {"Severity", "sev"}}
+
 // colWidth is each table field's width in the grid.
 var colWidth = map[string]string{
-	"time": "150px", "sev": "90px", "sum": "minmax(0,3fr)", "cmd": "minmax(0,3fr)",
+	"time": "150px", "sev": "90px", "event": "minmax(0,1.3fr)", "sum": "minmax(0,3fr)", "cmd": "minmax(0,3fr)",
 }
 
 // gridCols is the CSS for a table's column widths.

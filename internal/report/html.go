@@ -104,6 +104,21 @@ func funcs(loc *time.Location) template.FuncMap {
 			return "Overview"
 		},
 		"dayBefore": func(ds []DetectionCard, i int) string { return ds[i-1].Day },
+		"searchCrumb": func(p pageData) string {
+			return fmt.Sprintf("%s · %s events from %s · searched in your browser, nothing leaves this report", p.Kind(), commas(len(p.Events)), plural(len(p.Hosts), "system"))
+		},
+		"searchCols": func() template.CSS { return gridCols(searchCols) },
+		"periodDays": func(p pageData) []string { return p.periodDays() },
+		"periodWord": func(p pageData) string {
+			if p.Period == "weekly" || p.Period == "" {
+				return "Week"
+			}
+			return "Period"
+		},
+		"dayName": func(d string) string {
+			t, _ := time.Parse("20060102", d)
+			return t.Format("Mon 2 Jan")
+		},
 		"peopleCrumb": func(p pageData) string {
 			n := 0
 			if p.PeoplePage != nil {
@@ -316,12 +331,31 @@ func (r *Report) WriteHTML(w io.Writer, pages []*EventPage) error {
 		icons[n] = string(icon(n, 15))
 	}
 	meta["icons"] = icons
+	kinds := map[string]string{}
+	for _, sr := range r.SystemRows {
+		switch {
+		case sr.Via != "":
+			kinds[sr.Name] = "vm"
+		case isServer(sr):
+			kinds[sr.Name] = "server"
+		default:
+			kinds[sr.Name] = "workstation"
+		}
+	}
+	meta["hostKind"] = kinds
+	if w := r.WorkingHours; w.Set() {
+		meta["hours"] = map[string]any{"days": w.Days, "start": w.Start, "end": w.End}
+	}
+	people := r.peoplePage()
+	if pp := people; pp != nil && len(pp.Groups) > 0 && len(pp.Groups[0].People) > 0 {
+		meta["firstPerson"] = pp.Groups[0].People[0].Key
+	}
 	b, err := json.Marshal(meta)
 	if err != nil {
 		return err
 	}
 	return t.ExecuteTemplate(w, "layout", pageData{Report: r, Pages: pages, Overview: r.overview(pages),
-		Detections: r.detectionViews(), SystemsPage: r.systemsPage(), PeoplePage: r.peoplePage(), Meta: template.JS(b)})
+		Detections: r.detectionViews(), SystemsPage: r.systemsPage(), PeoplePage: people, Meta: template.JS(b)})
 }
 
 func zoneName(t time.Time, loc *time.Location) string {

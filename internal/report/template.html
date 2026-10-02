@@ -41,7 +41,7 @@
 </section>
 <section class="view" data-view="systems">{{template "head" (head . "Systems" "")}}{{with .SystemsPage}}{{template "systems" .}}{{end}}</section>
 <section class="view" data-view="detections">{{template "head" (head . "Detections" (detectionsCrumb .))}}{{template "detections" .}}</section>
-<section class="view" data-view="search">{{template "head" (head . "Search" "")}}{{template "soon" "Search (design Q2) is built in step 3."}}</section>
+<section class="view" data-view="search">{{template "head" (head . "Search" (searchCrumb .))}}{{template "search" .}}</section>
 <section class="view" data-view="people">{{template "head" (head . "People" (peopleCrumb .))}}{{with .PeoplePage}}{{template "people" .}}{{else}}<div class="panel"><p class="pm" style="margin:0">No one's account did anything in this report.</p></div>{{end}}</section>
 {{range .Pages}}
 <section class="view" data-view="{{.ID}}">
@@ -93,6 +93,22 @@
 <div style="display:grid;gap:12px;align-content:start"><div class="panel"><div class="ph"><h2>{{icon "activity" 17}}When they were active</h2><span class="pm">Red = detection</span></div>{{.Heat}}</div>
 <div class="panel"><div class="ph"><h2>{{icon "server" 17}}Systems used</h2><span class="pm">Events</span></div><div class="mini">{{range .Used}}<div><a class="link" style="color:inherit" href="#systems/{{.Label}}">{{.Label}}</a><s style="width:{{.Pct}}%"></s><b>{{commas .N}}</b></div>{{end}}</div></div></div></div>
 </div>{{end}}{{end}}</div></div>{{end}}
+
+{{define "search"}}<div class="panel" style="margin-bottom:12px"><div class="builder" data-q>Show
+<label class="pick">{{icon "layers" 15}}<select data-q="page"><option value="">All events</option>{{range .Pages}}<option value="{{.ID}}">{{.Title}}</option>{{end}}</select></label> by
+<label class="pick">{{icon "user-round" 15}}<select data-q="user"><option value="">anyone</option>{{with .PeoplePage}}{{range .Groups}}<optgroup label="{{.Title}}">{{range .People}}<option value="{{.Key}}">{{.Name}}</option>{{end}}</optgroup>{{end}}{{end}}</select></label> on
+<label class="pick">{{icon "server" 15}}<select data-q="host"><option value="">Any system</option><option value="@server">Servers</option><option value="@workstation">Workstations</option><option value="@vm">Virtual machines</option><optgroup label="Systems">{{range .Hosts}}<option value="{{.}}">{{.}}</option>{{end}}</optgroup></select></label> during
+<label class="pick">{{icon "calendar-range" 15}}<select data-q="when"><option value="">This {{lower (periodWord .)}}</option><option value="@after">Outside working hours</option><optgroup label="Day">{{range periodDays .}}<option value="{{.}}">{{dayName .}}</option>{{end}}</optgroup></select></label> containing
+<label class="pick" style="font-weight:500;min-width:200px">{{icon "search" 15}}<input type="search" placeholder="any text" data-q="text"></label></div>
+<div class="sub2" style="margin-top:18px">Common searches</div><div class="saved" style="margin-top:0">
+<a data-preset="person">{{icon "key-round" 16}}Everything one person did</a><a data-preset="usbservers">{{icon "usb" 16}}USB devices on servers</a>
+<a data-preset="afterhours">{{icon "moon" 16}}Admin work after hours</a><a data-preset="failedsource">{{icon "log-in" 16}}Failed logons by source</a>
+<a data-preset="admingroups">{{icon "user-plus" 16}}Changes to admin groups</a><a data-preset="audit">{{icon "eraser" 16}}Logs cleared or audit changed</a>
+<a data-preset="psdownload">{{icon "terminal" 16}}PowerShell that downloads</a><a data-preset="rdp">{{icon "monitor" 16}}Remote Desktop logons</a></div></div>
+<div class="panel" data-search><div class="toolbar"><h2 data-title>{{icon "list-filter" 17}}<span>Choose what to search for above</span></h2><div class="chips"><span class="on" data-sort="new">Newest</span><span data-sort="host">Group by system</span><span data-csv>Export CSV</span></div></div>
+<div data-hist style="margin-bottom:12px"></div>
+<div class="vt" tabindex="0" style="{{searchCols}}"><div class="vt-head"><span>Time</span><span>System</span><span>Event</span><span>Person</span><span>Details</span><span>Severity</span></div><div class="vt-body"><div class="vt-msg">Search runs in this browser, over the events in this report's folder. Nothing leaves this computer.</div></div></div>
+<div class="pager"><span data-count></span><span></span><span></span></div></div>{{end}}
 
 {{define "detections"}}{{if not .Detections}}<div class="panel"><p class="pm" style="margin:0">No detections in this report.</p></div>{{else}}
 <div class="md2" style="grid-template-columns:300px 1fr"><div class="panel dlist" data-picklist style="padding:4px 0 10px"><div class="chips" data-detsev style="padding:12px 16px 0"><span class="on" data-sev="">All<i>{{len .Detections}}</i></span><span data-sev="high">High<i>{{sevCount .Detections "high"}}</i></span><span data-sev="medium">Medium<i>{{sevCount .Detections "medium"}}</i></span></div>

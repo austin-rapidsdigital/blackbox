@@ -424,3 +424,6 @@ a.link,.pm.link{color:#0B5FFF;font-weight:600;text-decoration:none}
 details.fails{margin-top:10px;border-top:1px solid rgba(0,30,98,.07);padding-top:8px}details.fails summary{cursor:pointer;font-size:12.5px;font-weight:600;color:#B01C1C}
 details.fails div{padding:6px 0 0 4px;font-size:12.5px}details.fails b{font-weight:600;display:block}details.fails span{color:#5A6785}
 .plist a{text-decoration:none}.plist a>div:nth-child(2){min-width:0}.mini a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.builder .pick select,.builder .pick input{field-sizing:content;border:0;background:none;font:inherit;color:inherit;outline:0;cursor:pointer;max-width:240px}
+.builder .pick input{cursor:text;font-weight:500}.saved a{cursor:pointer;text-decoration:none}.saved a:hover{outline:1px solid rgba(11,95,255,.35)}
+.toolbar h2{display:flex;align-items:center;gap:9px;margin:0;font-size:15px;font-weight:650}[data-search] .chips span{cursor:pointer}

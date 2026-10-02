@@ -67,6 +67,7 @@
     var t = tables[id];
     if (t) t.open();
     var view = document.querySelector('.view[data-view="' + id + '"]');
+    if (id === 'search' && search) search.open(decodeURIComponent(location.hash.split('/').slice(1).join('/')));
     if (view.querySelector('[data-pick]')) showPick(view, decodeURIComponent(location.hash.split('/').slice(1).join('/')));
     window.scrollTo(0, 0);
   }
@@ -113,7 +114,8 @@
   // target, source, summary, eventID, log, process, command, outcome, flags,
   // day, offset, kind, extra], strings already looked up.
   var ROW_H = 38;
-  var tables = {};
+  var tables = {}, pageByID = {};
+  (meta.pages || []).forEach(function (p) { pageByID[p.ID] = p; });
   (meta.pages || []).forEach(function (p) {
     var el = document.querySelector('[data-events="' + p.ID + '"]');
     if (el) tables[p.ID] = new Table(p, el);
@@ -135,34 +137,46 @@
     el.querySelector('[data-csv]').addEventListener('click', function () { self.csv(); });
   }
 
+  // loadRows reads all of one page's data files into row arrays (once;
+  // the event page and Search share them). progress(done, total) is
+  // called as each day arrives.
+  var loaded = {};
+  function loadRows(p, progress) {
+    if (loaded[p.ID]) return loaded[p.ID];
+    var rows = [], done = 0;
+    loaded[p.ID] = Promise.all((p.Days || []).map(function (day) {
+      return getData(p.ID + '/' + day, p.ID + '-' + day + '.js').then(function (c) {
+        var d = c.dict;
+        c.rows.forEach(function (r) {
+          rows.push([r[0], c.base + r[1], d[r[2]], d[r[3]], d[r[4]], d[r[5]], r[6], d[r[7]], r[8], r[9], d[r[10]], d[r[11]], r[12], d[r[13]], r[14], day, c.off, d[r[15]] || '', d[r[16]] || '', p.ID]);
+        });
+        done++;
+        if (progress) progress(done, p.Days.length);
+      });
+    })).then(function () {
+      rows.sort(function (a, b) { return b[1] - a[1] || b[0] - a[0]; });
+      return rows;
+    });
+    loaded[p.ID].catch(function () { delete loaded[p.ID]; });
+    return loaded[p.ID];
+  }
+  var tooOld = typeof DecompressionStream === 'undefined';
+  var TOO_OLD = 'This browser is too old to show the event list. Open events.zip in this report\'s folder instead, or use a current version of Edge, Chrome or Firefox.';
+
   Table.prototype.open = function () {
     if (this.loading) return;
     var self = this, p = this.page;
     if (!p.Days || !p.Days.length) { this.message('No events of this kind in this report.'); this.rows = []; this.count.textContent = ''; return; }
-    if (typeof DecompressionStream === 'undefined') {
-      this.message('This browser is too old to show the event list. Open events.csv in this report\'s folder instead, or use a current version of Edge, Chrome or Firefox.');
-      return;
-    }
+    if (tooOld) { this.message(TOO_OLD); return; }
     this.loading = true;
-    var rows = [], done = 0;
     this.message('Loading events…');
-    var jobs = p.Days.map(function (day) {
-      return getData(p.ID + '/' + day, p.ID + '-' + day + '.js').then(function (c) {
-        var d = c.dict;
-        c.rows.forEach(function (r) {
-          rows.push([r[0], c.base + r[1], d[r[2]], d[r[3]], d[r[4]], d[r[5]], r[6], d[r[7]], r[8], r[9], d[r[10]], d[r[11]], r[12], d[r[13]], r[14], day, c.off, d[r[15]] || '', d[r[16]] || '']);
-        });
-        done++;
-        self.message('Loading events… ' + done + ' of ' + p.Days.length + ' days');
-      });
-    });
-    Promise.all(jobs).then(function () {
-      rows.sort(function (a, b) { return b[1] - a[1] || b[0] - a[0]; });
+    loadRows(p, function (done, n) { self.message('Loading events… ' + done + ' of ' + n + ' days'); }).then(function (rows) {
       self.rows = rows;
       self.options();
       self.filter();
     }).catch(function (err) {
-      self.message('The events could not be read: ' + err.message + '. Open events.csv in this report\'s folder instead.');
+      self.loading = false;
+      self.message('The events could not be read: ' + err.message + '. Open events.zip in this report\'s folder instead.');
     });
   };
 
@@ -243,7 +257,8 @@
     sum: function (r) {
       return '<span class="what" title="' + esc(r[8]) + '">' + esc(r[8]) + (r[14] ? ' <i class="flag">' + esc(r[14].split(',').join(' · ')) + '</i>' : '') + '</span>';
     },
-    sev: function (r) { return '<span>' + sevCell(r[3]) + '</span>'; }
+    sev: function (r) { return '<span>' + sevCell(r[3]) + '</span>'; },
+    event: function (r) { var a = (r[4] || '').replace(/_/g, ' '); return '<span>' + esc(a.charAt(0).toUpperCase() + a.slice(1)) + '</span>'; }
   };
   var DEFAULT_COLS = [{ f: 'time' }, { f: 'host' }, { f: 'user' }, { f: 'sum' }, { f: 'sev' }];
   Table.prototype.cells = function (r) {
@@ -273,7 +288,7 @@
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeEvent(); });
 
   function openEvent(table, i) {
-    var r = table.shown[i], p = table.page;
+    var r = table.shown[i], p = pageByID[r && r[19]] || table.page;
     if (!r) return;
     var det = meta.rowdet && meta.rowdet[r[0]];
     var cols = {};
@@ -356,6 +371,136 @@
       if (box) box.textContent = 'Could not read the nearby events.';
     });
   }
+
+  // ---- Search: the sentence builder, over every page's data files ----
+  var search = (function () {
+    var panel = document.querySelector('[data-search]');
+    if (!panel) return null;
+    var q = {};
+    document.querySelectorAll('[data-q]').forEach(function (el) { if (el.getAttribute('data-q')) q[el.getAttribute('data-q')] = el; });
+    var st = Object.create(Table.prototype);
+    st.page = { ID: 'search', Title: 'Search', Cols: [{ f: 'time' }, { f: 'host' }, { f: 'event' }, { f: 'user' }, { f: 'sum' }, { f: 'sev' }], KindLabel: 'kind' };
+    st.el = panel; st.body = panel.querySelector('.vt-body'); st.box = panel.querySelector('.vt'); st.count = panel.querySelector('[data-count]');
+    st.rows = []; st.shown = [];
+    st.box.addEventListener('scroll', function () { st.draw(); });
+    st.body.addEventListener('click', function (e) { var r = e.target.closest('[data-i]'); if (r) openEvent(st, +r.getAttribute('data-i')); });
+    panel.querySelector('[data-csv]').addEventListener('click', function () { st.csv(); });
+    var extra = null, sortBy = 'new', ran = false, seq = 0;
+
+    function key(u) { u = (u || '').toLowerCase(); var i = u.lastIndexOf('\\'); if (i >= 0) u = u.slice(i + 1); i = u.indexOf('@'); return i > 0 ? u.slice(0, i) : u; }
+    function afterHours(r) {
+      var h = meta.hours;
+      if (!h) return false;
+      var d = new Date((r[1] + r[16]) * 1000), wd = d.getUTCDay(), m = d.getUTCHours() * 60 + d.getUTCMinutes();
+      if (h.start <= h.end) return !(h.days[wd] && m >= h.start && m < h.end);
+      if (m >= h.start) return !h.days[wd];
+      return !(m < h.end && h.days[(wd + 6) % 7]);
+    }
+    function run() {
+      if (tooOld) { st.message(TOO_OLD); return; }
+      ran = true;
+      var my = ++seq, pages = (meta.pages || []).filter(function (p) { return !q.page.value || p.ID === q.page.value; });
+      st.message('Searching…');
+      var all = [];
+      Promise.all(pages.map(function (p) { return loadRows(p).then(function (rows) { all.push(rows); }); })).then(function () {
+        if (my !== seq) return;
+        var user = q.user.value, host = q.host.value, when = q.when.value, text = q.text.value.toLowerCase(), kinds = meta.hostKind || {};
+        var out = [];
+        all.forEach(function (rows) {
+          rows.forEach(function (r) {
+            if (user && key(r[5]) !== user) return;
+            if (host && (host.charAt(0) === '@' ? kinds[r[2]] !== host.slice(1) : r[2] !== host)) return;
+            if (when && (when === '@after' ? !afterHours(r) : r[15] !== when)) return;
+            if (extra && !extra(r)) return;
+            if (text) {
+              var hay = (r[8] + ' ' + r[2] + ' ' + r[5] + ' ' + r[6] + ' ' + r[7] + ' ' + r[9] + ' ' + r[11] + ' ' + r[12] + ' ' + r[17] + ' ' + r[18]).toLowerCase();
+              if (hay.indexOf(text) < 0) return;
+            }
+            out.push(r);
+          });
+        });
+        st.rows = out;
+        order();
+      }).catch(function (err) { st.message('The events could not be read: ' + err.message); });
+    }
+    function order() {
+      var out = st.rows;
+      if (sortBy === 'src') out.sort(function (a, b) { return (a[7] || 'local').localeCompare(b[7] || 'local', undefined, { numeric: true }) || b[1] - a[1]; });
+      else if (sortBy === 'host') out.sort(function (a, b) { return a[2].localeCompare(b[2], undefined, { numeric: true }) || b[1] - a[1]; });
+      else out.sort(function (a, b) { return b[1] - a[1] || b[0] - a[0]; });
+      st.shown = out;
+      var hosts = {};
+      out.forEach(function (r) { hosts[r[2]] = 1; });
+      var nh = Object.keys(hosts).length, who = q.user.value ? ' by ' + q.user.options[q.user.selectedIndex].text : '';
+      panel.querySelector('[data-title] span').textContent = out.length.toLocaleString() + (out.length === 1 ? ' event' : ' events') + who +
+        ' on ' + nh + (nh === 1 ? ' system' : ' systems');
+      st.count.textContent = '';
+      hist(out);
+      st.body.style.height = (out.length * ROW_H) + 'px';
+      st.box.scrollTop = 0; st.last = null;
+      if (!out.length) { st.message('Nothing matches this search.'); return; }
+      st.draw();
+    }
+    // A histogram of matches across the period, by hour.
+    function hist(rows) {
+      var box = panel.querySelector('[data-hist]'), days = [];
+      (meta.pages || []).forEach(function (p) { (p.Days || []).forEach(function (d) { if (days.indexOf(d) < 0) days.push(d); }); });
+      days.sort();
+      if (!rows.length || !days.length) { box.innerHTML = ''; return; }
+      var n = days.length * 24, b = new Array(n).fill(0), top = 1;
+      rows.forEach(function (r) {
+        var d = days.indexOf(r[15]);
+        if (d < 0) return;
+        var h = new Date((r[1] + r[16]) * 1000).getUTCHours(), i = d * 24 + h;
+        b[i]++; if (b[i] > top) top = b[i];
+      });
+      var W = 1000, H = 60, bw = W / n, svg = '';
+      b.forEach(function (v, i) { if (v) svg += '<rect x="' + (i * bw).toFixed(1) + '" y="' + (H - 16 - v / top * (H - 20)).toFixed(1) + '" width="' + Math.max(1, bw - 1).toFixed(1) + '" height="' + (v / top * (H - 20)).toFixed(1) + '" fill="#0B5FFF" opacity=".75"/>'; });
+      days.forEach(function (d, k) { svg += '<text x="' + (k * 24 * bw + 2).toFixed(0) + '" y="' + (H - 2) + '" class="ax">' + dayLabel(d) + '</text>'; });
+      box.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="none">' + svg + '</svg>';
+    }
+    Object.keys(q).forEach(function (k) {
+      q[k].addEventListener(k === 'text' ? 'input' : 'change', function () { extra = null; run(); });
+    });
+    // Sort: newest, by system, or (failed logons by source) by address.
+    function setSort(by) {
+      sortBy = by;
+      panel.querySelectorAll('[data-sort]').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-sort') === by); });
+    }
+    panel.querySelectorAll('[data-sort]').forEach(function (c) {
+      c.addEventListener('click', function () { setSort(c.getAttribute('data-sort')); if (ran) order(); });
+    });
+    var PS_DOWNLOAD = /downloadstring|downloadfile|downloaddata|invoke-webrequest|\biwr\b|invoke-restmethod|\birm\b|net\.webclient|start-bitstransfer|wget|curl/i;
+    var presets = {
+      person: { user: meta.firstPerson || '' },
+      usbservers: { page: 'usb', host: '@server' },
+      afterhours: { page: 'privileged', when: '@after' },
+      failedsource: { page: 'failed', sort: 'src' },
+      admingroups: { page: 'accounts', extra: function (r) { return /^group_member/.test(r[4]); } },
+      audit: { page: 'integrity' },
+      psdownload: { page: 'powershell', extra: function (r) { return PS_DOWNLOAD.test(r[12] + ' ' + r[8]); } },
+      rdp: { page: 'logons', extra: function (r) { return r[17] === 'Remote Desktop'; } }
+    };
+    document.querySelectorAll('[data-preset]').forEach(function (a) {
+      a.addEventListener('click', function () {
+        var pr = presets[a.getAttribute('data-preset')];
+        ['page', 'user', 'host', 'when'].forEach(function (k) { q[k].value = pr[k] || ''; });
+        q.text.value = '';
+        extra = pr.extra || null;
+        setSort(pr.sort || 'new');
+        run();
+      });
+    });
+    return {
+      // From a link: #search/<text>
+      open: function (text) {
+        if (text) {
+          ['page', 'user', 'host', 'when'].forEach(function (k) { q[k].value = ''; });
+          extra = null; q.text.value = text; run();
+        }
+      }
+    };
+  })();
 
   window.addEventListener('hashchange', show);
   show();
