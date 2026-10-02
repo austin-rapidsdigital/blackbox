@@ -73,7 +73,7 @@ func (r *Report) trendsPage() *TrendsPage {
 		vals := r.series(t.Metric, m[t.Metric])
 		now := vals[len(vals)-1]
 		c := TrendCard{Title: t.Title, Value: commas(now), Class: "flat"}
-		if avg := average(vals[:len(vals)-1]); avg >= 0 {
+		if avg := average(vals); avg >= 0 {
 			c.Avg = "avg " + commas(int(math.Round(avg)))
 			if avg > 0 {
 				d := (float64(now) - avg) / avg * 100
