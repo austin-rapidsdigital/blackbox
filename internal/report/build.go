@@ -37,6 +37,9 @@ type Options struct {
 	// covers the time since the last scheduled report and does not move
 	// the schedule; the next scheduled report covers that time again.
 	Interim bool
+	// Range describes a report for a period chosen by hand (blackbox
+	// report --from): where its events came from. Set with Interim.
+	Range string
 
 	// History is the summaries of earlier scheduled reports, oldest first
 	// (up to eleven), for twelve-week trends.

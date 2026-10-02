@@ -112,7 +112,7 @@ local folder or a file share). Its pages:
 | **Search** | "Show [events] by [person] on [systems] during [days] containing [text]", plus eight common searches |
 | **People** | Every account that did something, grouped Needs a look / Administrators / Service accounts / Users, with when they were active |
 | **Event pages** | Privileged activity, USB & removable, Failed logons, Accounts & groups, Audit integrity, PowerShell, Other security and Logon activity: stat cards, events per day, top six, what was flagged, and every event of that kind, filterable, with the full original event one click away |
-| **Audit health** | Every system against every STIG audit check, the gaps and how to fix them, and each system's settings (Blackbox only reports these; it never changes them) |
+| **Audit health** | Every system against every STIG audit check and Defender's definitions date, the gaps and where to fix them in Group Policy, and each system's settings (Blackbox only reports these; it never changes them) |
 | **Trends** | This week against the last twelve, and detections per system by week |
 | **Original logs** | The raw logs the report was made from, one zip per system, with hashes |
 

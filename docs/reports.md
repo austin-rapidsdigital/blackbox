@@ -28,6 +28,27 @@ schedule. The next scheduled report still covers its whole period. Interim
 reports do not include the original logs; those go with the scheduled
 report.
 
+**A report for any period.** `blackbox report` run by hand asks which
+period to cover: press Enter for the time since the last report, type a
+number of days (`30`), a start date (`2026-09-01`), or a start and end date
+(`2026-09-01 2026-09-15`). The same as options:
+
+```
+blackbox report --days 30
+blackbox report --from 2026-09-01
+blackbox report --from 2026-09-01 --to 2026-09-15
+```
+
+The events come from Blackbox's own copy, which reaches back to the oldest
+events in each log when it was installed and is kept for
+`retention_days` (for good by default). For any time before that copy
+starts, Blackbox reads this computer's event logs (or Linux logs) as far
+back as they still go. The report says what it covers and where the
+earliest available event is. It is saved with `_range` in its folder name,
+listed as Interim, and does not change the schedule. On a collector it
+covers every system's collected events; only the collector's own logs can
+be read further back.
+
 If you change `report_at`, the next report ends at the new time and
 covers the time since the last report (so it may be shorter or longer
 than usual once).
@@ -138,6 +159,17 @@ check (logon, account management, policy change, privilege use, process
 creation, removable storage, PowerShell logging, log size, reporting, logs
 intact), the gaps with how to fix them, and each system's own settings
 table. Blackbox only reports audit settings; it never changes them.
+"How to fix" gives the Group Policy location and setting for each gap
+(for example Computer Configuration > Policies > Windows Settings >
+Security Settings > Advanced Audit Policy Configuration > Audit Policies >
+Object Access > Audit Removable Storage).
+
+The **Antivirus** column shows Microsoft Defender on each Windows system:
+the security intelligence (definitions) version, the date that version was
+created, and whether real-time protection is on. Definitions created more
+than 7 days ago, or protection turned off, show as a gap. The Systems page
+lists the version and its date for each system. It is read once a day with
+`Get-MpComputerStatus`.
 
 ## Output files
 

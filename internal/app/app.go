@@ -30,6 +30,9 @@ type App struct {
 	Now     func() time.Time
 	Loc     *time.Location
 	Logf    func(format string, args ...any)
+	// LiveLogs reads this computer's own logs for a period (tests replace
+	// it); nil uses the event logs.
+	LiveLogs func(host string, from, to time.Time) ([]*event.Event, []string, error)
 }
 
 func (a *App) now() time.Time {
