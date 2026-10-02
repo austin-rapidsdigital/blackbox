@@ -180,7 +180,7 @@ func (r *Report) overview(pages []*EventPage) *Overview {
 	}
 	o.High, o.Med = high, med
 	o.KPIs = append(o.KPIs, KPI{Label: "Detections", Value: commas(len(r.Findings)), Bad: len(r.Findings) > 0,
-		Note: fmt.Sprintf("%d high · %d medium", high, med), Spark: sparkline(r.series(MDetections, len(r.Findings)), len(r.Findings) > 0, 120, 34)})
+		Note: map[bool]string{true: "none this " + map[bool]string{true: "week", false: "period"}[r.Period == "weekly" || r.Period == ""], false: fmt.Sprintf("%d high · %d medium", high, med)}[len(r.Findings) == 0], Spark: sparkline(r.series(MDetections, len(r.Findings)), len(r.Findings) > 0, 120, 34)})
 	ev := r.series(MEvents, len(r.Events))
 	o.KPIs = append(o.KPIs, KPI{Label: "Events collected", Value: shortCount(len(r.Events)), Note: vsAverage(ev),
 		Spark: sparkline(ev, false, 120, 34)})

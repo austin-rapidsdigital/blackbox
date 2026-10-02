@@ -149,6 +149,8 @@ func TestWriteAndVerify(t *testing.T) {
 		`data-view="health"`, `data-view="trends"`, `data-view="logs"`, "Test Site",
 		`data-pick="admin_jd"`, `data-pane="admin_jd"`, "When they were active", // People
 		`data-preset="psdownload"`, `data-q="text"`, // Search
+		`data-pop="export"`, `data-pop="verified"`, `href="events.zip" download`, // Export menu, Verified
+		`class="printout"`, "<div>ISSO</div>", "Audit trail</h2>", // printed summary
 	} {
 		if !bytes.Contains(html, []byte(want)) {
 			t.Errorf("report.html missing %q", want)

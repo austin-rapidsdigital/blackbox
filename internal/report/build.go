@@ -230,6 +230,7 @@ type Report struct {
 	rows []*Row // one per event, in the order of Events
 
 	archiveState map[string]archiveState // set by Write
+	dataSums     map[string]string       // data file → SHA-256 of its payload
 }
 
 // Build assembles a report from events (already filtered to the period)

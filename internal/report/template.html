@@ -53,6 +53,8 @@
 <section class="view" data-view="health">{{template "head" (head . "Audit health" (healthCrumb .))}}{{with .HealthPage}}{{template "health" .}}{{else}}<div class="panel"><p class="pm" style="margin:0">No systems in this report.</p></div>{{end}}</section>
 <section class="view" data-view="trends">{{with .TrendsPage}}{{template "head" (head $ "Trends" .Crumb)}}{{template "trends" .}}{{end}}</section>
 <section class="view" data-view="logs">{{template "head" (head . "Original logs" (printf "%s · the raw Windows and Linux logs this report was built from, saved in this report's folder" .Kind))}}{{with .LogsPage}}{{template "logs" .}}{{end}}</section>
+{{template "popovers" .}}
+{{template "printout" .Print}}
 </main>
 <div class="ov" hidden></div>
 <div class="drawer" hidden></div>
@@ -63,7 +65,7 @@
 {{end}}
 
 {{define "head"}}<div class="head"><div><div class="crumb">{{.Crumb}}</div><h1>{{.Title}}</h1></div>
-<div class="tools"><span class="btn">{{icon "calendar-range" 16}}{{.Range}}</span><span class="btn" data-verified>{{icon "fingerprint" 16}}Verified</span><span class="btn primary" data-export>Export</span></div></div>{{end}}
+<div class="tools"><span class="btn">{{icon "calendar-range" 16}}{{.Range}}</span><button class="btn verified" data-open="verified">{{icon "fingerprint" 16}}<span>Verified</span></button><button class="btn primary" data-open="export">Export</button></div></div>{{end}}
 
 {{define "soon"}}<div class="panel"><p class="pm" style="margin:0">{{.}}</p></div>{{end}}
 
@@ -154,7 +156,25 @@
 <div class="panel"><div class="ph"><h2>{{icon "circle-check" 17}}How to use them</h2></div>{{template "howlogs"}}</div>
 </div>{{end}}</div></div></div>{{end}}{{end}}
 
-{{define "detections"}}{{if not .Detections}}<div class="panel"><p class="pm" style="margin:0">No detections in this report.</p></div>{{else}}
+{{define "popovers"}}<div class="pop" data-pop="export" hidden>
+<a href="#" data-act="print">{{icon "printer" 18}}<div><b>Print or save as PDF</b><span>A clean printable summary with blank ISSO and ISSM lines</span></div></a>
+<a href="#" data-act="detcsv">{{icon "list-filter" 18}}<div><b>Detections as CSV</b><span>{{plural (len .Findings) "row"}} · for a POA&amp;M or ticket</span></div></a>
+<a href="events.zip" download>{{icon "layers" 18}}<div><b>All events as CSV</b><span>{{commas (len .Events)}} rows in events.zip · for Excel</span></div></a>
+<a href="#" data-act="healthcsv">{{icon "shield-check" 18}}<div><b>Audit health as CSV</b><span>Every system × every STIG check</span></div></a>
+<a href="./" target="_blank">{{icon "folder-open" 18}}<div><b>Open the report folder</b><span>Original logs, manifest, summary.json</span></div></a></div>
+<div class="pop vpop" data-pop="verified" hidden><div class="vh {{if .Verify.OK}}ok{{else}}bad{{end}}" data-vhead>{{icon "circle-check" 16}}<b>{{if .Verify.OK}}This report has not been changed{{else}}Something does not match{{end}}</b></div>
+<p>Every file in the report folder is listed in manifest.sha256 with the SHA-256 it had when the report was written.</p>
+<ul data-vlist>{{range .Verify.Lines}}<li class="{{if .Bad}}bad{{else}}ok{{end}}">{{if .Bad}}{{icon "circle-x" 14}}{{else}}{{icon "circle-check" 14}}{{end}}<span>{{.Text}}</span></li>{{end}}</ul>
+<p class="pm">To check it yourself: <code>blackbox verify</code> in the report folder.</p></div>{{end}}
+
+{{define "printout"}}<section class="printout"><div class="pt-head"><div><div class="pt-kicker">{{.Kicker}}</div><h1>{{.Title}}</h1><p>{{.Sub}}</p></div><img src="{{logo}}" alt=""></div>
+<div class="pt-tot">{{range .Totals}}<div>{{.Label}}<b>{{.Value}}</b></div>{{end}}</div>
+<h2>Detections</h2>{{if .Detections}}<table><thead><tr><th>Severity</th><th>Detection</th><th>System</th><th>When</th></tr></thead><tbody>{{range .Detections}}<tr><td>{{if eq .Severity "high"}}High{{else}}Medium{{end}}</td><td>{{.Title}}</td><td>{{.Host}}</td><td>{{.Day}} {{.Time}}</td></tr>{{end}}</tbody></table>{{else}}<p>Nothing unusual this period.</p>{{end}}
+<h2>Audit trail</h2><table><tbody>{{range .Trail}}<tr><td>{{.Label}}</td><td>{{.Value}}</td></tr>{{end}}</tbody></table>
+<div class="pt-lines"><div>ISSO</div><div>Date</div><div>ISSM</div></div>
+<p class="pt-foot">Full detail is in report.html in the same folder.</p></section>{{end}}
+
+{{define "detections"}}{{if not .Detections}}<div class="panel"><div class="clean"><div class="ic">{{icon "shield-check" 22}}</div><div><b>Nothing unusual this {{lower (periodWord .)}}</b><span>No activity matched a detection rule. All {{commas (len .Events)}} events are still on the event pages and in Search.</span></div></div></div>{{else}}
 <div class="md2" style="grid-template-columns:300px 1fr"><div class="panel dlist" data-picklist style="padding:4px 0 10px"><div class="chips" data-detsev style="padding:12px 16px 0"><span class="on" data-sev="">All<i>{{len .Detections}}</i></span><span data-sev="high">High<i>{{sevCount .Detections "high"}}</i></span><span data-sev="medium">Medium<i>{{sevCount .Detections "medium"}}</i></span></div>
 {{range $i, $d := .Detections}}{{if or (eq $i 0) (ne $d.Day (detDayBefore $.Detections $i))}}<div class="dayh">{{$d.Day}}</div>{{end}}<a class="{{$d.Severity}}" data-pick="{{$d.Index}}" href="#detections/{{$d.Index}}"><div><b>{{$d.Title}}</b><span>{{$d.Host}} · {{$d.Time}}</span></div></a>{{end}}</div>
 <div style="min-width:0">{{range .Detections}}<div class="detail" data-pane="{{.Index}}" hidden><div class="panel" style="margin-bottom:12px"><div class="dh"><div><h3>{{.Title}}</h3><p>{{.Range}}</p></div><span class="sv {{.Severity}}">{{if eq .Severity "high"}}High{{else}}Medium{{end}}</span></div>

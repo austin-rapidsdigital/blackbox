@@ -33,8 +33,18 @@
     return new Response(ds).text().then(JSON.parse);
   }
 
+  var checked = {};
   function getData(key, file) {
-    return loadScript(key, file).then(function () { return unpack(key); });
+    return loadScript(key, file).then(function () {
+      if (!checked[file] && meta.sums && meta.sums[file] && window.crypto && crypto.subtle) {
+        checked[file] = true;
+        crypto.subtle.digest('SHA-256', new TextEncoder().encode(store[key])).then(function (h) {
+          var hex = Array.prototype.map.call(new Uint8Array(h), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+          if (hex !== meta.sums[file]) tampered(file);
+        }).catch(function () {});
+      }
+      return unpack(key);
+    });
   }
 
   // ---- Formatting ----
@@ -520,6 +530,51 @@
     else if (location.host) p = '\\\\' + location.host + p.replace(/\//g, '\\');
     document.querySelectorAll('[data-folder]').forEach(function (el) { el.textContent = p; });
   })();
+
+  // ---- Export menu and Verified popover ----
+  var openPop = null;
+  function closePop() { if (openPop) { openPop.hidden = true; openPop = null; } }
+  document.querySelectorAll('[data-open]').forEach(function (b) {
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var pop = document.querySelector('[data-pop="' + b.getAttribute('data-open') + '"]');
+      var was = openPop === pop;
+      closePop();
+      if (was || !pop) return;
+      var r = b.getBoundingClientRect();
+      pop.hidden = false;
+      pop.style.top = (r.bottom + 6) + 'px';
+      pop.style.left = Math.max(8, Math.min(r.right, window.innerWidth - 8) - pop.offsetWidth) + 'px';
+      openPop = pop;
+    });
+  });
+  document.addEventListener('click', function (e) { if (openPop && !openPop.contains(e.target)) closePop(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePop(); });
+  window.addEventListener('scroll', closePop);
+  function save(name, text) {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['\ufeff' + text], { type: 'text/csv' }));
+    a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  }
+  var stamp = (document.title.match(/\d{1,2} \w{3} \d{4}$/) || [''])[0].replace(/ /g, '-');
+  document.querySelectorAll('[data-act]').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      e.preventDefault(); closePop();
+      var act = a.getAttribute('data-act');
+      if (act === 'print') window.print();
+      if (act === 'detcsv') save('detections' + (stamp ? '-' + stamp : '') + '.csv', meta.detcsv || '');
+      if (act === 'healthcsv') save('audit-health' + (stamp ? '-' + stamp : '') + '.csv', meta.healthcsv || '');
+    });
+  });
+  // A data file whose contents differ from the hash recorded in this page
+  // turns Verified red.
+  function tampered(file) {
+    document.querySelectorAll('.btn.verified').forEach(function (b) { b.classList.add('bad'); b.querySelector('span').textContent = 'Changed'; });
+    var h = document.querySelector('[data-vhead]');
+    if (h) { h.className = 'vh bad'; h.querySelector('b').textContent = 'Something does not match'; }
+    var l = document.querySelector('[data-vlist]');
+    if (l) l.insertAdjacentHTML('afterbegin', '<li class="bad"><span>✕</span><span>data/' + esc(file) + ' was changed after the report was written</span></li>');
+  }
 
   window.addEventListener('hashchange', show);
   show();

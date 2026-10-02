@@ -3,7 +3,9 @@ package report
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -179,6 +181,10 @@ func (r *Report) buildData() ([]*EventPage, []dataFile, error) {
 		}
 	}
 	r.fillPages(pages)
+	r.dataSums = map[string]string{}
+	for _, f := range files {
+		r.dataSums[f.Name] = dataSum(f.Body)
+	}
 	return pages, files, nil
 }
 
@@ -283,6 +289,20 @@ func dataScript(key string, v any) ([]byte, error) {
 		return nil, err
 	}
 	var out bytes.Buffer
-	fmt.Fprintf(&out, "BB.put(%q,%q);\n", key, base64.StdEncoding.EncodeToString(gz.Bytes()))
+	b64 := base64.StdEncoding.EncodeToString(gz.Bytes())
+	fmt.Fprintf(&out, "BB.put(%q,%q);\n", key, b64)
 	return out.Bytes(), nil
+}
+
+// dataSum is the SHA-256 of a data file's payload, which the page checks
+// as it loads each file (see app.js), so a changed file shows as such.
+func dataSum(file []byte) string {
+	s := string(file)
+	i := strings.LastIndex(s, `,"`)
+	j := strings.LastIndex(s, `");`)
+	if i < 0 || j <= i {
+		return ""
+	}
+	h := sha256.Sum256([]byte(s[i+2 : j]))
+	return hex.EncodeToString(h[:])
 }
