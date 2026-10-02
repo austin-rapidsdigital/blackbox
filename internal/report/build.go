@@ -894,7 +894,7 @@ var actionLabels = map[string][2]string{
 	"audit_rule_added":        {"audit rule added", "audit rules added"},
 	"audit_config_changed":    {"audit configuration change", "audit configuration changes"},
 	"powershell_suspicious":   {"PowerShell script flagged as suspicious", "PowerShell scripts flagged as suspicious"},
-	"powershell_hidden":       {"PowerShell run hidden and around the script policy", "PowerShell runs hidden and around the script policy"},
+	"hidden_powershell":       {"PowerShell run hidden and around the script policy", "PowerShell runs hidden and around the script policy"},
 	"powershell_tamper":       {"PowerShell script that can clear logs or weaken auditing", "PowerShell scripts that can clear logs or weaken auditing"},
 	"powershell_av_tamper":    {"PowerShell script that weakens Microsoft Defender", "PowerShell scripts that weaken Microsoft Defender"},
 	"powershell_download":     {"PowerShell script that downloads and runs code", "PowerShell scripts that download and run code"},

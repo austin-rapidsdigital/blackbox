@@ -418,8 +418,8 @@ func TestHiddenPowerShell(t *testing.T) {
 	tr := NewTranslator()
 	enc := "dwBoAG8AYQBtAGkA" // "whoami"
 	for cmd, want := range map[string]string{
-		`powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ` + enc: "powershell_hidden",
-		`"powershell.exe" -w hidden -nop -noni -c Get-Date`:                                 "powershell_hidden",
+		`powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ` + enc: "hidden_powershell",
+		`"powershell.exe" -w hidden -nop -noni -c Get-Date`:                                 "hidden_powershell",
 		`powershell.exe -ep bypass -file C:\Scripts\backup.ps1`:                             "elevated_process",
 		`powershell.exe -NoProfile -Command Get-Service`:                                    "elevated_process",
 	} {
@@ -428,7 +428,7 @@ func TestHiddenPowerShell(t *testing.T) {
 			t.Errorf("%s: got %v, want %s", cmd, e, want)
 			continue
 		}
-		if want == "powershell_hidden" && e.Severity != event.SevMedium {
+		if want == "hidden_powershell" && e.Severity != event.SevMedium {
 			t.Errorf("%s: severity %s, want medium", cmd, e.Severity)
 		}
 	}

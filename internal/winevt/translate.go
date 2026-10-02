@@ -417,7 +417,7 @@ func (t *Translator) processCreated(r *Raw) *event.Event {
 	// Quotes removed: PowerShell records "C:\...\wevtutil.exe" cl Security.
 	lc := strings.Join(strings.Fields(strings.ReplaceAll(strings.ToLower(cmd+" "+decoded), `"`, "")), " ")
 	if n := hiddenPowerShell(proc, cmd, decoded); n >= 2 {
-		e.Severity, e.Action = event.SevMedium, "powershell_hidden"
+		e.Severity, e.Action = event.SevMedium, "hidden_powershell"
 		e.Summary = fmt.Sprintf("%s ran PowerShell hidden from view and around the script policy: %s", user, shown)
 		e.AddDetail("Why flagged", "A hidden window, bypassing the execution policy, no prompts and an encoded command are how scripts are run unseen; this run used "+fmt.Sprint(n)+" of them together.")
 	}
