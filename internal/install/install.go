@@ -372,3 +372,10 @@ func trayTaskXML(exe string) string {
 </Task>
 `, xmlEscape(exe))
 }
+
+// Installed reports whether the program itself is installed (an uninstall
+// keeps the settings, so their presence alone doesn't mean it is).
+func Installed() bool {
+	_, err := os.Stat(ProgramPath())
+	return err == nil
+}

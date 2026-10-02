@@ -59,6 +59,11 @@ func Run(o Options) (Result, error) {
 	a := &app.App{Cfg: cfg, Version: o.Version, Logf: logf}
 	if cfg.MakesReports() {
 		res.ReportsDir = cfg.ReportsDir()
+		// Made now, not with the first report: an upgrade makes no report,
+		// and "Open reports folder" must open it.
+		if err := ensureDir(res.ReportsDir); err != nil {
+			logf("Note: the reports folder %s could not be made yet: %v", res.ReportsDir, err)
+		}
 	}
 	switch {
 	case !cfg.MakesReports():
@@ -175,4 +180,14 @@ func Current() (a install.Answers, defaultReports string, reinstall bool, err er
 		CollectEvery: cur.CollectEvery, SendTo: cur.SendTo, ShareUser: cur.ShareUser, Inbox: cur.Inbox,
 		ShareInbox: install.InboxShared(), Tray: install.TrayWanted()}
 	return a, filepath.Join(config.DefaultDataDir(), "reports"), statErr == nil, nil
+}
+
+// ensureDir makes the reports folder if it doesn't exist. The default
+// folder is inside the data folder and takes its permissions, as the
+// first report would; a chosen folder was already made by the install.
+func ensureDir(dir string) error {
+	if _, err := os.Stat(dir); err == nil {
+		return nil
+	}
+	return os.MkdirAll(dir, 0o750)
 }

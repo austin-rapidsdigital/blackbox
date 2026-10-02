@@ -54,6 +54,15 @@ func when(t, now time.Time) string {
 	return t.Format("2 Jan")
 }
 
+// nextWhen is when the next report is due: a weekday and time ("Wed
+// 00:00"), with the date when it is more than a week away.
+func nextWhen(t, now time.Time) string {
+	if t.Sub(now) < 8*24*time.Hour {
+		return t.Local().Format("Mon 15:04")
+	}
+	return t.Local().Format("Mon 2 Jan 15:04")
+}
+
 // classify turns the state into the icon and menu.
 func classify(h app.Health, err error, now time.Time) trayView {
 	v := trayView{Reports: h.ReportsDir}
@@ -84,7 +93,7 @@ func classify(h app.Health, err error, now time.Time) trayView {
 			if h.NextReport.IsZero() {
 				v.Status += " · report at the next run"
 			} else {
-				v.Status += " · next report " + when(h.NextReport, now)
+				v.Status += " · next report " + nextWhen(h.NextReport, now)
 			}
 		}
 		v.Tip = "Blackbox: collecting · last " + clock(h.LastCollect)
@@ -276,4 +285,34 @@ func trayImage(size int, s trayState) *image.NRGBA {
 		}
 	}
 	return img
+}
+
+// noticeQueue shows notifications one after another: Windows shows one at
+// a time, and a second sent straight away replaces the first, so several
+// found together would hide all but the last.
+type noticeQueue struct {
+	items   []notice
+	showing bool
+}
+
+// add queues n and says whether to show it now (nothing is showing).
+func (q *noticeQueue) add(n notice) (show bool) {
+	if !q.showing {
+		q.showing = true
+		return true
+	}
+	q.items = append(q.items, n)
+	return false
+}
+
+// next is the notification to show when the one showing has had its
+// time, if any.
+func (q *noticeQueue) next() (notice, bool) {
+	if len(q.items) == 0 {
+		q.showing = false
+		return notice{}, false
+	}
+	n := q.items[0]
+	q.items = q.items[1:]
+	return n, true
 }

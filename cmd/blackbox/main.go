@@ -204,7 +204,7 @@ environment variable (so it is not shown in the process list).
 		}
 	})
 	if given == 0 && !*yes && install.IsTerminal(os.Stdin) {
-		ans, err = install.Wizard(os.Stdin, os.Stdout, ans, defaultReports, reinstall)
+		ans, err = install.Wizard(os.Stdin, os.Stdout, ans, defaultReports, reinstall && install.Installed())
 		if err != nil {
 			return err
 		}
@@ -268,7 +268,10 @@ environment variable (so it is not shown in the process list).
 		return err
 	}
 
-	interactive := given == 0 && !*yes && install.IsTerminal(os.Stdin)
+	// A person at a prompt (with or without --yes) gets the status icon
+	// straight away, as with the setup window; a script or deployment
+	// tool doesn't (it appears at the next logon).
+	interactive := install.IsTerminal(os.Stdin)
 	if _, err := setup.Run(setup.Options{Answers: ans, Version: version, Reinstall: reinstall, NoReport: *noReport,
 		StartTray: interactive, Logf: printf}); err != nil {
 		return err

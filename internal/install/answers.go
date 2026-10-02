@@ -29,7 +29,7 @@ const (
 	NoteAtWeekly = "The week ends then. \"Wednesday 00:00\" covers the week up to Tuesday night,\nso auditors have a fresh report on Wednesday morning."
 	NoteReport   = "Use a folder you have locked down if you like; Blackbox only needs to write to it."
 	NoteInbox    = "Blackbox imports what arrives there every time it collects."
-	NoteKeep     = "Use it anyway (the data waits here until the collector can be reached)?"
+	NoteKeep     = "Use it anyway? The data waits here until the collector can be reached."
 )
 
 // Choice is one option of a multiple-choice question.

@@ -52,20 +52,12 @@ func openReport(owner uintptr, file, reportsDir string) {
 	}
 	if reportsDir != "" && !userCanRead(file) {
 		account, sid := currentAccount()
-		switch messageBox(owner, fmt.Sprintf("Your account can't open reports in %s without administrator rights.\n\n"+
-			"Give %s read access to this folder? (This is what Explorer's Continue button does.)\n\n"+
-			"Yes: give read access and open the report.\nNo: open the folder in Explorer instead.", reportsDir, account),
-			"Blackbox", mbYesNoCancel|mbIconQuestion) {
-		case idYes:
-			out, err := hidden.Command("icacls.exe", reportsDir, "/grant", "*"+sid+":(OI)(CI)RX").CombinedOutput()
-			if err != nil {
-				messageBox(owner, fmt.Sprintf("Read access could not be given: %v\n%s", err, out), "Blackbox", mbOK|mbIconError)
-				return
-			}
-		case idNo:
-			openFolder(owner, reportsDir)
-			return
-		default:
+		if messageBox(owner, folderAccessQuestion(reportsDir, account), "Blackbox", mbYesNo|mbIconQuestion) != idYes {
+			return // No: nothing is changed
+		}
+		out, err := hidden.Command("icacls.exe", reportsDir, "/grant", "*"+sid+":(OI)(CI)RX").CombinedOutput()
+		if err != nil {
+			messageBox(owner, fmt.Sprintf("Read access could not be given: %v\n%s", err, out), "Blackbox", mbOK|mbIconError)
 			return
 		}
 	}

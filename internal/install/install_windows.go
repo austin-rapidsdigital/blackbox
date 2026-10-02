@@ -47,11 +47,13 @@ func Install(opt Options) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	if err := placePrograms(self); err != nil {
+	ks, err := placePrograms(self)
+	if err != nil {
+		rollBack(ks)
 		return fmt.Errorf("copy program to %s: %w", filepath.Dir(dst), err)
 	}
 	if opt.Version != "" {
-		if err := checkPrograms(opt.Version); err != nil {
+		if err := checkPrograms(opt.Version, ks); err != nil {
 			return err
 		}
 	}
