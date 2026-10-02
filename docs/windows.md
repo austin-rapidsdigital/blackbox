@@ -148,7 +148,10 @@ system with no domain, use a local folder.
 PowerShell records every script it runs (event 4104, Script Block
 Logging), which on a managed computer is thousands a day. Blackbox reports
 only the suspicious ones: those matching the list above (High), and those
-PowerShell itself flags as suspicious (Medium). The rest are counted but
+PowerShell itself flags as suspicious (Medium), with the script's name or
+path and the word that got it flagged. Commands Windows generates for its
+own modules (for example Defender's `MSFT_MpScan`, which PowerShell flags
+because of words like "Scan") are not reported. The rest are counted but
 not listed, and stay in the original log saved with each report. A large
 script is recorded in several parts; matching parts of one script are
 shown as one row. Windows PowerShell 5.1 is read; PowerShell 7 writes to a

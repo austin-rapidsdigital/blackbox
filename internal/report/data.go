@@ -70,10 +70,11 @@ const powerShellLog = "Microsoft-Windows-PowerShell/Operational"
 
 // on reports whether e belongs on page p.
 func (p *EventPage) on(e *event.Event) bool {
+	ps := e.Source == powerShellLog || strings.HasPrefix(e.Action, "powershell_")
 	if p.ID == "powershell" {
-		return e.Source == powerShellLog || strings.HasPrefix(e.Action, "powershell_")
+		return ps
 	}
-	return e.Category == p.Category
+	return e.Category == p.Category && !(p.ID == "other" && ps) // PowerShell has its own page
 }
 
 // dataFile is one file of the data folder.

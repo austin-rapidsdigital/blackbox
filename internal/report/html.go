@@ -119,7 +119,8 @@ func funcs(loc *time.Location) template.FuncMap {
 		"searchCols": func() template.CSS { return gridCols(searchCols) },
 		"periodDays": func(p pageData) []string { return p.periodDays() },
 		"periodWord": func(p pageData) string {
-			if p.Period == "weekly" || p.Period == "" {
+			long := !p.WindowEnd.IsZero() && p.WindowEnd.Sub(p.PeriodStart()) > 8*24*time.Hour
+			if (p.Period == "weekly" || p.Period == "") && !long {
 				return "Week"
 			}
 			return "Period"

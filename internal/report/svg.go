@@ -112,6 +112,14 @@ func stackedBars(labels []string, series []Series, hot []bool, faded bool, w, h 
 	mx := niceMax(float64(top) * 1.05)
 	x0, bw := 34.0, float64(w-34)/float64(n)
 	plot := float64(h - 34)
+	// Only as many day labels as fit (about 6.5 units a letter at 11px).
+	step, long := 1, 0
+	for _, l := range labels {
+		long = max(long, len(l))
+	}
+	if bw < 6.5*float64(long)+8 {
+		step = int(math.Ceil((6.5*float64(long) + 8) / bw))
+	}
 	var b strings.Builder
 	for _, v := range []float64{0, mx / 2, mx} {
 		y := float64(h-22) - v/mx*plot
@@ -140,7 +148,10 @@ func stackedBars(labels []string, series []Series, hot []bool, faded bool, w, h 
 		if faded && i == n-1 {
 			weight = ` style="font-weight:700;fill:#0B1630"`
 		}
-		fmt.Fprintf(&b, `<text x="%.1f" y="%d" text-anchor="middle" class="ax"%s>%s</text>`, x+bwid/2, h-6, weight, template.HTMLEscapeString(labels[i]))
+		// Skip a label that would run off the right edge.
+		if lx := x + bwid/2; (i%step == 0 && lx+3.25*float64(len(labels[i])) <= float64(w)) || (faded && i == n-1) {
+			fmt.Fprintf(&b, `<text x="%.1f" y="%d" text-anchor="middle" class="ax"%s>%s</text>`, lx, h-6, weight, template.HTMLEscapeString(labels[i]))
+		}
 	}
 	return template.HTML(fmt.Sprintf(`<svg viewBox="0 0 %d %d" width="100%%" role="img">%s</svg>`, w, h, b.String()))
 }

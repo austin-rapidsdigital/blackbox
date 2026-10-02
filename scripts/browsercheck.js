@@ -66,6 +66,16 @@ try { pw = require('playwright-core'); } catch (e) { pw = require('playwright');
     await page.waitForSelector('.drawer:not([hidden]) h3', { timeout: 10000 }).catch(() => fail('a link to an event did not open its panel'));
   }
 
+  // Every page fits a narrow window (half a 1440p screen, a small laptop)
+  // without scrolling sideways.
+  await page.setViewportSize({ width: 960, height: 900 });
+  for (const v of views) {
+    await page.goto(url + '#' + v);
+    await page.waitForTimeout(150);
+    const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    if (over > 1) fail('page ' + v + ' scrolls sideways at 960px (' + over + 'px too wide)');
+  }
+
   if (errors.length) fail('script errors:\n  ' + errors.join('\n  '));
   if (!process.exitCode) console.log('OK: ' + views.length + ' pages');
   await browser.close();

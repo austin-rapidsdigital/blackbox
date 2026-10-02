@@ -480,8 +480,10 @@
       });
       var W = 1000, H = 60, bw = W / n, svg = '';
       b.forEach(function (v, i) { if (v) svg += '<rect x="' + (i * bw).toFixed(1) + '" y="' + (H - 16 - v / top * (H - 20)).toFixed(1) + '" width="' + Math.max(1, bw - 1).toFixed(1) + '" height="' + (v / top * (H - 20)).toFixed(1) + '" fill="#0B5FFF" opacity=".75"/>'; });
-      days.forEach(function (d, k) { svg += '<text x="' + (k * 24 * bw + 2).toFixed(0) + '" y="' + (H - 2) + '" class="ax">' + dayLabel(d) + '</text>'; });
-      box.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="none">' + svg + '</svg>';
+      // Day labels in HTML so they keep their shape; at most eight.
+      var step = Math.ceil(days.length / 8), lab = '';
+      days.forEach(function (d, k) { if (k % step === 0) lab += '<span style="left:' + (k / days.length * 100).toFixed(2) + '%">' + dayLabel(d) + '</span>'; });
+      box.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + (H - 16) + '" width="100%" height="' + (H - 16) + '" preserveAspectRatio="none">' + svg + '</svg><div class="cbar-l">' + lab + '</div>';
     }
     Object.keys(q).forEach(function (k) {
       q[k].addEventListener(k === 'text' ? 'input' : 'change', function () { extra = null; run(); });
@@ -537,6 +539,8 @@
         if (text) {
           ['page', 'user', 'host', 'when'].forEach(function (k) { q[k].value = ''; });
           extra = null; q.text.value = text; run();
+        } else if (!ran) {
+          run(); // nothing chosen yet: every event, newest first
         }
       }
     };

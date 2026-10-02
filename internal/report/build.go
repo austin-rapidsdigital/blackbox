@@ -320,6 +320,7 @@ func archiveName(h string) string {
 // ---------------------------------------------------------------- filters
 
 func (r *Report) exclude(in []*event.Event) []*event.Event {
+	in = dropWindowsModules(in)
 	if len(r.ExcludeUsers) == 0 && len(r.ExcludeProcesses) == 0 {
 		return in
 	}
@@ -1082,4 +1083,29 @@ func commas[T ~int | ~uint64](n T) string {
 		s = s[:i] + "," + s[i:]
 	}
 	return s
+}
+
+// dropWindowsModules leaves out script blocks of Windows' own PowerShell
+// modules that PowerShell flagged as suspicious, collected before
+// Blackbox learned to skip them (see winevt.WindowsModule).
+func dropWindowsModules(in []*event.Event) []*event.Event {
+	out := in[:0:0]
+	for _, e := range in {
+		if e.Action == "powershell_suspicious" {
+			var text, path string
+			for _, d := range e.Details {
+				switch d.Label {
+				case "Script (excerpt)":
+					text = d.Value
+				case "Script path":
+					path = d.Value
+				}
+			}
+			if winevt.WindowsModule(text, path) {
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	return out
 }

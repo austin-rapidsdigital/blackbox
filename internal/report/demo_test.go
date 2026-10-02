@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -28,7 +29,11 @@ func TestDemoReport(t *testing.T) {
 	standalone := os.Getenv("BLACKBOX_DEMO_STANDALONE") != ""
 	rnd := rand.New(rand.NewSource(7))
 	end := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
-	start := end.AddDate(0, 0, -7)
+	days := 7
+	if n, err := strconv.Atoi(os.Getenv("BLACKBOX_DEMO_DAYS")); err == nil && n > 0 {
+		days = n // a report for a longer, chosen period
+	}
+	start := end.AddDate(0, 0, -days)
 
 	type sys struct {
 		name, os, baseline, via string
@@ -79,7 +84,7 @@ func TestDemoReport(t *testing.T) {
 		owner := users[rnd.Intn(len(users))]
 		for i := 0; i < n; i++ {
 			// Mostly working hours on weekdays.
-			at := start.Add(time.Duration(rnd.Intn(7))*24*time.Hour + time.Duration(7+rnd.Intn(10))*time.Hour + time.Duration(rnd.Intn(3600))*time.Second)
+			at := start.Add(time.Duration(rnd.Intn(days))*24*time.Hour + time.Duration(7+rnd.Intn(10))*time.Hour + time.Duration(rnd.Intn(3600))*time.Second)
 			if rnd.Intn(1500) == 0 {
 				at = at.Add(8 * time.Hour)
 			}
@@ -172,7 +177,7 @@ func TestDemoReport(t *testing.T) {
 	r := Build(events, runs, Options{Site: site, WindowStart: start, WindowEnd: end, Generated: end.Add(5 * time.Minute), Location: time.UTC,
 		Source: "Live collection", Collector: !standalone, Systems: infos, CheckSets: checks, History: history, Period: "weekly",
 		KnownDevices: map[string]time.Time{}, WorkingHours: mustHours("Mon-Fri 06:00-18:00"),
-		Archives: archives, ArchivesKept: true})
+		Archives: archives, ArchivesKept: true, Interim: days != 7})
 	os.RemoveAll(out)
 	if err := r.Write(out); err != nil {
 		t.Fatal(err)

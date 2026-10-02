@@ -288,8 +288,24 @@ func TestPowerShellScriptBlocks(t *testing.T) {
 	// Script blocks PowerShell flags itself (warning level) are Medium.
 	w := tr.Translate(ps(3, "a2", "1", "1", "$k = [Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($p, $t)"))
 	if w == nil || w.Action != "powershell_suspicious" || w.Severity != event.SevMedium || w.User != "jsmith" ||
-		!strings.Contains(w.Summary, "jsmith ran a PowerShell script that PowerShell itself flagged as suspicious: $k =") {
+		!strings.Contains(w.Summary, "jsmith ran the script run.ps1 (C:\\Users\\jsmith\\run.ps1), which PowerShell flagged as suspicious for using GetDelegateForFunctionPointer (calling raw Windows functions)") {
 		t.Errorf("warning-level script block: %+v", w)
+	}
+
+	// Windows' own generated modules (here, Defender's commands) are not
+	// reported, even though PowerShell flags them.
+	cdxml := ps(3, "a3", "1", "1", "#requires -version 3.0\ntry { Microsoft.PowerShell.Core\\Set-StrictMode -Off } catch { }\n"+
+		"$script:ClassName = 'ROOT\\Microsoft\\Windows\\Defender\\MSFT_MpScan'\n"+
+		"$script:ObjectModelWrapper = [Microsoft.PowerShell.Cmdletization.Cim.CimCmdletAdapter]\n")
+	cdxml.Data["Path"] = ""
+	if e := tr.Translate(cdxml); e != nil {
+		t.Errorf("Windows' generated Defender module reported: %+v", e)
+	}
+	// A script typed at the prompt is named by its first line.
+	typed := ps(3, "a4", "1", "1", "\n$x = [Runtime.InteropServices.Marshal]::AllocHGlobal(10)")
+	typed.Data["Path"] = ""
+	if e := tr.Translate(typed); e == nil || !strings.Contains(e.Target, "typed or run from memory ($x = [Runtime") {
+		t.Errorf("typed script: %+v", e)
 	}
 
 	cases := []struct {
@@ -309,7 +325,7 @@ func TestPowerShellScriptBlocks(t *testing.T) {
 	for _, c := range cases {
 		e := tr.Translate(ps(5, "b1", "1", "1", c.text))
 		if e == nil || e.Action != c.action || e.Severity != event.SevHigh || e.Category != c.cat ||
-			!strings.HasPrefix(e.Summary, "jsmith ran a PowerShell script that ") || !strings.Contains(e.Summary, c.line) {
+			!strings.HasPrefix(e.Summary, "jsmith ran the script run.ps1 (C:\\Users\\jsmith\\run.ps1), which ") || !strings.Contains(e.Summary, c.line) {
 			t.Errorf("%q: %+v", c.text, e)
 		}
 	}

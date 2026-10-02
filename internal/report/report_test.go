@@ -505,3 +505,18 @@ func TestVMOffIsNotFlagged(t *testing.T) {
 		t.Errorf("silent: %+v", r.Silent)
 	}
 }
+
+// An interim report doesn't continue the weekly chain, and that is not a
+// mismatch.
+func TestVerifyInterim(t *testing.T) {
+	end := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	r := &Report{Options: Options{WindowStart: end.AddDate(0, 0, -30), WindowEnd: end, Location: time.UTC,
+		History: []Summary{{WindowEnd: end.AddDate(0, 0, -7)}}}}
+	if v := r.verification(); v.OK {
+		t.Errorf("a weekly report that skips a week should not verify: %+v", v.Lines)
+	}
+	r.Interim = true
+	if v := r.verification(); !v.OK {
+		t.Errorf("an interim report should verify: %+v", v.Lines)
+	}
+}

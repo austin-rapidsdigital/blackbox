@@ -336,11 +336,24 @@ func (r *Report) collectionBar(s SystemRow, cleared []*Row) template.HTML {
 	for _, t := range s.resets {
 		fmt.Fprintf(&b, `<rect x="%.1f" y="13" width="4" height="16" fill="%s"/>`, x(t)-2, colBad)
 	}
-	for _, d := range r.periodDays() {
-		t, _ := time.ParseInLocation("20060102", d, r.Location)
-		fmt.Fprintf(&b, `<text x="%.1f" y="9" class="ax">%s</text>`, x(t)+2, t.Format("Mon 2"))
+	// Day labels are text above the strip (not inside the stretched
+	// drawing), at most about eight of them so they never overlap.
+	days := r.periodDays()
+	step := max(1, (len(days)+7)/8)
+	layout := "Mon 2"
+	if len(days) > 10 {
+		layout = "2 Jan"
 	}
-	return template.HTML(fmt.Sprintf(`<svg viewBox="0 0 %.0f %.0f" width="100%%" preserveAspectRatio="none" role="img">%s</svg>`, w, h, b.String()))
+	var labels strings.Builder
+	for i, d := range days {
+		if i%step != 0 {
+			continue
+		}
+		t, _ := time.ParseInLocation("20060102", d, r.Location)
+		fmt.Fprintf(&labels, `<span style="left:%.2f%%">%s</span>`, x(t)/w*100, t.Format(layout))
+	}
+	return template.HTML(fmt.Sprintf(`<div class="cbar"><div class="cbar-l">%s</div><svg viewBox="0 13 %.0f %.0f" width="100%%" height="16" preserveAspectRatio="none" role="img">%s</svg></div>`,
+		labels.String(), w, h-13, b.String()))
 }
 
 // systemHealth is one computer's health checklist.
