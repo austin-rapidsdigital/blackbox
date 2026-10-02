@@ -25,6 +25,7 @@ import (
 // used to build the index page.
 type Summary struct {
 	Site        string         `json:"site,omitempty"`
+	Interim     bool           `json:"interim,omitempty"`
 	WindowStart time.Time      `json:"window_start,omitzero"`
 	WindowEnd   time.Time      `json:"window_end"`
 	Generated   time.Time      `json:"generated"`
@@ -75,7 +76,7 @@ type SystemStatus struct {
 
 func (r *Report) summary() Summary {
 	s := Summary{Site: r.Site, WindowStart: r.WindowStart, WindowEnd: r.WindowEnd,
-		Generated: r.Generated, Hosts: r.Hosts, Events: len(r.Events), ByCategory: map[string]int{},
+		Generated: r.Generated, Hosts: r.Hosts, Events: len(r.Events), ByCategory: map[string]int{}, Interim: r.Interim,
 		LogClears: r.Health.LogClears, Version: r.Version, Source: r.Source}
 	if s.WindowStart.IsZero() {
 		s.WindowStart = r.FirstEvent

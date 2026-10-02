@@ -25,9 +25,10 @@ const (
 type Answers struct {
 	Role         string
 	Site         string
-	ReportEvery  string        // daily | weekly | monthly
-	ReportDir    string        // "" = the default reports folder
-	CollectEvery time.Duration // how often the schedule runs
+	ReportEvery  string          // daily | weekly | monthly
+	ReportAt     config.ReportAt // when each report period ends
+	ReportDir    string          // "" = the default reports folder
+	CollectEvery time.Duration   // how often the schedule runs
 
 	SendTo        string // collector inbox (sender)
 	ShareUser     string // account for the SendTo share
@@ -168,6 +169,9 @@ func (w *wizard) run(cur Answers, defaultReports string, reinstall bool) (Answer
 	if a.ReportEvery == "" {
 		a.ReportEvery = "weekly"
 	}
+	if a.ReportAt == (config.ReportAt{}) {
+		a.ReportAt = config.DefaultReportAt
+	}
 	if a.CollectEvery == 0 {
 		a.CollectEvery = time.Hour
 	}
@@ -220,7 +224,8 @@ func (w *wizard) run(cur Answers, defaultReports string, reinstall bool) (Answer
 			dir = defaultReports
 		}
 		w.printf("   Site name:        %s\n", orNone(a.Site))
-		w.printf("   Reports:          %s, saved in %s\n", a.ReportEvery, dir)
+		w.printf("   Reports:          %s\n", a.ReportAt.Describe(a.ReportEvery))
+		w.printf("   Saved in:         %s\n", dir)
 	}
 	if a.Inbox != "" {
 		extra := ""
@@ -295,12 +300,38 @@ func (w *wizard) askReports(a *Answers, defaultReports string) error {
 
 	w.question("How often should a report be produced?")
 	every := []string{"daily", "weekly", "monthly"}
-	i, err := w.choose([]string{"Daily   (each report covers one day, ending at midnight)",
-		"Weekly  (Monday 00:00 to Monday 00:00)", "Monthly (1st to 1st)"}, indexOf(every, a.ReportEvery))
+	i, err := w.choose([]string{"Daily", "Weekly", "Monthly (each period ends on the 1st)"}, indexOf(every, a.ReportEvery))
 	if err != nil {
 		return err
 	}
 	a.ReportEvery = every[i]
+
+	if a.ReportEvery == "weekly" {
+		w.question("Which day and time should each weekly report be ready?")
+		w.printf("   The week ends then. \"Wednesday 00:00\" covers the week up to Tuesday night,\n")
+		w.printf("   so auditors have a fresh report on Wednesday morning.\n")
+	} else {
+		w.question("At what time should each report be ready?")
+	}
+	for {
+		def := a.ReportAt.String()
+		if a.ReportEvery != "weekly" {
+			def = a.ReportAt.Clock()
+		}
+		v, err := w.ask(def)
+		if err != nil {
+			return err
+		}
+		r, perr := config.ParseReportAt(v)
+		if perr == nil {
+			if a.ReportEvery != "weekly" {
+				r.Day = a.ReportAt.Day
+			}
+			a.ReportAt = r
+			break
+		}
+		w.printf("   %v\n", perr)
+	}
 
 	w.question("Where should reports be saved?")
 	w.printf("   Use a folder you have locked down if you like; Blackbox only needs to write to it.\n")

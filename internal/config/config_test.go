@@ -11,7 +11,7 @@ import (
 
 func TestLoadTemplateRoundTrip(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "blackbox.conf")
-	text := Render("Lab 3", "daily", "", time.Hour) + "exclude_users = svc_backup, svc_scan  # noisy\n"
+	text := Render("Lab 3", "daily", DefaultReportAt, "", time.Hour) + "exclude_users = svc_backup, svc_scan  # noisy\n"
 	if err := os.WriteFile(p, []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestReportDir(t *testing.T) {
 
 func TestSetValuesKeepsCommentsAndLineEndings(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "blackbox.conf")
-	orig := strings.ReplaceAll(Render("Lab 3", "weekly", "", time.Hour), "\n", "\r\n")
+	orig := strings.ReplaceAll(Render("Lab 3", "weekly", DefaultReportAt, "", time.Hour), "\n", "\r\n")
 	os.WriteFile(p, []byte(orig), 0o600)
 
 	if err := SetValue(p, "report_dir", absDir()); err != nil {

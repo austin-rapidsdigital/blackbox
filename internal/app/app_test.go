@@ -4,28 +4,55 @@ import (
 	"testing"
 	"time"
 
+	"github.com/casea1/blackbox/internal/config"
 	"github.com/casea1/blackbox/internal/event"
 )
 
 func TestDueWindowEnd(t *testing.T) {
 	loc := time.UTC
+	mon := config.ReportAt{Day: time.Monday}
 	now := time.Date(2026, 9, 30, 1, 5, 0, 0, loc) // Wednesday 01:05
-	if end, due := DueWindowEnd("daily", time.Time{}, now, loc); !due || !end.Equal(now) {
+	if end, due := DueWindowEnd("daily", mon, time.Time{}, now, loc); !due || !end.Equal(now) {
 		t.Errorf("first report should be due immediately, got %v %v", end, due)
 	}
 	lastDaily := time.Date(2026, 9, 29, 0, 0, 0, 0, loc)
-	if end, due := DueWindowEnd("daily", lastDaily, now, loc); !due || !end.Equal(time.Date(2026, 9, 30, 0, 0, 0, 0, loc)) {
+	if end, due := DueWindowEnd("daily", mon, lastDaily, now, loc); !due || !end.Equal(time.Date(2026, 9, 30, 0, 0, 0, 0, loc)) {
 		t.Errorf("daily: got %v %v", end, due)
 	}
-	if _, due := DueWindowEnd("daily", time.Date(2026, 9, 30, 0, 0, 0, 0, loc), now, loc); due {
+	if _, due := DueWindowEnd("daily", mon, time.Date(2026, 9, 30, 0, 0, 0, 0, loc), now, loc); due {
 		t.Error("daily: should not be due twice in one day")
 	}
 	lastWeekly := time.Date(2026, 9, 21, 0, 0, 0, 0, loc) // previous Monday
-	if end, due := DueWindowEnd("weekly", lastWeekly, now, loc); !due || !end.Equal(time.Date(2026, 9, 28, 0, 0, 0, 0, loc)) {
+	if end, due := DueWindowEnd("weekly", mon, lastWeekly, now, loc); !due || !end.Equal(time.Date(2026, 9, 28, 0, 0, 0, 0, loc)) {
 		t.Errorf("weekly: got %v %v", end, due)
 	}
-	if end, due := DueWindowEnd("monthly", time.Date(2026, 9, 1, 0, 0, 0, 0, loc), now, loc); due {
+	if end, due := DueWindowEnd("monthly", mon, time.Date(2026, 9, 1, 0, 0, 0, 0, loc), now, loc); due {
 		t.Errorf("monthly: not due until October, got %v", end)
+	}
+
+	// Wednesday 00:00: the week ends on Tuesday night.
+	wed := config.DefaultReportAt
+	lastWed := time.Date(2026, 9, 23, 0, 0, 0, 0, loc)
+	if end, due := DueWindowEnd("weekly", wed, lastWed, now, loc); !due || !end.Equal(time.Date(2026, 9, 30, 0, 0, 0, 0, loc)) {
+		t.Errorf("weekly Wednesday: got %v %v", end, due)
+	}
+	tue := time.Date(2026, 9, 29, 23, 59, 0, 0, loc)
+	if _, due := DueWindowEnd("weekly", wed, lastWed, tue, loc); due {
+		t.Error("weekly Wednesday: not due on Tuesday night")
+	}
+	// An interim report never moves the chain, but an older chain (last
+	// report ended on a Friday) still ends at the next Wednesday.
+	fri := time.Date(2026, 9, 25, 15, 0, 0, 0, loc)
+	if end, due := DueWindowEnd("weekly", wed, fri, now, loc); !due || !end.Equal(time.Date(2026, 9, 30, 0, 0, 0, 0, loc)) {
+		t.Errorf("weekly after a Friday report: got %v %v", end, due)
+	}
+	// A time other than midnight.
+	six := config.ReportAt{Day: time.Thursday, Minute: 6 * 60}
+	if end, due := DueWindowEnd("weekly", six, lastWed, time.Date(2026, 10, 1, 6, 30, 0, 0, loc), loc); !due || !end.Equal(time.Date(2026, 10, 1, 6, 0, 0, 0, loc)) {
+		t.Errorf("weekly Thursday 06:00: got %v %v", end, due)
+	}
+	if next, due := nextReport("weekly", wed, lastWed, tue, loc); due || !next.Equal(time.Date(2026, 9, 30, 0, 0, 0, 0, loc)) {
+		t.Errorf("next weekly report: got %v %v", next, due)
 	}
 }
 

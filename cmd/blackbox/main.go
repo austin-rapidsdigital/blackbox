@@ -142,6 +142,7 @@ environment variable (so it is not shown in the process list).
 	}
 	site := fs.String("site", "", "site or system name shown on reports (\"-\" clears it)")
 	every := fs.String("report-every", "", "how often to produce a report: daily, weekly or monthly")
+	reportAt := fs.String("report-at", "", "when each report is ready, e.g. \"Wednesday 00:00\" (weekly) or \"06:00\" (daily, monthly)")
 	reportDir := fs.String("report-dir", "", "folder for reports (\"default\" for the standard location)")
 	collectEvery := fs.Duration("collect-every", 0, "how often to collect events: 1h, 30m or 15m")
 	sendTo := fs.String("send-to", "", "send events to this collector inbox (a share or folder; \"none\" to stop sending)")
@@ -166,7 +167,7 @@ environment variable (so it is not shown in the process list).
 	}
 	_, statErr := os.Stat(config.DefaultPath())
 	reinstall := statErr == nil
-	ans := install.Answers{Site: cur.SiteName, ReportEvery: cur.ReportEvery, ReportDir: cur.ReportDir, CollectEvery: cur.CollectEvery,
+	ans := install.Answers{Site: cur.SiteName, ReportEvery: cur.ReportEvery, ReportAt: cur.ReportAt, ReportDir: cur.ReportDir, CollectEvery: cur.CollectEvery,
 		SendTo: cur.SendTo, ShareUser: cur.ShareUser, Inbox: cur.Inbox, ShareInbox: install.InboxShared()}
 	defaultReports := filepath.Join(config.DefaultDataDir(), "reports")
 
@@ -190,6 +191,13 @@ environment variable (so it is not shown in the process list).
 		}
 		if *every != "" {
 			ans.ReportEvery = strings.ToLower(*every)
+		}
+		if *reportAt != "" {
+			r, err := config.ParseReportAt(*reportAt)
+			if err != nil {
+				return err
+			}
+			ans.ReportAt = r
 		}
 		switch *reportDir {
 		case "":
@@ -266,6 +274,13 @@ environment variable (so it is not shown in the process list).
 	case *noReport:
 		fmt.Println("\nDone. The first report will be produced at the next scheduled run.")
 		fmt.Printf("Reports will be saved in %s\n", cfg.ReportsDir())
+	case reinstall && reported(a):
+		// An upgrade or a settings change keeps the report schedule: the
+		// next scheduled report covers the whole period as usual.
+		_, next, _ := a.NextScheduled()
+		fmt.Printf("\nDone. No report was produced now, so the schedule is unchanged (reports %s).\n", cfg.ReportAt.Describe(cfg.ReportEvery))
+		fmt.Printf("Next scheduled report: %s\n", next.In(time.Local).Format("Monday 2 Jan 2006 15:04"))
+		fmt.Println("For an interim report now, run: blackbox report")
 	default:
 		fmt.Println("\nCollecting events and producing the first report (the first run reads the whole log and can take a few minutes)...")
 		dir, err := a.ReportNow(true)
@@ -333,6 +348,7 @@ func cmdConfig(args []string) error {
 		fmt.Printf("Settings file:   %s\n\n", src)
 		fmt.Printf("  site_name          %s\n", cfg.SiteName)
 		fmt.Printf("  report_every       %s\n", cfg.ReportEvery)
+		fmt.Printf("  report_at          %s   (%s)\n", cfg.ReportAt, cfg.ReportAt.Describe(cfg.ReportEvery))
 		fmt.Printf("  report_dir         %s\n", dir)
 		fmt.Printf("  collect_every      %s   (change by running the installer again)\n", config.FormatDuration(cfg.CollectEvery))
 		fmt.Printf("  retention_days     %d%s\n", cfg.RetentionDays, map[bool]string{true: "   (keep forever)"}[cfg.RetentionDays == 0])
@@ -525,7 +541,7 @@ func cmdReport(args []string) error {
 	fs.StringVar(&in.Host, "host", "", "Linux: host name to show, if the logs do not include it")
 	fs.StringVar(&in.Passwd, "passwd", "", "Linux: copy of /etc/passwd, to show names instead of user IDs")
 	out := fs.String("out", "", "output folder for reports from files (default: ./blackbox-report-<time>)")
-	preview := fs.Bool("preview", false, "produce a report without affecting the scheduled report sequence")
+	fs.Bool("preview", false, "no effect; kept for older scripts (a report run by hand is always an interim report)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -538,13 +554,24 @@ func cmdReport(args []string) error {
 	if !in.Empty() {
 		dir, err = a.ReportFromFiles(in, *out)
 	} else {
-		dir, err = a.ReportNow(!*preview)
+		dir, err = a.ReportNow(false)
 	}
 	if err != nil {
 		return err
 	}
 	fmt.Println("Report written:", filepath.Join(dir, "report.html"))
+	if in.Empty() {
+		if _, next, err := a.NextScheduled(); err == nil {
+			fmt.Printf("This is an interim report; the schedule is unchanged. Next scheduled report: %s\n", next.In(time.Local).Format("Monday 2 Jan 2006 15:04"))
+		}
+	}
 	return nil
+}
+
+// reported says whether this computer has produced a scheduled report.
+func reported(a *app.App) bool {
+	last, _, err := a.NextScheduled()
+	return err == nil && !last.IsZero()
 }
 
 func cmdCheck(args []string) error {

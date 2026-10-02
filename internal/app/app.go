@@ -283,7 +283,7 @@ func (a *App) Scheduled() (string, error) {
 		a.send(st)
 		return "", nil
 	}
-	end, due := DueWindowEnd(a.Cfg.ReportEvery, st.State.LastWindowEnd, a.now(), a.loc())
+	end, due := DueWindowEnd(a.Cfg.ReportEvery, a.Cfg.ReportAt, st.State.LastWindowEnd, a.now(), a.loc())
 	if !due {
 		a.archiveLogs(st, a.now(), false)
 		return "", nil
@@ -292,7 +292,8 @@ func (a *App) Scheduled() (string, error) {
 }
 
 // ReportNow collects and produces a report up to now. With advance=false
-// the report chain is left untouched (a preview).
+// it is an interim report: the schedule and report chain are untouched,
+// and the next scheduled report covers the same time again.
 func (a *App) ReportNow(advance bool) (string, error) {
 	st, unlock, err := a.open()
 	if err != nil {
@@ -393,7 +394,7 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 	r := report.Build(events, runs, report.Options{
 		Site:        a.Cfg.SiteName,
 		WindowStart: prevEnd, WindowEnd: end, Generated: generated, Version: a.Version,
-		Source: "Live collection", Location: a.loc(), InReportsDir: true,
+		Source: "Live collection", Location: a.loc(), InReportsDir: true, Interim: !advance,
 		ExcludeUsers: a.Cfg.ExcludeUsers, ExcludeProcesses: a.Cfg.ExcludeProcesses,
 		KnownDevices: st.State.KnownDevices, CheckSets: sets,
 		Context: context, Baseline: st.State.Baseline, BaselineHosts: st.State.BaselineHosts,
@@ -407,7 +408,7 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 	}
 	name := report.DirName(end, r.Hosts, a.loc())
 	if !advance {
-		name += "_preview"
+		name += "_interim"
 	}
 	dir := report.UniqueDir(a.ReportsDir(), name)
 	if err := r.Write(dir); err != nil {
@@ -542,21 +543,13 @@ func SelectWindow(all []*event.Event, prevEnd, prevGen, end, generated time.Time
 
 // DueWindowEnd returns the end of the next scheduled report period and
 // whether it is due. The first report is produced immediately; after
-// that, periods end at local midnight (daily), Monday 00:00 (weekly) or
-// the 1st of the month (monthly).
-func DueWindowEnd(every string, lastEnd, now time.Time, loc *time.Location) (time.Time, bool) {
+// that, periods end at the configured time (see config.ReportAt): each
+// day, each week on the configured day, or on the 1st of each month.
+func DueWindowEnd(every string, at config.ReportAt, lastEnd, now time.Time, loc *time.Location) (time.Time, bool) {
 	if lastEnd.IsZero() {
 		return now, true
 	}
-	n := now.In(loc)
-	b := time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, loc)
-	switch every {
-	case "weekly":
-		off := (int(b.Weekday()) + 6) % 7 // days since Monday
-		b = b.AddDate(0, 0, -off)
-	case "monthly":
-		b = time.Date(n.Year(), n.Month(), 1, 0, 0, 0, 0, loc)
-	}
+	b := at.LastBoundary(every, now, loc)
 	if b.After(lastEnd) {
 		return b, true
 	}

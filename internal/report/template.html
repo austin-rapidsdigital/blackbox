@@ -261,7 +261,7 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid var(--ink-200);colo
 
 {{define "overview"}}
 <section>
-  <h1>{{if .Site}}{{.Site}} — {{end}}Audit Report</h1>
+  <h1>{{if .Site}}{{.Site}} — {{end}}{{if .Interim}}Interim {{end}}Audit Report</h1>
   <div class="meta"><span>{{if gt (len .Hosts) 6}}<a href="#systems">{{len .Hosts}} systems</a>{{else}}System{{if gt (len .Hosts) 1}}s{{end}}: {{if .Hosts}}{{join .Hosts ", "}}{{else}}—{{end}}{{end}}</span><span>{{commas (len .Events)}} security-relevant events</span><span>Generated {{stamp .Generated}} {{zone .Generated}}</span></div>
 
   <div class="period">
@@ -271,6 +271,9 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid var(--ink-200);colo
     <div><div class="lbl">Source</div><div class="v">{{.Source}}</div><div class="sub">{{if .Health.Runs}}{{.Health.Runs}} collection run{{if gt .Health.Runs 1}}s{{end}}{{end}}</div></div>
   </div>
 
+  {{if .Interim}}
+  <div class="status warn"><strong>Interim report.</strong> Run by hand {{stamp .Generated}} {{zone .Generated}}, between scheduled reports. It does not change the schedule: the next scheduled report covers this time again, and that report's folder holds the original logs.</div>
+  {{end}}
   {{if or .Health.Gaps .Health.LogClears .Health.AuditOff .Silent}}
   <div class="status bad"><strong>The audit trail is not complete for this period.</strong>
     <ul>
