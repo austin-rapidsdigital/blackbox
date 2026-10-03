@@ -42,3 +42,32 @@ func TestSavedText(t *testing.T) {
 		t.Errorf("savedText = %q", got)
 	}
 }
+
+// E1: clearing a setting says so.
+func TestSavedTextEmpty(t *testing.T) {
+	if got := savedText("exclude_users", ""); !strings.HasPrefix(got, "Cleared exclude_users.") {
+		t.Errorf("savedText = %q", got)
+	}
+}
+
+// A9: less than a year of retention needs a typed yes, or --yes.
+func TestConfirmRetention(t *testing.T) {
+	if err := confirmRetention("retention_days", "400", false, false, strings.NewReader("")); err != nil {
+		t.Errorf("400 days: %v", err)
+	}
+	if err := confirmRetention("retention_days", "30", false, false, strings.NewReader("")); err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Errorf("30 days, no prompt: %v", err)
+	}
+	if err := confirmRetention("retention_days", "30", true, false, strings.NewReader("")); err != nil {
+		t.Errorf("30 days --yes: %v", err)
+	}
+	if err := confirmRetention("retention_days", "30", false, true, strings.NewReader("yes\n")); err != nil {
+		t.Errorf("30 days, yes typed: %v", err)
+	}
+	if err := confirmRetention("retention_days", "30", false, true, strings.NewReader("n\n")); err == nil {
+		t.Error("30 days, no: changed anyway")
+	}
+	if err := confirmRetention("retention_days", "0", false, false, strings.NewReader("")); err != nil {
+		t.Errorf("0 (keep forever): %v", err)
+	}
+}

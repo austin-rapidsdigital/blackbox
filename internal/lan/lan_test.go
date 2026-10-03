@@ -391,3 +391,24 @@ func TestFillGap(t *testing.T) {
 		t.Errorf("filled: %+v", g)
 	}
 }
+
+// L1: a batch that can't be read is set aside, and the others are still
+// imported.
+func TestUnreadableBatchDoesNotBlockImport(t *testing.T) {
+	in := inbox(t)
+	ws := system(t, "WS-01", "windows", 3, t0)
+	send(t, ws, "WS-01", in, t0)
+	// A dangling link stands in for a file the collector can't read.
+	bad := filepath.Join(in, "AAA_0123456789abcdef_0000000001.bbx")
+	if err := os.Symlink(filepath.Join(in, "gone"), bad); err != nil {
+		t.Skip("symlinks not available:", err)
+	}
+	col, _ := store.Open(t.TempDir())
+	res, err := Import(col, in, "", t0.Add(time.Minute), t.Logf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Batches != 1 || len(res.Rejected) != 1 || !strings.Contains(res.Rejected[0], "could not be read") {
+		t.Errorf("import: %+v", res)
+	}
+}

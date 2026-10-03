@@ -92,8 +92,14 @@ func prepareInbox(opt Options, logf func(string, ...any)) error {
 		}
 		fallthrough
 	case opt.ShareInbox:
+		// Batches cross the network encrypted (N1): SMB 3 encryption on
+		// Blackbox's own share. Senders that can't encrypt are refused.
+		if out, err := hidden.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+			"Set-SmbShare -Name '"+ShareName+"' -EncryptData $true -Force -ErrorAction Stop").CombinedOutput(); err != nil {
+			return fmt.Errorf("could not turn on encryption for the %s share (Set-SmbShare -EncryptData): %v: %s", ShareName, err, strings.TrimSpace(string(out)))
+		}
 		host, _ := os.Hostname()
-		logf("Network share:       \\\\%s\\%s (members of %q may deliver)", host, ShareName, SendersGroup)
+		logf("Network share:       \\\\%s\\%s (members of %q may deliver; encrypted)", host, ShareName, SendersGroup)
 	case shared:
 		hidden.Command("net.exe", "share", ShareName, "/delete", "/y").Run()
 		logf("Network share:       %s removed", ShareName)

@@ -131,3 +131,13 @@ func TestSwapInAndRollBack(t *testing.T) {
 		t.Error("the older .old was touched")
 	}
 }
+
+// L4: a sender's schedule says it sends; it makes no reports.
+func TestScheduleWhat(t *testing.T) {
+	if s := scheduleWhat(Options{Answers: Answers{SendTo: "//C/BlackboxInbox", ReportEvery: "weekly"}}); strings.Contains(s, "report") {
+		t.Errorf("sender: %q", s)
+	}
+	if s := scheduleWhat(Options{Answers: Answers{ReportEvery: "weekly"}}); s != "weekly reports" {
+		t.Errorf("standalone: %q", s)
+	}
+}

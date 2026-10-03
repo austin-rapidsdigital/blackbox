@@ -56,7 +56,7 @@ func Run(o Options) (Result, error) {
 	if err != nil {
 		return res, err
 	}
-	a := &app.App{Cfg: cfg, Version: o.Version, Logf: logf}
+	a := &app.App{Cfg: cfg, Version: o.Version, Logf: logf, QuietSend: true}
 	if cfg.MakesReports() {
 		res.ReportsDir = cfg.ReportsDir()
 		// Made now, not with the first report: an upgrade makes no report,

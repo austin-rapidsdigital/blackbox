@@ -70,6 +70,10 @@ type State struct {
 	Senders map[string]*SenderState `json:"senders,omitempty"` // by sender ID
 	Systems map[string]*System      `json:"systems,omitempty"` // by SystemKey(host)
 	Pending *PendingImport          `json:"pending_import,omitempty"`
+
+	// RemovedReports are report folders deleted under retention_days since
+	// the last scheduled report, which lists them (A9).
+	RemovedReports []string `json:"removed_reports,omitempty"`
 }
 
 // Gap records events lost before they could be collected.

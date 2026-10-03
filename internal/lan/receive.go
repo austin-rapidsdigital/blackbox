@@ -115,7 +115,9 @@ func Import(st *store.Store, inbox, archivesDir string, now time.Time, logf func
 		path := filepath.Join(inbox, it.name)
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return res, err
+			// One file that can't be read must not hold up the others (L1).
+			res.Rejected = append(res.Rejected, reject(inbox, it.name, "it could not be read: "+err.Error()))
+			continue
 		}
 		b, err := Decode(bytes.NewReader(data))
 		if err == nil && (b.SenderID != it.id || b.Seq != it.seq) {

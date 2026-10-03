@@ -89,7 +89,7 @@ func Install(opt Options) error {
 			return fmt.Errorf("systemctl %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 		}
 	}
-	logf("Scheduled:           blackbox.timer — collects %s as root; %s reports", EveryText(opt.CollectEvery), opt.ReportEvery)
+	logf("Scheduled:           blackbox.timer — collects %s as root; %s", EveryText(opt.CollectEvery), scheduleWhat(opt))
 	return nil
 }
 

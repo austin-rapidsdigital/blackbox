@@ -83,6 +83,20 @@ The Linux service is also sandboxed with `ProtectSystem=strict`,
   zip's SHA-256 is in its report's manifest.sha256.
 - **Share mount (Linux).** The share is mounted inside Blackbox's data
   folder only, with root-only file permissions and `nosuid,nodev,noexec`.
+- **Encrypted in transit (SMB).** A Windows collector turns on SMB 3
+  encryption for its `BlackboxInbox` share (`Set-SmbShare -EncryptData
+  $true`), so a sender that can't encrypt is refused rather than sending
+  in the clear. Linux senders mount it with `seal` (SMB 3 encryption);
+  against a collector that doesn't offer encryption, setup fails with
+  "could not connect with an encrypted connection" and says how to turn
+  it on. Windows senders encrypt automatically when the share asks.
+  Batches in a VirtualBox shared folder never cross a network.
+- **Firewall and network profile.** File sharing must be allowed on the
+  collector for the network senders are on. Windows blocks it on a
+  network marked **Public**; on an isolated lab network, mark it
+  **Private** (Settings > Network > the network > Private), or allow
+  "File and Printer Sharing (SMB-In)" for that profile only. Blackbox
+  does not change firewall rules or network profiles.
 - **Tamper evidence in transit.** Each batch has:
   - a SHA-256 checksum, and a closing record that detects a cut-short file
   - a per-sender sequence number
@@ -100,11 +114,25 @@ The Linux service is also sandboxed with `ProtectSystem=strict`,
   data. The Systems page lists every computer seen, so an unexpected one
   stands out. If one computer delivers collection records for another,
   the report marks that system "via" the computer that delivered them.
+- **Which account delivered a batch (not checked yet, L2).** Any member
+  of Blackbox Senders can write a batch to the inbox, and the collector
+  does not compare the account that wrote the file with the sender it
+  claims to be. A sender could therefore deliver batches under another
+  sender's name; the sequence numbers would then show a gap or a
+  duplicate for the real one, and the report says so. A planned check
+  would record, for each sender ID, the account that owned its first
+  batch (the file's owner on NTFS, or the mounting account on Linux), and
+  set aside later batches owned by anyone else. Until then, give each
+  sender its own account, and keep Blackbox Senders to those accounts.
 
 ## Integrity
 
 - Every report folder has a `manifest.sha256`. `blackbox verify` or
-  `sha256sum -c manifest.sha256` detects any change.
+  `sha256sum -c manifest.sha256` detects any change, and any file the
+  report needs that is missing. It detects accidental damage, not
+  deliberate editing: someone who can change the report can also
+  rewrite its manifest. Keep reports where only administrators can
+  write, and copy them off the system for long-term evidence.
 - Collected events are only marked as read after they are safely written
   to disk, so a crash cannot lose them.
 

@@ -35,6 +35,9 @@ type App struct {
 	LiveLogs func(host string, from, to time.Time) ([]*event.Event, []string, error)
 	// BootTime is when this computer last started (tests replace it).
 	BootTime func() time.Time
+	// QuietSend leaves the send result out of the log, for a caller that
+	// says it in its own words (setup), so it isn't printed twice (L4).
+	QuietSend bool
 }
 
 func (a *App) now() time.Time {
@@ -277,6 +280,7 @@ func (a *App) send(st *store.Store) SendResult {
 		st.Save()
 	}
 	switch {
+	case a.QuietSend:
 	case r.Err != nil:
 		a.logf("could not send to the collector: %v; %d batch(es) waiting, will retry next run", r.Err, r.Waiting)
 	case r.Delivered > 0 || r.ArchivesDelivered > 0:
@@ -421,8 +425,12 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		WorkingHours: a.Cfg.WorkingHours,
 		Archives:     logs, ArchivesKept: advance,
 		Systems: systemsFor(st, prevEnd), Collector: a.Cfg.Inbox != "",
-		LANWarnings: lanWarnings(st, prevGen, generated, a.loc()),
+		LANWarnings:   lanWarnings(st, prevGen, generated, a.loc()),
+		RetentionDays: a.Cfg.RetentionDays,
 	})
+	if advance {
+		r.Removed = st.State.RemovedReports
+	}
 	if len(r.Hosts) == 0 {
 		r.Hosts = []string{collect.LocalHost()}
 	}
@@ -452,8 +460,14 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		if err := st.Prune(a.Cfg.RetentionDays, generated); err != nil {
 			a.logf("pruning old data: %v", err)
 		}
-		if err := pruneReports(a.ReportsDir(), a.Cfg.RetentionDays, generated); err != nil {
+		removed, err := pruneReports(a.ReportsDir(), a.Cfg.RetentionDays, generated)
+		if err != nil {
 			a.logf("pruning old reports: %v", err)
+		}
+		// Listed in the next scheduled report; this one listed the last.
+		st.State.RemovedReports = removed
+		if err := st.Save(); err != nil {
+			a.logf("noting removed reports: %v", err)
 		}
 		for _, d := range []string{a.pendingLogsDir(), a.legacyLogsDir()} {
 			if err := archive.Prune(d, a.Cfg.RetentionDays, generated); err != nil {
@@ -576,14 +590,15 @@ func DueWindowEnd(every string, at config.ReportAt, lastEnd, now time.Time, loc 
 	return time.Time{}, false
 }
 
-func pruneReports(dir string, days int, now time.Time) error {
+func pruneReports(dir string, days int, now time.Time) ([]string, error) {
 	if days <= 0 {
-		return nil
+		return nil, nil
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var removed []string
 	cut := now.AddDate(0, 0, -days)
 	for _, e := range entries {
 		if !e.IsDir() {
@@ -597,10 +612,11 @@ func pruneReports(dir string, days int, now time.Time) error {
 			continue // only remove folders Blackbox created
 		}
 		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
-			return err
+			return removed, err
 		}
+		removed = append(removed, e.Name())
 	}
-	return nil
+	return removed, nil
 }
 
 // Inputs are exported log files for a one-off report.
