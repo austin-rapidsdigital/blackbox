@@ -78,7 +78,7 @@ with no runtime to install: no Python, .NET, Java or Node.
     actor (user and SID/UID), target, action, outcome, source IP, process,
     command line, raw event.
 - **Classify and translate**
-  - A built-in catalog (`internal/winevt/translate.go`) maps each raw event
+  - A built-in catalog (`internal/winevt/translate*.go`) maps each raw event
     to a category and a plain-English sentence. Many events need logic, not
     just a template: decoding failure codes, telling a real person from a
     service account, working out elevation. So the catalog is Go code with

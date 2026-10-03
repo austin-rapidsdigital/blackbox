@@ -30,6 +30,14 @@ TZ=America/New_York scripts/screenshots.sh   # regenerate docs/images
 Go 1.24 or later is required. There are no other dependencies, and
 everything builds offline.
 
+`TestGolden` builds a report from the sample logs in `testdata/` and
+compares its detections, rows and `summary.json` with
+`internal/report/testdata/golden.txt`. When a change is meant to alter
+what a report says, run `go test ./internal/report -run TestGolden -update`
+and check the diff of that file with the change. The rules for what is
+left out of a report and what is merged into one row are listed at the
+top of `internal/report/merge.go`.
+
 `scripts/build.sh` embeds the program icon and version details (publisher,
 version, description) in `blackbox.exe`, using `scripts/winres`, a small
 standard-library generator. A plain `go build` for Windows works but
