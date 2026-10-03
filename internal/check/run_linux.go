@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Supported reports whether the live check works on this OS.
@@ -72,6 +73,7 @@ func Run() []Result {
 	out = append(out, EvaluateTimeSync(active))
 	sudoV, _ := exec.Command("sudo", "-V").Output()
 	out = append(out, EvaluateSudo(string(sudoV)))
+	out = append(out, clamAV()...)
 	sys := Result{Area: "System log", Item: "Kernel and udisks messages kept", Want: "syslog file or persistent journal",
 		Affects: "USB & Removable Media (device details and who mounted them)"}
 	switch {
@@ -155,4 +157,31 @@ func RulesOnlyInAuditRules() int {
 		}
 	}
 	return NotInRulesD(string(b), d)
+}
+
+// clamAV checks ClamAV's definitions and scanner service, if installed.
+func clamAV() []Result {
+	var version []byte
+	installed := false
+	for _, prog := range []string{"clamscan", "clamdscan"} {
+		if p, err := exec.LookPath(prog); err == nil {
+			installed = true
+			if version, err = exec.Command(p, "--version").Output(); err == nil && len(version) > 0 {
+				break
+			}
+		}
+	}
+	service := ""
+	for _, unit := range []string{"clamav-daemon", "clamd@scan", "clamd"} {
+		out, _ := exec.Command("systemctl", "is-active", unit).Output()
+		state := strings.TrimSpace(string(out))
+		if exists, _ := exec.Command("systemctl", "cat", unit).Output(); len(exists) == 0 {
+			continue
+		}
+		service = state
+		if state == "active" {
+			break
+		}
+	}
+	return EvaluateClamAV(string(version), installed, service, time.Now())
 }

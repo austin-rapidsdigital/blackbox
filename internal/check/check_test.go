@@ -317,9 +317,13 @@ func TestDefender(t *testing.T) {
 	if len(rs) != 2 || rs[0].Status != Pass || !strings.Contains(rs[0].Have, "1.419.231.0 · version created on 1 Oct 2026") || rs[1].Status != Pass {
 		t.Errorf("fresh definitions: %+v", rs)
 	}
-	old := strings.Replace(strings.Replace(fresh, "1790848800000", "1789639200000", 1), `"RealTimeProtectionEnabled":true`, `"RealTimeProtectionEnabled":false`, 1)
+	// Up to 30 days old is current; older is a gap.
+	if rs := EvaluateDefender(strings.Replace(fresh, "1790848800000", "1789639200000", 1), nil, now); rs[0].Status != Pass || !strings.Contains(rs[0].Have, "15 days old") {
+		t.Errorf("15-day-old definitions: %+v", rs[0])
+	}
+	old := strings.Replace(strings.Replace(fresh, "1790848800000", "1788256800000", 1), `"RealTimeProtectionEnabled":true`, `"RealTimeProtectionEnabled":false`, 1)
 	rs = EvaluateDefender(old, nil, now)
-	if rs[0].Status != Fail || !strings.Contains(rs[0].Have, "15 days old") || !strings.Contains(rs[0].Fix, "Security Intelligence Updates") {
+	if rs[0].Status != Fail || !strings.Contains(rs[0].Have, "31 days old") || !strings.Contains(rs[0].Fix, "Security Intelligence Updates") {
 		t.Errorf("old definitions: %+v", rs[0])
 	}
 	if rs[1].Status != Fail || !strings.Contains(rs[1].Fix, "Real-time Protection > Turn off real-time protection: Disabled") {

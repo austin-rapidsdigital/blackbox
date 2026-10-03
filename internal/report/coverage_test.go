@@ -1,9 +1,11 @@
 package report
 
 import (
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/casea1/blackbox/internal/check"
 	"github.com/casea1/blackbox/internal/event"
 	"github.com/casea1/blackbox/internal/store"
 )
@@ -22,5 +24,19 @@ func TestOtherSecurityEventsOnHealth(t *testing.T) {
 	}
 	if hp.Other[0].ID != 5379 || hp.Other[0].Listed || hp.Other[1].ID != 4910 || !hp.Other[1].Listed || hp.Other[1].Href == "" {
 		t.Errorf("other: %+v", hp.Other)
+	}
+}
+
+// ClamAV definitions out of date make a Linux system "worth a look", as
+// Defender's do on Windows.
+func TestClamAVOutOfDate(t *testing.T) {
+	end := fx0.Add(24 * time.Hour)
+	rs := check.EvaluateClamAV("ClamAV 1.0.7/27300/Sat Aug 15 08:00:00 2026", true, "active", end)
+	r := Build([]*event.Event{{Time: fx0, Host: "ubu1", OS: "linux", Category: event.CatLogon, Severity: event.SevInfo, Action: "logon", Summary: "x"}},
+		[]*store.Run{{Time: fx0.Add(time.Hour), Host: "ubu1", OS: "linux"}},
+		Options{WindowEnd: end, Location: time.UTC, Systems: []SystemInfo{{Name: "ubu1", OS: "linux", LastRun: fx0.Add(time.Hour)}},
+			CheckSets: []CheckSet{NewCheckSet("ubu1", fx0, rs)}})
+	if len(r.SystemRows) != 1 || !strings.Contains(r.SystemRows[0].StatusMsg, "Antivirus definitions are out of date") {
+		t.Errorf("system: %+v", r.SystemRows)
 	}
 }

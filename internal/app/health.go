@@ -31,7 +31,7 @@ type Health struct {
 	Latest     *report.IndexEntry // newest report, if any
 
 	AuditGaps map[string]int // host → audit settings that don't match the STIG
-	AVOld     []string       // hosts whose Defender intelligence is out of date
+	AVOld     []string       // hosts whose antivirus (Defender or ClamAV) definitions are out of date
 	Quiet     map[string]time.Time
 	Rejected  int // files set aside in the inbox
 
