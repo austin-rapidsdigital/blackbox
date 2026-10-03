@@ -18,6 +18,6 @@ var RecordTypeNames = map[string]string{
 	"TTY": "Keystrokes (TTY auditing)", "USER_TTY": "Keystrokes (TTY auditing)",
 	"LOGIN": "Login ID set", "USER_ROLE_CHANGE": "SELinux role change", "MAC_STATUS": "SELinux mode changed",
 	"ANOM_LOGIN_FAILURES": "Too many failed logons", "RESP_ACCT_LOCK": "Account locked",
-	"kernel": "Kernel messages", "sshd": "SSH server", "sudo": "sudo", "CRON": "Scheduled jobs (cron)",
+	"kernel": "Kernel messages", "sshd": "SSH server", "sshd-session": "SSH server", "sshd-auth": "SSH server", "sudo": "sudo", "CRON": "Scheduled jobs (cron)",
 	"systemd": "Service manager", "NetworkManager": "Network manager", "udisksd": "Disk mounting service",
 }

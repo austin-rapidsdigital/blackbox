@@ -43,6 +43,10 @@ type SystemRow struct {
 	Problems  int    // lost events, cleared logs and read errors
 	Status    string // ok | warn | silent
 	StatusMsg string
+	// AuditOff is why auditing was not running at the last collection in
+	// this period ("" when it was).
+	AuditOff string
+	auditAt  time.Time
 
 	runTimes []time.Time          // collection runs in this period
 	gaps     []store.Gap          // events lost before they were collected
@@ -102,6 +106,9 @@ func (r *Report) buildSystems(runs []*store.Run, events []*event.Event) {
 		}
 		if !run.Time.Before(r.WindowStart) && !run.Time.After(r.WindowEnd) {
 			s.runTimes = append(s.runTimes, run.Time)
+			if !run.Time.Before(s.auditAt) {
+				s.auditAt, s.AuditOff = run.Time, run.AuditOff
+			}
 		}
 		for _, c := range run.Channels {
 			if c.Gap != nil || c.Reset || c.Error != "" {
@@ -166,6 +173,9 @@ func (r *Report) buildSystems(runs []*store.Run, events []*event.Event) {
 					r.stamp(s.LastRun), roughDuration(r.WindowEnd.Sub(s.LastRun)))
 			}
 			s.StatusMsg += " It may have been switched off, or it cannot reach the collector."
+		case s.AuditOff != "":
+			s.Status = "warn"
+			s.StatusMsg = fmt.Sprintf("Auditing was off at the last collection (%s): %s.", r.stamp(s.auditAt), s.AuditOff)
 		case !vm && r.WindowEnd.Sub(s.LastRun) > silentAfter:
 			s.Status = "warn"
 			s.StatusMsg = fmt.Sprintf("Last collection %s, %s before the end of this report.", r.stamp(s.LastRun), roughDuration(r.WindowEnd.Sub(s.LastRun)))
@@ -205,6 +215,11 @@ func (r *Report) buildSystems(runs []*store.Run, events []*event.Event) {
 		}
 		if s.Status == "silent" {
 			r.Silent = append(r.Silent, s)
+		}
+		if s.AuditOff != "" {
+			r.Health.AuditOff = append(r.Health.AuditOff, fmt.Sprintf("%s: auditing was not running at the collection at %s (%s).",
+				s.Name, r.stamp(s.auditAt), s.AuditOff))
+			r.Health.Warnings = append(r.Health.Warnings, s.Name+": "+s.StatusMsg)
 		}
 	}
 	sort.Slice(r.Hosts, func(i, j int) bool { return strings.ToLower(r.Hosts[i]) < strings.ToLower(r.Hosts[j]) })

@@ -261,6 +261,10 @@ func (r *Report) healthPage() *HealthPage {
 				Explain: fmt.Sprintf("Cleared%s on %s%s. Events from before then are only in the original-log archive.", times(n),
 					cleared[h][0].Time.In(r.Location).Format("2 Jan 15:04"), by)}, s.Name)
 		}
+		if s.AuditOff != "" {
+			addGap("auditoff", GapCard{Title: "Auditing is off", Level: "bad",
+				Explain: "At the last collection auditing was not running (the audit service stopped, or kernel auditing switched off), so nothing was being recorded. Start it with systemctl start auditd, and auditctl -e 1 if kernel auditing is off. The system's own page says which."}, s.Name)
+		}
 		if s.Status == "silent" {
 			addGap("silent", GapCard{Title: "No data received", Level: "bad",
 				Explain: "No collection arrived in this period. Check the system is on and can reach the collector."}, s.Name)

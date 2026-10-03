@@ -27,19 +27,121 @@ type Translator struct {
 	scsiHost map[string]string     // host|scsi host number → USB port
 	recent   []recentCmd           // latest commands, to name groups usermod does not record
 	groupPID map[string]string     // host|pid → group just created by useradd
+	tried    []triedName           // account names in recent failed SSH password checks
+	starting map[string]startup    // host|session → login scripts running in it
+}
+
+// startup is a logon's own scripts running as root in a session: the
+// login message (pam_motd runs /etc/update-motd.d) or a root login
+// shell's profile (sudo -i, su -).
+type startup struct {
+	t    time.Time
+	motd bool
+}
+
+// profileCommands are what /etc/profile, /etc/profile.d, /etc/bash.bashrc
+// and the default .bashrc and .profile run when a login shell starts.
+var profileCommands = map[string]bool{
+	"locale-check": true, "id": true, "lesspipe": true, "dircolors": true, "tty": true, "mesg": true, "groups": true,
+	"basename": true, "dirname": true, "uname": true, "locale": true, "hostname": true, "debuginfod-find": true,
+	"byobu-launch": true, "byobu-launcher": true, "whoami": true,
+}
+
+// startup reports whether a root command belongs to a logon's own scripts
+// rather than to the person. skip is true when it does; e is then the one
+// line kept for them (the scripts starting), or nil for each command they
+// run.
+func (t *Translator) startup(r *Record, actor, cmd string) (e *event.Event, skip bool) {
+	if actor == "" || r.Get("euid") != "0" {
+		return nil, false
+	}
+	if t.starting == nil {
+		t.starting = map[string]startup{}
+	}
+	k := t.hostOf(r) + "|" + r.Get("ses")
+	f := strings.Fields(cmd)
+	switch {
+	case len(f) > 0 && base(f[0]) == "run-parts" && strings.Contains(cmd, "/etc/update-motd.d"):
+		t.starting[k] = startup{r.Time, true}
+		return &event.Event{Category: event.CatPrivileged, Severity: event.SevInfo, Action: "login_scripts", User: actor,
+			Process: r.Get("exe"), Command: cmd, DedupeKey: "motd|" + actor,
+			Summary: fmt.Sprintf("The login message scripts (/etc/update-motd.d) ran as root when %s logged on; the commands they ran are not listed.", actor)}, true
+	case len(f) > 0 && strings.HasPrefix(f[0], "-") && shells[strings.TrimPrefix(base(f[0]), "-")]:
+		t.starting[k] = startup{r.Time, false}
+		return &event.Event{Category: event.CatPrivileged, Severity: event.SevInfo, Action: "login_scripts", User: actor,
+			Process: r.Get("exe"), Command: cmd, DedupeKey: "rootlogin|" + actor,
+			Summary: fmt.Sprintf("%s started a root login shell (%s); the commands its startup scripts ran are not listed.", actor, f[0])}, true
+	}
+	s, ok := t.starting[k]
+	if !ok {
+		return nil, false
+	}
+	switch {
+	case s.motd && r.Time.Sub(s.t) <= 30*time.Second:
+		// Everything run as root before the session itself starts is the
+		// login message.
+		return nil, true
+	case !s.motd && r.Time.Sub(s.t) <= 3*time.Second && len(f) > 0:
+		p := base(f[0])
+		if profileCommands[p] || strings.Contains(cmd, "/etc/profile.d/") ||
+			(p == "cat" && strings.Contains(cmd, "/etc/debuginfod/")) {
+			return nil, true
+		}
+		return nil, false
+	}
+	delete(t.starting, k)
+	return nil, false
+}
+
+// endStartup marks a session's own scripts finished: the session has
+// started, or the person ran sudo or su.
+func (t *Translator) endStartup(host, ses string) {
+	if t.starting != nil {
+		delete(t.starting, host+"|"+ses)
+	}
+}
+
+type triedName struct {
+	t               time.Time
+	host, pid, addr string
+	name            string
+}
+
+// triedName is the account name of the latest failed SSH password check
+// by the same sshd process, just before it recorded the logon as an
+// unknown user. OpenSSH 10 may check the password in another process, so
+// failing that, the check from the same address a moment before.
+func (t *Translator) triedName(tm time.Time, host, pid, addr string) string {
+	for i := len(t.tried) - 1; i >= 0; i-- {
+		x := t.tried[i]
+		if x.host != host || x.t.After(tm) || tm.Sub(x.t) > 2*time.Minute {
+			continue
+		}
+		if pid != "" && x.pid == pid {
+			return x.name
+		}
+	}
+	for i := len(t.tried) - 1; i >= 0; i-- {
+		x := t.tried[i]
+		if x.host == host && x.addr == addr && !x.t.After(tm) && tm.Sub(x.t) <= 3*time.Second {
+			return x.name
+		}
+	}
+	return ""
 }
 
 type recentCmd struct {
 	t    time.Time
 	host string
 	cmd  string
+	who  string
 }
 
-func (t *Translator) remember(tm time.Time, host, cmd string) {
+func (t *Translator) remember(tm time.Time, host, cmd, who string) {
 	if cmd == "" {
 		return
 	}
-	t.recent = append(t.recent, recentCmd{tm, host, cmd})
+	t.recent = append(t.recent, recentCmd{tm, host, cmd, who})
 	if len(t.recent) > 32 {
 		t.recent = t.recent[len(t.recent)-32:]
 	}
@@ -324,6 +426,18 @@ func (t *Translator) acct(r *Record) string {
 	return ""
 }
 
+// program names a program by its file name. OpenSSH 9.8 and later split
+// the server into sshd, sshd-session and sshd-auth, which record the same
+// logon; they are all "sshd" here, so their records merge.
+func program(exe string) string {
+	switch b := base(exe); b {
+	case "sshd-session", "sshd-auth":
+		return "sshd"
+	default:
+		return b
+	}
+}
+
 func base(p string) string {
 	if p == "" {
 		return ""
@@ -333,7 +447,7 @@ func base(p string) string {
 
 // session describes how someone logged on.
 func session(exe, terminal string) (phrase, label string) {
-	b := base(exe)
+	b := program(exe)
 	switch {
 	case b == "sshd" || terminal == "ssh":
 		return "via SSH", "SSH"
@@ -356,8 +470,12 @@ func session(exe, terminal string) (phrase, label string) {
 func cleanAddr(a string) string {
 	a = strings.TrimPrefix(strings.TrimSpace(a), "::ffff:")
 	switch a {
-	case "", "?", "::1", "127.0.0.1", "0.0.0.0", "::", "UNKNOWN":
+	case "", "?", "0.0.0.0", "::", "UNKNOWN":
 		return ""
+	case "::1", "127.0.0.1":
+		// A logon from this computer to itself: still one source, so
+		// several accounts tried from it is still noticed.
+		return "localhost"
 	}
 	return a
 }
@@ -380,7 +498,7 @@ func (t *Translator) userLogin(r *Record) *event.Event {
 	acct := t.acct(r)
 	exe, term := r.Get("exe"), r.Get("terminal")
 	addr := cleanAddr(r.Get("addr"))
-	if addr == "" && base(exe) == "sshd" {
+	if addr == "" && program(exe) == "sshd" {
 		addr = cleanAddr(r.Get("hostname")) // for other programs it is this machine's own name
 	}
 	how, label := session(exe, term)
@@ -397,11 +515,16 @@ func (t *Translator) userLogin(r *Record) *event.Event {
 		return e
 	}
 	reason := "wrong password"
-	if base(exe) == "sshd" {
+	if program(exe) == "sshd" {
 		reason = "wrong password or key"
 	}
 	if acct == "" || strings.Contains(acct, "invalid") {
+		// sshd records "(invalid user)" here; the name that was tried is
+		// in the password check (USER_AUTH) just before it.
 		acct, reason = "(unknown user name)", "the user name does not exist"
+		if n := t.triedName(r.Time, t.hostOf(r), r.Get("pid"), addr); n != "" {
+			acct = n
+		}
 	}
 	return t.failedLogon(acct, how, label, addr, term, exe, reason, 2)
 }
@@ -409,7 +532,7 @@ func (t *Translator) userLogin(r *Record) *event.Event {
 func (t *Translator) failedLogon(acct, how, label, addr, term, exe, reason string, prio int) *event.Event {
 	e := &event.Event{Category: event.CatFailedLogon, Severity: event.SevLow, Action: "logon_failed",
 		User: acct, Target: acct, Outcome: "failure", SourceIP: addr,
-		DedupeKey: "authfail|" + base(exe) + "|" + addr + "|" + term + "|" + acct, Priority: prio,
+		DedupeKey: "authfail|" + program(exe) + "|" + addr + "|" + term + "|" + acct, Priority: prio,
 		Summary: fmt.Sprintf("Failed logon for %s %s%s — %s.", acct, how, fromAddr(addr), reason)}
 	e.AddDetail("Reason", reason)
 	e.AddDetail("Logon type", label)
@@ -426,7 +549,7 @@ func (t *Translator) userAuth(r *Record) *event.Event {
 	actor, acct := t.actor(r), t.acct(r)
 	exe, term := r.Get("exe"), r.Get("terminal")
 	addr := cleanAddr(r.Get("addr"))
-	switch base(exe) {
+	switch program(exe) {
 	case "sudo":
 		e := &event.Event{Category: event.CatFailedLogon, Severity: event.SevLow, Action: "logon_failed",
 			User: actor, Target: actor, Outcome: "failure",
@@ -449,7 +572,14 @@ func (t *Translator) userAuth(r *Record) *event.Event {
 	how, label := session(exe, term)
 	if acct == "" {
 		acct = "(unknown user name)"
+	} else if program(exe) == "sshd" {
+		t.tried = append(t.tried, triedName{r.Time, t.hostOf(r), r.Get("pid"), addr, acct})
+		if len(t.tried) > 32 {
+			t.tried = t.tried[len(t.tried)-32:]
+		}
 	}
+	// The password check can't tell a wrong password from a name that
+	// doesn't exist; the report corrects it when sshd says which.
 	return t.failedLogon(acct, how, label, addr, term, exe, "wrong password", 1)
 }
 
@@ -519,7 +649,7 @@ func (t *Translator) userCmd(r *Record) *event.Event {
 		actor = t.Users.Name(r.Get("uid"))
 	}
 	cmd := r.Get("cmd")
-	t.remember(r.Time, t.hostOf(r), cmd)
+	t.remember(r.Time, t.hostOf(r), cmd, actor)
 	e := &event.Event{Category: event.CatPrivileged, User: actor, Command: cmd, Process: r.Get("exe"),
 		DedupeKey: "cmd|" + actor + "|" + cmdKey(cmd), Priority: 2}
 	switch {
@@ -543,6 +673,7 @@ func (t *Translator) userCmd(r *Record) *event.Event {
 }
 
 func (t *Translator) userStart(r *Record) *event.Event {
+	t.endStartup(t.hostOf(r), r.Get("ses"))
 	if r.Get("res") != "success" {
 		return nil
 	}
@@ -725,9 +856,19 @@ func firstNonEmpty(v ...string) string {
 	return ""
 }
 
+// refused reports whether the kernel turned a change down: it writes res=0
+// (newer kernels: res=failed) when the rules are locked with -e 2.
+func refused(r *Record) bool {
+	res := r.Get("res")
+	return res == "0" || res == "failed" || res == "no"
+}
+
 func (t *Translator) configChange(r *Record) *event.Event {
 	actor := t.actor(r)
-	if v, ok := r.Fields["audit_enabled"]; ok {
+	if refused(r) {
+		return t.refusedChange(r, actor)
+	}
+	if v, ok := r.Fields["audit_enabled"]; ok && r.Get("op") != "add_rule" && r.Get("op") != "remove_rule" {
 		switch v {
 		case "0":
 			return &event.Event{Category: event.CatIntegrity, Severity: event.SevHigh, Action: "audit_disabled", User: actor,
@@ -772,6 +913,45 @@ func (t *Translator) configChange(r *Record) *event.Event {
 	return e
 }
 
+// refusedChange is an attempt to change auditing that the kernel refused,
+// normally because the rules are locked until reboot (-e 2). Nothing
+// changed, but someone tried: auditing stayed on.
+func (t *Translator) refusedChange(r *Record, actor string) *event.Event {
+	who := actor
+	if who == "" {
+		who = "A system process (no logged-in user)"
+	}
+	why := "the change was refused"
+	if r.Get("audit_enabled") == "2" || r.Get("old") == "2" {
+		why = "refused because the audit rules are locked until the next reboot"
+	}
+	e := &event.Event{Category: event.CatIntegrity, Severity: event.SevMedium, Action: "audit_rules_refused", User: actor,
+		Outcome: "failure", Target: r.Get("key")}
+	switch op := r.Get("op"); {
+	case op == "remove_rule":
+		e.Summary = fmt.Sprintf("%s tried to remove audit rules; %s. Auditing stayed on.", who, why)
+		e.DedupeKey = "auditrule|refused|remove"
+	case op == "add_rule":
+		e.Summary = fmt.Sprintf("%s tried to add an audit rule; %s.", who, why)
+		e.DedupeKey = "auditrule|refused|add"
+	case r.Get("audit_enabled") == "0":
+		e.Severity = event.SevHigh
+		e.Summary = fmt.Sprintf("%s tried to turn off auditing; %s. Auditing stayed on.", who, why)
+		e.DedupeKey = "auditrule|refused|off"
+	default:
+		e.Summary = fmt.Sprintf("%s tried to change the audit configuration (%s); %s.", who, orUnknownOp(op), why)
+		e.DedupeKey = "auditrule|refused|" + op
+	}
+	if actor == "" {
+		// A service reloading the rules (an auditd update, augenrules at
+		// a restart) is refused the same way; no person tried anything.
+		e.Severity = event.SevLow
+	}
+	e.AddDetail("Operation", r.Get("op"))
+	e.AddDetail("Result", "refused")
+	return e
+}
+
 func orUnknownOp(op string) string {
 	if op == "" {
 		return "setting not recorded"
@@ -779,13 +959,39 @@ func orUnknownOp(op string) string {
 	return op
 }
 
+// stopsAuditd matches a command that stops or restarts the audit service.
+var stopsAuditd = regexp.MustCompile(`\b(systemctl\s+(\S+\s+)*(stop|kill|restart|try-restart|reload-or-restart)\s+(\S+\s+)*auditd(\.service)?\b|service\s+auditd\s+(stop|restart|condrestart|force-reload)\b|(pkill|killall)\s+(\S+\s+)*auditd\b)`)
+
+// stoppedBy finds the person whose command stopped the audit service:
+// systemd sends the signal, so auditd's own record names no one.
+func (t *Translator) stoppedBy(tm time.Time, host string) (who, cmd string) {
+	for i := len(t.recent) - 1; i >= 0; i-- {
+		c := t.recent[i]
+		if c.host != host || c.who == "" || tm.Sub(c.t) > 2*time.Minute || c.t.After(tm.Add(5*time.Second)) {
+			continue
+		}
+		if stopsAuditd.MatchString(c.cmd) {
+			return c.who, c.cmd
+		}
+	}
+	return "", ""
+}
+
 func (t *Translator) auditdStopped(r *Record, prio int) *event.Event {
 	actor := t.actor(r)
+	cmd := ""
+	if actor == "" {
+		actor, cmd = t.stoppedBy(r.Time, t.hostOf(r))
+	}
 	e := &event.Event{Category: event.CatIntegrity, Action: "audit_stopped", User: actor,
-		DedupeKey: "auditd-stop", Priority: prio}
+		DedupeKey: "auditd-stop", Priority: prio, Command: cmd}
 	if actor != "" {
 		e.Severity = event.SevHigh
 		e.Summary = fmt.Sprintf("The audit service (auditd) was stopped by %s — events are not recorded while it is stopped.", actor)
+		if cmd != "" {
+			e.Summary = fmt.Sprintf("The audit service (auditd) was stopped by %s (%s) — events are not recorded while it is stopped.", actor, cmd)
+			e.AddDetail("Command", cmd)
+		}
 	} else {
 		e.Severity = event.SevLow
 		e.Summary = "The audit service (auditd) stopped (normal during a system shutdown)."
@@ -837,6 +1043,88 @@ func orUnknownProg(s string) string {
 }
 
 // ---------------------------------------------------------------- SYSCALL events
+
+// notDisks are filesystem types that never come from a disk.
+var notDisks = map[string]bool{"tmpfs": true, "proc": true, "sysfs": true, "devtmpfs": true, "devpts": true, "cgroup": true,
+	"cgroup2": true, "overlay": true, "squashfs": true, "fuse": true, "binfmt_misc": true, "debugfs": true, "tracefs": true,
+	"securityfs": true, "mqueue": true, "hugetlbfs": true, "bpf": true, "configfs": true, "efivarfs": true, "autofs": true,
+	"pstore": true, "ramfs": true, "nsfs": true, "fusectl": true, "rpc_pipefs": true}
+
+var networkFS = map[string]bool{"nfs": true, "nfs4": true, "cifs": true, "smb3": true, "smbfs": true, "sshfs": true,
+	"fuse.sshfs": true, "9p": true, "ceph": true, "glusterfs": true, "davfs": true}
+
+// mountKind says what a mount command mounted: "disk" (a device such as a
+// USB drive), "network" (a share on another computer) or "" (a memory or
+// system filesystem, or a folder bound or moved somewhere else).
+func mountKind(cmd string) string {
+	f := strings.Fields(cmd)
+	if len(f) == 0 || base(f[0]) != "mount" {
+		return ""
+	}
+	var fstype, opts string
+	var args []string
+	for i := 1; i < len(f); i++ {
+		w := f[i]
+		switch {
+		case w == "-t" || w == "--types":
+			if i+1 < len(f) {
+				fstype = f[i+1]
+				i++
+			}
+		case strings.HasPrefix(w, "--types="):
+			fstype = strings.TrimPrefix(w, "--types=")
+		case strings.HasPrefix(w, "-t") && len(w) > 2:
+			fstype = w[2:]
+		case w == "-o" || w == "--options":
+			if i+1 < len(f) {
+				opts += "," + f[i+1]
+				i++
+			}
+		case strings.HasPrefix(w, "--options="):
+			opts += "," + strings.TrimPrefix(w, "--options=")
+		case strings.HasPrefix(w, "-o") && len(w) > 2:
+			opts += "," + w[2:]
+		case w == "--bind" || w == "--rbind" || w == "--move" || w == "-B" || w == "-R" || w == "-M" ||
+			w == "--make-private" || w == "--make-shared" || w == "--make-slave" || w == "--make-rprivate":
+			return ""
+		case strings.HasPrefix(w, "-"):
+		default:
+			args = append(args, w)
+		}
+	}
+	for _, o := range strings.Split(opts, ",") {
+		if o == "bind" || o == "rbind" || o == "remount" || o == "move" {
+			return ""
+		}
+	}
+	for _, t := range strings.Split(fstype, ",") {
+		if notDisks[t] {
+			return ""
+		}
+		if networkFS[t] {
+			return "network"
+		}
+	}
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, "//") || strings.Contains(a, ":/"):
+			return "network"
+		case strings.HasPrefix(a, "/dev/") || strings.HasPrefix(a, "LABEL=") || strings.HasPrefix(a, "UUID=") ||
+			strings.HasPrefix(a, "PARTUUID="):
+			return "disk"
+		}
+	}
+	if len(args) == 1 && fstype == "" {
+		// "mount /mnt/usb": the device comes from /etc/fstab; a path
+		// where removable disks are mounted is taken as one.
+		for _, p := range []string{"/media/", "/run/media/", "/mnt"} {
+			if strings.HasPrefix(args[0], p) {
+				return "disk"
+			}
+		}
+	}
+	return ""
+}
 
 // accountTools legitimately write /etc/passwd, /etc/shadow and /etc/group;
 // their changes are reported from ADD_USER/USER_MGMT records instead.
@@ -973,7 +1261,7 @@ func (t *Translator) syscall(ev *Event, r *Record) *event.Event {
 	prog := base(exe)
 	cmd := commandLine(ev)
 	if sc == "execve" || sc == "execveat" {
-		t.remember(r.Time, t.hostOf(r), cmd)
+		t.remember(r.Time, t.hostOf(r), cmd, actor)
 	}
 	shown := firstNonEmpty(cmd, exe)
 	using := ""
@@ -1045,16 +1333,21 @@ func (t *Translator) syscall(ev *Event, r *Record) *event.Event {
 	case "mount":
 		e := &event.Event{Category: event.CatOther, Severity: event.SevLow, Action: "filesystem_mounted", User: actor,
 			Process: exe, Command: cmd, Summary: fmt.Sprintf("%s mounted a filesystem: %s", actor, shown)}
-		for _, w := range strings.Fields(cmd) {
-			if strings.HasPrefix(w, "/media/") || strings.HasPrefix(w, "/run/media/") || strings.HasPrefix(w, "/mnt") {
-				e.Category, e.Severity, e.Action = event.CatRemovable, event.SevMedium, "removable_mounted"
-				e.Summary = fmt.Sprintf("%s mounted a disk: %s", actor, shown)
-			}
+		switch mountKind(cmd) {
+		case "disk":
+			e.Category, e.Severity, e.Action = event.CatRemovable, event.SevMedium, "removable_mounted"
+			e.Summary = fmt.Sprintf("%s mounted a disk: %s", actor, shown)
+		case "network":
+			e.Summary = fmt.Sprintf("%s mounted a network share: %s", actor, shown)
 		}
 		return e
 	case "execve", "execveat":
 		if setuidHelpers[prog] {
+			t.endStartup(t.hostOf(r), r.Get("ses"))
 			return nil
+		}
+		if e, skip := t.startup(r, actor, cmd); skip {
+			return e
 		}
 		uid, euid := r.Get("uid"), r.Get("euid")
 		key := r.Get("key")

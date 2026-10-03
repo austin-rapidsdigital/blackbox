@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -33,6 +34,10 @@ type Health struct {
 	AVOld     []string       // hosts whose Defender intelligence is out of date
 	Quiet     map[string]time.Time
 	Rejected  int // files set aside in the inbox
+
+	// AuditOff lists the systems whose last collection found auditing not
+	// running, and why (host → reason).
+	AuditOff map[string]string
 
 	// Lost lists the logs that overwrote events before they could be
 	// collected, since the last report.
@@ -91,6 +96,29 @@ func lostSince(st *store.Store, start, now time.Time) []LostLog {
 	return out
 }
 
+// auditOffNow finds the systems whose latest collection (in the last
+// eight days) found auditing not running.
+func auditOffNow(st *store.Store, now time.Time) map[string]string {
+	out := map[string]string{}
+	runs, err := st.ReadRuns(now.AddDate(0, 0, -8))
+	if err != nil {
+		return out
+	}
+	latest := map[string]*store.Run{}
+	for _, r := range runs {
+		k := store.SystemKey(r.Host)
+		if l := latest[k]; l == nil || !r.Time.Before(l.Time) {
+			latest[k] = r
+		}
+	}
+	for _, r := range latest {
+		if r.AuditOff != "" {
+			out[r.Host] = r.AuditOff
+		}
+	}
+	return out
+}
+
 // RecordRun notes the outcome of a scheduled run, for the status icon.
 func (a *App) RecordRun(err error) {
 	r := LastRun{Time: a.now()}
@@ -103,7 +131,8 @@ func (a *App) RecordRun(err error) {
 
 // Health reads the current state.
 func (a *App) Health() (Health, error) {
-	h := Health{Role: a.Cfg.Role(), ReportEvery: a.Cfg.ReportEvery, Every: a.Cfg.CollectEvery, AuditGaps: map[string]int{}, Quiet: map[string]time.Time{}}
+	h := Health{Role: a.Cfg.Role(), ReportEvery: a.Cfg.ReportEvery, Every: a.Cfg.CollectEvery, AuditGaps: map[string]int{}, Quiet: map[string]time.Time{},
+		AuditOff: map[string]string{}}
 	st, err := store.Open(a.Cfg.DataDir)
 	if err != nil {
 		return h, err
@@ -114,6 +143,7 @@ func (a *App) Health() (Health, error) {
 	if b, err := os.ReadFile(lastRunPath(a.Cfg.DataDir)); err == nil {
 		json.Unmarshal(b, &h.LastRun)
 	}
+	h.AuditOff = auditOffNow(st, now)
 	if !a.Cfg.MakesReports() {
 		return h, nil
 	}
@@ -163,6 +193,7 @@ func (a *App) Health() (Health, error) {
 			}
 		}
 		h.AVOld = slices.DeleteFunc(h.AVOld, func(x string) bool { return !mine(x) })
+		maps.DeleteFunc(h.AuditOff, func(x, _ string) bool { return !mine(x) })
 		h.Quiet = map[string]time.Time{}
 		h.Lost = slices.DeleteFunc(h.Lost, func(l LostLog) bool { return !mine(l.Host) })
 	}

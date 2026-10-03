@@ -115,7 +115,50 @@ even when it is recorded twice (two audit login records, or the same
 line read from two logs). The audit service stopping during a planned
 restart or shutdown (`reboot`, `shutdown`, `systemctl poweroff`, or a
 shutdown record within minutes) is shown as routine, not as auditing
-being switched off.
+being switched off. When `systemctl stop auditd` (or `service auditd
+stop`, `pkill auditd`) was run just before, the stop is shown as done by
+the person who ran it: systemd sends the signal, so auditd's own record
+names no one.
+
+**Refused audit changes (Linux).** With the rules locked (`-e 2`, as the
+STIG requires) the kernel refuses `auditctl -e 0`, `-D` and rule changes,
+and records the refusal. Those rows say "tried to turn off auditing;
+refused because the audit rules are locked … Auditing stayed on" (High
+for turning auditing off, Medium for rule changes). They are never shown
+as auditing being off.
+
+**SSH failed logons (Linux).** OpenSSH 9.8 and later split the server
+into `sshd`, `sshd-session` and `sshd-auth`; they are all treated as
+`sshd`, so one attempt is one row. For a name that doesn't exist, sshd
+records only "(invalid user)": the name tried is taken from the password
+check of the same attempt, and every try says "the user name does not
+exist", not "wrong password". Attempts from the computer itself (`::1`,
+`127.0.0.1`) are shown as from `localhost`, so several accounts tried
+from it is still detected.
+
+**Login scripts (Linux).** At each SSH sign-in, `pam_motd` runs the login
+message scripts in `/etc/update-motd.d` as root, and a root login shell
+(`sudo -i`, `su -`) runs `/etc/profile.d` and the `.bashrc` scripts.
+Each is one Info row ("The login message scripts ran as root when jsmith
+logged on"), not a "ran as root" row per command. Only commands run as
+root in that session before it starts (login message), or the usual
+profile commands (`locale-check`, `id`, `dircolors` and so on) in the
+first 3 seconds of a root shell, are folded in; anything else the person
+runs is listed as usual. A change to the scripts themselves is a file
+change, reported when the audit rules watch those folders.
+
+**Mounts (Linux).** A disk mounted from the command line (`/dev/…`,
+`UUID=`, `LABEL=`) is removable media (Medium). Memory and system
+filesystems (`tmpfs`, `proc`, `overlay` …), bind and move mounts and
+remounts are not; network shares (`nfs`, `cifs`, `sshfs`) are Low,
+"mounted a network share".
+
+**Auditing off at collection (Linux).** Each collection checks that the
+audit service is running (`systemctl is-active auditd`) and that kernel
+auditing is on (`auditctl -s`). If not, the computer is red: "Auditing
+off" on Systems, an "Auditing is off" card on Audit health, a line in
+`blackbox status` (also in a collector's list of systems) and a red
+status icon with a notification.
 
 **Computer accounts.** An account whose name ends in `$` is treated as a
 computer account, and its routine activity is left out, only when it is
