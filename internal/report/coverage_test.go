@@ -31,7 +31,7 @@ func TestOtherSecurityEventsOnHealth(t *testing.T) {
 // Defender's do on Windows.
 func TestClamAVOutOfDate(t *testing.T) {
 	end := fx0.Add(24 * time.Hour)
-	rs := check.EvaluateClamAV("ClamAV 1.0.7/27380/Sat Sep 12 08:00:00 2026", true, "active", end)
+	rs := check.EvaluateClamAV("ClamAV 1.0.7/27300/Sat Aug 15 08:00:00 2026", true, "active", end)
 	r := Build([]*event.Event{{Time: fx0, Host: "ubu1", OS: "linux", Category: event.CatLogon, Severity: event.SevInfo, Action: "logon", Summary: "x"}},
 		[]*store.Run{{Time: fx0.Add(time.Hour), Host: "ubu1", OS: "linux"}},
 		Options{WindowEnd: end, Location: time.UTC, Systems: []SystemInfo{{Name: "ubu1", OS: "linux", LastRun: fx0.Add(time.Hour)}},

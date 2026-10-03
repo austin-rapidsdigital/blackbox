@@ -249,7 +249,7 @@ func demoChecks(os, baseline, name string) []check.Result {
 			ps.Have, ps.Status = "Not set", check.Warn
 			ps.Fix = "Group Policy: Administrative Templates > Windows Components > Windows PowerShell > Turn on PowerShell Script Block Logging"
 		}
-		av := check.Result{Area: "Antivirus", Item: "Defender security intelligence", Want: "Version created within the last 7 days",
+		av := check.Result{Area: "Antivirus", Item: "Defender security intelligence", Want: "Version created within the last 30 days",
 			Have: "1.419.231.0 · version created on 29 Sep 2026 03:12 (1 day old) · engine 4.18.25080.5", Status: check.Pass}
 		if name == "WS-05" {
 			av.Have, av.Status = "1.417.88.0 · version created on 12 Sep 2026 02:40 (18 days old) · engine 4.18.25080.5", check.Fail

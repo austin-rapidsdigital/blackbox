@@ -23,7 +23,7 @@ var clamVersionRE = regexp.MustCompile(`ClamAV ([0-9][^/\s]*)(?:/(\d+)/(.+))?`)
 // when neither clamscan nor clamdscan is on the system; service is the
 // `systemctl is-active` answer for its scanner service ("" if none).
 func EvaluateClamAV(version string, installed bool, service string, now time.Time) []Result {
-	defs := Result{Area: "Antivirus", Item: "ClamAV definitions", Want: "Built within the last 7 days",
+	defs := Result{Area: "Antivirus", Item: "ClamAV definitions", Want: "Built within the last 30 days",
 		Affects: "Antivirus definitions",
 		Fix: "Copy the latest main.cvd, daily.cvd and bytecode.cvd from your update source into /var/lib/clamav " +
 			"(owned by clamav), then run: systemctl restart clamav-daemon (Alma: clamd@scan). On a connected mirror, freshclam downloads them."}

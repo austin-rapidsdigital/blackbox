@@ -294,14 +294,14 @@ Object Access > Audit Removable Storage).
 The **Antivirus** column shows Microsoft Defender on each Windows system:
 the security intelligence (definitions) version, the date that version was
 created, and whether real-time protection is on. Definitions created more
-than 7 days ago, or protection turned off, show as a gap. The Systems page
+than 30 days ago, or protection turned off, show as a gap. The Systems page
 lists the version and its date for each system. It is read once a day with
 `Get-MpComputerStatus`.
 
 On Linux the same column shows **ClamAV**: the daily database version and
 when it was built (from `clamscan --version`), and whether its scanner
 service (`clamav-daemon`, or `clamd@scan` on Alma) is running. Definitions
-built more than 7 days ago, or no definitions loaded, show as a gap, just
+built more than 30 days ago, or no definitions loaded, show as a gap, just
 as for Defender; the service not running is a warning (ClamAV then only
 scans when asked). A system without ClamAV says so and is not counted as
 a gap. Blackbox only reads this; it never updates definitions or starts

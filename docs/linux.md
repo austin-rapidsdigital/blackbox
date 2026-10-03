@@ -169,7 +169,7 @@ reboot, and `blackbox check` says so.
 - the audit log readable only by root (log 0600 or 0640, folder 0750)
 - time synchronisation: chrony or systemd-timesyncd running (AU-8)
 - sudo-rs, which records no audit events of sudo commands
-- ClamAV, when installed: definitions built within the last 7 days, and
+- ClamAV, when installed: definitions built within the last 30 days, and
   its scanner service running (as Defender is checked on Windows)
 - a system log that survives reboots
 
