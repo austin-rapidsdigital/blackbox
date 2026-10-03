@@ -22,6 +22,10 @@ type Translator struct {
 	// auth.log/secure. Only set it when auditd is not available; otherwise
 	// the same activity would be reported twice.
 	AuthFromSyslog bool
+	// SudoFromSyslog makes sudo commands come from auth.log or the journal
+	// as well: sudo-rs (Ubuntu 26.04's sudo) writes no audit record of
+	// them (O1).
+	SudoFromSyslog bool
 
 	usb      map[string]*usbDevice // host|port → device being set up
 	scsiHost map[string]string     // host|scsi host number → USB port
@@ -442,7 +446,32 @@ func base(p string) string {
 	if p == "" {
 		return ""
 	}
-	return path.Base(p)
+	return coreutil(path.Base(p))
+}
+
+// coreutils are the GNU core utilities. Ubuntu 26.04 makes the Rust
+// versions the default and keeps GNU's with a "gnu" prefix (gnurm,
+// gnucp); people know them by their usual names (U12).
+var coreutils = map[string]bool{
+	"rm": true, "mv": true, "cp": true, "ls": true, "cat": true, "chmod": true, "chown": true, "chgrp": true, "ln": true,
+	"mkdir": true, "rmdir": true, "touch": true, "dd": true, "install": true, "shred": true, "truncate": true, "tee": true,
+	"date": true, "stat": true, "id": true, "whoami": true, "uname": true, "head": true, "tail": true, "sort": true,
+	"cut": true, "tr": true, "wc": true, "env": true, "nohup": true, "sleep": true, "echo": true, "printf": true,
+	"test": true, "readlink": true, "realpath": true, "basename": true, "dirname": true, "df": true, "du": true,
+	"mktemp": true, "sync": true, "timeout": true, "stty": true, "tty": true, "who": true, "users": true, "base64": true,
+	"sha256sum": true, "sha1sum": true, "md5sum": true, "split": true, "comm": true, "join": true, "paste": true,
+	"od": true, "nl": true, "seq": true, "groups": true, "nproc": true, "pwd": true, "link": true, "unlink": true,
+	"mknod": true, "mkfifo": true, "chroot": true, "chcon": true, "runcon": true, "csplit": true, "expand": true,
+	"factor": true, "fmt": true, "fold": true, "hostid": true, "logname": true, "numfmt": true, "pathchk": true,
+	"pinky": true, "pr": true, "ptx": true, "shuf": true, "stdbuf": true, "sum": true, "tac": true, "tsort": true,
+	"unexpand": true, "uniq": true, "vdir": true, "dir": true, "dircolors": true, "printenv": true, "yes": true,
+}
+
+func coreutil(name string) string {
+	if strings.HasPrefix(name, "gnu") && coreutils[name[3:]] {
+		return name[3:]
+	}
+	return name
 }
 
 // session describes how someone logged on.
@@ -1272,7 +1301,7 @@ func syscallName(r *Record) string {
 
 func commandLine(ev *Event) string {
 	if p := ev.First("PROCTITLE"); p != nil && p.Get("proctitle") != "" {
-		return p.Get("proctitle")
+		return gnuName(p.Get("proctitle"))
 	}
 	if x := ev.First("EXECVE"); x != nil {
 		var args []string
@@ -1283,9 +1312,26 @@ func commandLine(ev *Event) string {
 			}
 			args = append(args, v)
 		}
-		return strings.Join(args, " ")
+		return gnuName(strings.Join(args, " "))
 	}
 	return ""
+}
+
+// gnuName shows "gnurm -rf x" as "rm -rf x" (U12).
+func gnuName(cmd string) string {
+	f, rest, _ := strings.Cut(cmd, " ")
+	dir, name := "", f
+	if i := strings.LastIndex(f, "/"); i >= 0 {
+		dir, name = f[:i+1], f[i+1:]
+	}
+	if c := coreutil(name); c != name {
+		f = dir + c
+		if rest != "" {
+			return f + " " + rest
+		}
+		return f
+	}
+	return cmd
 }
 
 func (t *Translator) syscall(ev *Event, r *Record) *event.Event {
@@ -1300,6 +1346,9 @@ func (t *Translator) syscall(ev *Event, r *Record) *event.Event {
 	exe := r.Get("exe")
 	prog := base(exe)
 	cmd := commandLine(ev)
+	if prog == "coreutils" && cmd != "" {
+		prog = firstWord(cmd) // the Rust coreutils, one program for them all
+	}
 	if sc == "execve" || sc == "execveat" {
 		t.remember(r.Time, t.hostOf(r), cmd, actor)
 	}

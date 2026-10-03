@@ -61,6 +61,7 @@ func Linux(st *store.Store, opt Options) (*store.Run, error) {
 			Unavailable: "auditd is not installed or not logging — logons, sudo and account changes are read from the authentication log instead"})
 	}
 	tr.AuthFromSyslog = !haveAudit
+	tr.SudoFromSyslog = haveAudit && SudoRs()
 
 	sys := firstExisting(SystemLogs)
 	if sys == "" {
@@ -69,7 +70,7 @@ func Linux(st *store.Store, opt Options) (*store.Run, error) {
 		run.Channels = append(run.Channels, followJournal(st, tr, parser, host, start, opt))
 	} else {
 		run.Channels = append(run.Channels, followSyslog(st, tr, parser, host, sys, start, opt))
-		if !haveAudit {
+		if !haveAudit || tr.SudoFromSyslog {
 			if auth := firstExisting(AuthLogs); auth != "" {
 				run.Channels = append(run.Channels, followSyslog(st, tr, parser, host, auth, start, opt))
 			}
@@ -261,6 +262,16 @@ func kernelLost(st *store.Store, host string, out []byte, err error) store.Chann
 	}
 	st.State.Bookmarks[key] = store.Bookmark{RecordID: lost, Time: time.Now()}
 	return cr
+}
+
+// SudoRs reports whether sudo is sudo-rs, which records no audit events
+// of the commands it runs.
+func SudoRs() bool {
+	if p, err := filepath.EvalSymlinks("/usr/bin/sudo"); err == nil && strings.Contains(p, "sudo-rs") {
+		return true
+	}
+	out, _ := exec.Command("sudo", "-V").Output()
+	return strings.Contains(strings.ToLower(string(out)), "sudo-rs")
 }
 
 var enabledRE = regexp.MustCompile(`(?m)^enabled (\d+)`)

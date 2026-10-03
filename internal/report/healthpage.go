@@ -38,7 +38,7 @@ func healthColumn(res check.Result) string {
 		return ""
 	case area == "antivirus":
 		return "Antivirus"
-	case area == "event log size", has("audit log space", "audit backlog"):
+	case area == "event log size", has("audit log space", "audit backlog", "space_left", "disk_full", "disk_error", "action_mail"):
 		return "Log size"
 	case has("powershell"):
 		return "PowerShell logging"
@@ -46,7 +46,7 @@ func healthColumn(res check.Result) string {
 		return "Removable storage"
 	case has("process creation", "command line", "commands run as root"):
 		return "Process creation"
-	case has("sensitive privilege", "raised privileges"):
+	case has("sensitive privilege", "raised privileges", "sudo records"):
 		return "Privilege use"
 	case has("policy change", "force audit policy", "sudoers", "audit configuration", "rules locked"):
 		return "Policy change"

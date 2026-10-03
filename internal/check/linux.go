@@ -194,14 +194,4 @@ func EvaluateAuditdConf(conf map[string]string) []Result {
 var cmdlineAuditRE = regexp.MustCompile(`(^|\s)audit=1(\s|$)`)
 
 // EvaluateCmdline checks that auditing starts at boot, before auditd.
-func EvaluateCmdline(cmdline string) Result {
-	r := Result{Area: "Boot", Item: "audit=1 on the kernel command line", Want: "Present",
-		Affects: "Activity during boot, before the audit service starts"}
-	if cmdlineAuditRE.MatchString(cmdline) {
-		r.Status, r.Have = Pass, "Present"
-	} else {
-		r.Status, r.Have = Fail, "Missing"
-		r.Fix = `add audit=1 to GRUB_CMDLINE_LINUX in /etc/default/grub, then run update-grub (Ubuntu) or grub2-mkconfig -o /boot/grub2/grub.cfg (Alma)`
-	}
-	return r
-}
+func EvaluateCmdline(cmdline string) Result { return EvaluateBoot(cmdline, "")[0] }

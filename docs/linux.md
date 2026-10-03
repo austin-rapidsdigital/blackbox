@@ -2,6 +2,14 @@
 
 Supports Ubuntu 22.04 and 24.04, and AlmaLinux 8.10.
 
+**Ubuntu 26.04 is not supported yet.** Blackbox already handles what
+changes there: OpenSSH 10's `sshd-session` and `sshd-auth`, the GNU
+tools renamed `gnurm`, `gnucp` and so on (shown by their usual names),
+and sudo-rs, which writes no audit record of the commands it runs
+(`blackbox check` flags it, and Blackbox reads sudo's journal lines
+instead). It is not yet tested on 26.04 in CI, so use it there at your
+own risk until it is listed here.
+
 No other software is needed. Blackbox is a single self-contained program:
 there is no Go or other runtime to install.
 
@@ -148,9 +156,19 @@ reboot, and `blackbox check` says so.
 
 `blackbox check` also looks for:
 
-- `audit=1` on the kernel command line
+- `audit=1` and `audit_backlog_limit=8192` on the kernel command line.
+  If they are in GRUB's settings but the running kernel doesn't have
+  them yet, it says "takes effect at the next boot".
 - the ENRICHED log format, which records names instead of user ID numbers
 - a large enough audit backlog
+- what auditd does as its disk fills (`auditd.conf`): `space_left_action`
+  must tell someone (email, exec or syslog), `admin_space_left_action`
+  single or halt, and `disk_full_action` and `disk_error_action` anything
+  but SUSPEND or IGNORE, which stop recording without anyone knowing;
+  `action_mail_acct` set
+- the audit log readable only by root (log 0600 or 0640, folder 0750)
+- time synchronisation: chrony or systemd-timesyncd running (AU-8)
+- sudo-rs, which records no audit events of sudo commands
 - a system log that survives reboots
 
 ## Where things are

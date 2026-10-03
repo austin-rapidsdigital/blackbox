@@ -334,6 +334,81 @@ func TestDefender(t *testing.T) {
 	}
 }
 
+// A6: what auditd does as its disk fills, who it tells, log permissions.
+func TestAuditdActions(t *testing.T) {
+	status := func(rs []Result) map[string]Status {
+		m := map[string]Status{}
+		for _, r := range rs {
+			m[r.Item] = r.Status
+		}
+		return m
+	}
+	good := status(EvaluateAuditdActions(ParseAuditdConf("space_left_action = email\nadmin_space_left_action = single\ndisk_full_action = HALT\ndisk_error_action = SYSLOG\naction_mail_acct = root\n")))
+	for k, v := range good {
+		if v != Pass {
+			t.Errorf("good %s = %s", k, v)
+		}
+	}
+	bad := status(EvaluateAuditdActions(ParseAuditdConf("space_left_action = ignore\nadmin_space_left_action = SUSPEND\ndisk_full_action = SUSPEND\ndisk_error_action = ignore\naction_mail_acct =\n")))
+	for _, k := range []string{"space_left_action", "admin_space_left_action", "disk_full_action", "disk_error_action", "action_mail_acct"} {
+		if bad[k] != Fail {
+			t.Errorf("bad %s = %s", k, bad[k])
+		}
+	}
+	if r := EvaluateAuditLogPerms(0o600, 0o750, nil, nil); r.Status != Pass {
+		t.Errorf("0600/0750: %s", r.Status)
+	}
+	if r := EvaluateAuditLogPerms(0o644, 0o755, nil, nil); r.Status != Fail {
+		t.Errorf("0644/0755: %s", r.Status)
+	}
+}
+
+// A6: time synchronisation, Linux and Windows.
+func TestTimeSync(t *testing.T) {
+	if r := EvaluateTimeSync(map[string]string{"chronyd": "active"}); r.Status != Pass {
+		t.Errorf("chrony: %+v", r)
+	}
+	if r := EvaluateTimeSync(map[string]string{"chronyd": "inactive", "systemd-timesyncd": "inactive"}); r.Status != Fail {
+		t.Errorf("none: %+v", r)
+	}
+	if r := EvaluateW32Time("STATE              : 4  RUNNING", "NT5DS"); r.Status != Pass {
+		t.Errorf("w32time: %+v", r)
+	}
+	if r := EvaluateW32Time("STATE              : 1  STOPPED", "NTP"); r.Status != Fail {
+		t.Errorf("stopped: %+v", r)
+	}
+	if r := EvaluateW32Time("STATE              : 4  RUNNING", "NoSync"); r.Status != Fail {
+		t.Errorf("nosync: %+v", r)
+	}
+}
+
+// A11: set in GRUB but not in the running kernel takes effect at the
+// next boot.
+func TestBootSettingsPendingReboot(t *testing.T) {
+	grub := "GRUB_DEFAULT=0\nGRUB_CMDLINE_LINUX=\"audit=1 audit_backlog_limit=8192\"\n"
+	rs := EvaluateBoot("BOOT_IMAGE=/vmlinuz ro quiet", grub)
+	if rs[0].Status != Warn || !strings.Contains(rs[0].Have, "next boot") || rs[1].Status != Warn || !strings.Contains(rs[1].Have, "next boot") {
+		t.Errorf("pending: %+v", rs)
+	}
+	rs = EvaluateBoot("ro audit=1 audit_backlog_limit=8192", grub)
+	if rs[0].Status != Pass || rs[1].Status != Pass {
+		t.Errorf("running: %+v", rs)
+	}
+	if rs = EvaluateBoot("ro quiet", ""); rs[0].Status != Fail {
+		t.Errorf("missing: %+v", rs)
+	}
+}
+
+// O1: sudo-rs writes no audit records of its commands.
+func TestSudoRs(t *testing.T) {
+	if r := EvaluateSudo("sudo-rs 0.2.8\n"); r.Status != Warn {
+		t.Errorf("sudo-rs: %+v", r)
+	}
+	if r := EvaluateSudo("Sudo version 1.9.15p5\nSudoers policy plugin version 1.9.15p5\n"); r.Status != Pass || r.Have != "Sudo version 1.9.15p5" {
+		t.Errorf("sudo: %+v", r)
+	}
+}
+
 // Rules on files a system doesn't have are left out of --audit-rules:
 // auditctl refuses them and the rest would not load.
 func TestRulesForThisSystem(t *testing.T) {

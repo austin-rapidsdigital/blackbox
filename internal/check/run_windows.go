@@ -39,6 +39,12 @@ func Run() []Result {
 	out = append(out, EvaluateLogs(base, winevt.GetLogSettings, winevt.GetLogHistory)...)
 	ps, err := hidden.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", DefenderQuery).Output()
 	out = append(out, EvaluateDefender(string(ps), err, time.Now())...)
+	sc, _ := hidden.Command("sc.exe", "query", "w32time").Output()
+	typ := ""
+	if b, err := hidden.Command("reg.exe", "query", `HKLM\SYSTEM\CurrentControlSet\Services\W32Time\Parameters`, "/v", "Type").Output(); err == nil {
+		typ, _ = ParseRegSZ(string(b), "Type")
+	}
+	out = append(out, EvaluateW32Time(string(sc), typ))
 	return out
 }
 
