@@ -427,14 +427,22 @@ func (r *Report) systemHealth(s SystemRow, cleared []*Row, on int) []CheckLine {
 
 	if s.Checks != nil {
 		for _, res := range s.Checks.Results {
-			if res.Area != "Antivirus" || !strings.HasPrefix(res.Item, "Defender security") {
+			product := ""
+			switch {
+			case res.Area != "Antivirus":
+			case strings.HasPrefix(res.Item, "Defender security"):
+				product = "Defender "
+			case res.Item == "ClamAV definitions":
+				product = "ClamAV "
+			}
+			if product == "" || res.Status == check.Info {
 				continue
 			}
 			lv := map[check.Status]string{check.Pass: "ok", check.Fail: "bad"}[res.Status]
 			if lv == "" {
 				lv = "warn"
 			}
-			lines = append(lines, CheckLine{Level: lv, Icon: "shield", Title: "Antivirus definitions current", What: "Defender " + res.Have})
+			lines = append(lines, CheckLine{Level: lv, Icon: "shield", Title: "Antivirus definitions current", What: product + res.Have})
 		}
 	}
 

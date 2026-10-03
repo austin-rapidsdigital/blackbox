@@ -298,6 +298,15 @@ than 7 days ago, or protection turned off, show as a gap. The Systems page
 lists the version and its date for each system. It is read once a day with
 `Get-MpComputerStatus`.
 
+On Linux the same column shows **ClamAV**: the daily database version and
+when it was built (from `clamscan --version`), and whether its scanner
+service (`clamav-daemon`, or `clamd@scan` on Alma) is running. Definitions
+built more than 7 days ago, or no definitions loaded, show as a gap, just
+as for Defender; the service not running is a warning (ClamAV then only
+scans when asked). A system without ClamAV says so and is not counted as
+a gap. Blackbox only reads this; it never updates definitions or starts
+the service.
+
 ## Output files
 
 Every report is a folder containing:

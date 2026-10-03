@@ -110,7 +110,7 @@ The tray reads the same status as `blackbox status` directly, once a minute.
 | Icon | Means |
 |---|---|
 | Logo, green dot | Collecting on schedule; nothing needs attention |
-| Logo, amber dot | Something to look at: audit settings to fix, Defender intelligence out of date, events lost because a log filled up before it was collected, files set aside in the inbox, or a sender that has gone quiet |
+| Logo, amber dot | Something to look at: audit settings to fix, antivirus definitions out of date (Defender, or ClamAV on Linux), events lost because a log filled up before it was collected, files set aside in the inbox, or a sender that has gone quiet |
 | Logo, red dot | Collection has stopped (no run for twice the interval plus 15 minutes), the last run failed, or the last collection found auditing off on a system (owner request, 3 Oct 2026, L3) |
 | Logo, grey | Status can't be read |
 

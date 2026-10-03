@@ -126,7 +126,7 @@ func classify(h app.Health, err error, now time.Time) trayView {
 		v.Items = append(v.Items, fmt.Sprintf("Audit settings: %s to fix on %s", plural(h.AuditGaps[host], "setting"), host))
 	}
 	for _, host := range h.AVOld {
-		v.Items = append(v.Items, "Defender intelligence out of date on "+host)
+		v.Items = append(v.Items, "Antivirus definitions out of date on "+host)
 	}
 	var quiet []string
 	for host := range h.Quiet {
