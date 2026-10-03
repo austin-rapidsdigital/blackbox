@@ -205,6 +205,24 @@ func MissingRules(recommended, loaded string, exists func(string) bool) []string
 	return out
 }
 
+// RulesForThisSystem returns the rules file without the rules on files
+// and folders that don't exist (exists nil keeps them all), each replaced
+// by a comment saying so.
+func RulesForThisSystem(rules string, exists func(string) bool) string {
+	if exists == nil {
+		return rules
+	}
+	var b strings.Builder
+	for _, l := range strings.SplitAfter(rules, "\n") {
+		if r, ok := parseAuditRule(l); ok && r.watch != "" && !exists(r.watch) {
+			b.WriteString("## Left out: " + r.watch + " is not on this system.\n")
+			continue
+		}
+		b.WriteString(l)
+	}
+	return b.String()
+}
+
 // ruleTokens splits loaded rules into their words, for exact matching.
 func ruleTokens(rules []string) [][]string {
 	var out [][]string
