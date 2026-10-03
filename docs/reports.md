@@ -281,7 +281,9 @@ The report also checks each data file as it loads it: if one was changed,
 
 `blackbox verify` also fails if a file the manifest lists is missing, if a
 file was added to the folder afterwards, or if the manifest no longer
-lists `report.html` or `summary.json`.
+lists a file the report needs: `report.html`, `summary.json`,
+`events.zip`, or any data file `report.html` loads. Each problem is one
+line.
 
 **What this proves, and what it doesn't.** The manifest is not signed, so
 it finds accidental damage, a copy that went wrong, and careless edits.

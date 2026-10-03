@@ -383,6 +383,10 @@ func (r *Report) checklist(systems []SystemRow, cleared map[string]int) []CheckL
 		lines = append(lines, CheckLine{Level: "ok", Icon: "circle-check", Title: "No events lost to log rollover", What: fmt.Sprintf("%s collection runs", commas(r.Health.Runs)), Count: frac(0)})
 	}
 
+	if len(r.Removed) > 0 {
+		lines = append(lines, CheckLine{Level: "warn", Icon: "history", Title: "Older reports removed",
+			What: fmt.Sprintf("%s deleted under retention_days = %d, with their original logs: %s", plural(len(r.Removed), "report"), r.RetentionDays, strings.Join(r.Removed, ", ")), Count: ""})
+	}
 	if t := r.excludedText(); t != "" {
 		lines = append(lines, CheckLine{Level: "warn", Icon: "user-x", Title: "Left out by your settings", What: t, Href: "#health", Count: ""})
 	}

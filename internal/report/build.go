@@ -83,6 +83,10 @@ type Options struct {
 	Systems     []SystemInfo
 	Collector   bool
 	LANWarnings []string
+	// Removed are earlier reports deleted under retention_days, with their
+	// original logs, since the last scheduled report (A9).
+	Removed       []string
+	RetentionDays int
 }
 
 // ArchiveRef is one computer's original logs for the period: a zip that
@@ -252,6 +256,7 @@ func Build(events []*event.Event, runs []*store.Run, opt Options) *Report {
 	sort.SliceStable(events, func(i, j int) bool { return events[i].Time.Before(events[j].Time) })
 	events = r.exclude(events)
 	unknownNames(events)
+	events = mergeAdminLogons(events)
 	events = r.dedupe(events)
 	attributeDevices(events)
 	shutdownStops(events)
@@ -353,7 +358,13 @@ func (r *Report) excludedText() string {
 	if r.Excluded == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%s by %s (exclude_users and exclude_processes in the settings)", plural(r.Excluded, "routine event"), joinCounts(r.ExcludedBy))
+	by := joinCounts(r.ExcludedBy)
+	if len(r.ExcludedBy) == 1 {
+		for k := range r.ExcludedBy {
+			by = k // one account: its count is the total (U2: not "bbtest ×1")
+		}
+	}
+	return fmt.Sprintf("%s by %s (exclude_users and exclude_processes in the settings)", plural(r.Excluded, "routine event"), by)
 }
 
 // routine reports whether an event is everyday activity that an exclusion
@@ -490,6 +501,46 @@ func unknownNames(events []*event.Event) {
 			}
 		}
 	}
+}
+
+// mergeAdminLogons makes an administrator's logon one row (U3): Windows
+// records it as a logon (4624) and as special privileges assigned to it
+// (4672), with the same logon ID. The logon row is kept, with the
+// privileges, and counts as using administrator rights.
+func mergeAdminLogons(events []*event.Event) []*event.Event {
+	logons := map[string]*event.Event{}
+	for _, e := range events {
+		if e.OS == "windows" && e.Action == "logon" && e.EventID == 4624 {
+			if id := detail(e, "Logon ID"); id != "" {
+				logons[e.Host+"|"+strings.ToLower(id)] = e
+			}
+		}
+	}
+	out := events[:0]
+	for _, e := range events {
+		if e.Action == "admin_logon" && e.EventID == 4672 {
+			l := logons[e.Host+"|"+strings.ToLower(detail(e, "Logon ID"))]
+			if l != nil && absDur(e.Time.Sub(l.Time)) <= 10*time.Second {
+				l.AddDetail("Privileges", detail(e, "Privileges"))
+				if !strings.Contains(l.Summary, "administrator") {
+					l.Summary = strings.TrimSuffix(l.Summary, ".") + " with administrator privileges."
+				}
+				if l.Severity.Rank() < event.SevLow.Rank() {
+					l.Severity = event.SevLow
+				}
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func absDur(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
 }
 
 // rebootCmd is a command that restarts or shuts down the system.
@@ -763,8 +814,7 @@ func (r *Report) findPatterns(rows []*Row) {
 			}
 			first, last := c[0], c[len(c)-1]
 			src := distinct(c, func(x *Row) string { return x.SourceIP })
-			d := fmt.Sprintf("%d failed logons for %s on %s between %s and %s", len(c), first.Target, first.Host,
-				r.clock(first.Time), r.clock(last.Time))
+			d := fmt.Sprintf("%d failed logons for %s on %s %s", len(c), first.Target, first.Host, r.span(first.Time, last.Time))
 			if src != "" {
 				d += " from " + src
 			}
@@ -792,9 +842,8 @@ func (r *Report) findPatterns(rows []*Row) {
 			r.Findings = append(r.Findings, Finding{Severity: event.SevHigh, Category: event.CatFailedLogon,
 				Host: first.Host, Time: first.Time, RowID: first.ID, RowIDs: rowIDs(c),
 				Title: "One source tried several accounts",
-				Detail: fmt.Sprintf("%s tried %d different accounts on %s (%s) with %d failed logons between %s and %s.",
-					first.SourceIP, len(users), first.Host, strings.Join(users, ", "), len(c),
-					r.clock(first.Time), r.clock(c[len(c)-1].Time))})
+				Detail: fmt.Sprintf("%s tried %d different accounts on %s (%s) with %d failed logons %s.",
+					first.SourceIP, len(users), first.Host, strings.Join(users, ", "), len(c), r.span(first.Time, c[len(c)-1].Time))})
 		}
 	}
 	// Several failures followed by a success (reported once per burst).
@@ -1199,6 +1248,15 @@ func (r *Report) buildHealth(runs []*store.Run, events []*event.Event) {
 // ---------------------------------------------------------------- formatting
 
 func (r *Report) clock(t time.Time) string { return t.In(r.Location).Format("15:04:05") }
+
+// span is "between 18:17:02 and 18:19:40", or "at 18:17:02" when both are
+// the same second (U1).
+func (r *Report) span(a, b time.Time) string {
+	if r.clock(a) == r.clock(b) {
+		return "at " + r.clock(a)
+	}
+	return "between " + r.clock(a) + " and " + r.clock(b)
+}
 
 func (r *Report) stamp(t time.Time) string {
 	if t.IsZero() {

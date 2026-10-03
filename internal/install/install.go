@@ -46,6 +46,15 @@ func writeConfig(path string, opt Options, crlf bool) error {
 	})
 }
 
+// scheduleWhat is what each scheduled run does besides collecting: a
+// sender sends to its collector and makes no reports (L4).
+func scheduleWhat(opt Options) string {
+	if opt.SendTo != "" {
+		return "sends them to the collector after each collection"
+	}
+	return opt.ReportEvery + " reports"
+}
+
 // setupLAN prepares what the role needs: the inbox for a collector, and
 // delivery (share account, mount) for a sender. What a
 // previous role set up and is no longer needed is removed.

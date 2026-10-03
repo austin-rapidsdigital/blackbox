@@ -80,6 +80,9 @@ func person(u string) bool {
 
 // adminActivity is something done with administrator rights by a person.
 func adminActivity(r *Row) bool {
+	if r.Action == "logon" && detail(r.Event, "Privileges") != "" {
+		return person(r.User) // a logon with administrator rights (U3)
+	}
 	return r.Category == event.CatPrivileged && person(r.User)
 }
 
@@ -323,15 +326,15 @@ func localAddress(s string) bool {
 // on it, or a logon from another computer's address.
 func firstTimeKeys(x *Row) (keys []string, labels []string) {
 	host := strings.ToLower(x.Host)
-	switch {
-	case x.Action == "logon" && x.Interactive && person(x.User):
+	if x.Action == "logon" && x.Interactive && person(x.User) {
 		keys = append(keys, "logon|"+host+"|"+strings.ToLower(x.User))
 		labels = append(labels, "logon")
 		if !localAddress(x.SourceIP) {
 			keys = append(keys, "src|"+host+"|"+x.SourceIP)
 			labels = append(labels, "source")
 		}
-	case adminActivity(x):
+	}
+	if adminActivity(x) {
 		keys = append(keys, "admin|"+host+"|"+strings.ToLower(x.User))
 		labels = append(labels, "admin")
 	}

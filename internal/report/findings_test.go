@@ -176,7 +176,7 @@ func TestExclusionsAreStated(t *testing.T) {
 		winEvent(4624, 801, fx0, "TargetUserName", "jsmith", "TargetDomainName", "DSK1",
 			"TargetUserSid", "S-1-5-21-1-2-3-1001", "LogonType", "2")}
 	r := buildFrom(translateAll(t, xml...), Options{ExcludeUsers: []string{"svc_backup"}})
-	want := "1 routine event by svc_backup ×1"
+	want := "1 routine event by svc_backup (" // U2: no "×1" for one account
 	if !strings.Contains(r.excludedText(), want) {
 		t.Errorf("excludedText = %q, want it to contain %q", r.excludedText(), want)
 	}

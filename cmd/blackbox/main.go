@@ -346,8 +346,20 @@ func cmdConfig(args []string) error {
 	if args[0] != "set" || len(args) < 2 {
 		return fmt.Errorf("usage: blackbox config                     (show settings)\n       blackbox config set <setting> <value>\nsettings: %s", strings.Join(config.Settable, ", "))
 	}
-	key, value := strings.ToLower(args[1]), strings.Join(args[2:], " ")
+	yes := false
+	var rest []string
+	for _, a := range args[2:] {
+		if a == "--yes" || a == "-yes" {
+			yes = true
+		} else {
+			rest = append(rest, a)
+		}
+	}
+	key, value := strings.ToLower(args[1]), strings.Join(rest, " ")
 	if err := install.RequireAdmin(); err != nil {
+		return err
+	}
+	if err := confirmRetention(key, value, yes, install.IsTerminal(os.Stdin), os.Stdin); err != nil {
 		return err
 	}
 	// A run that is already going would read the new setting but keep the
@@ -375,7 +387,9 @@ func cmdConfig(args []string) error {
 		fmt.Printf("Reports will now be saved in %s (existing reports were not moved).\n", cfg.ReportsDir())
 		return nil
 	}
-	if value == "none" && (key == "send_to" || key == "inbox" || key == "share_user") {
+	// "none" clears a setting that can be empty (L5).
+	if strings.EqualFold(value, "none") && (key == "send_to" || key == "inbox" || key == "share_user" ||
+		key == "exclude_users" || key == "exclude_processes" || key == "working_hours") {
 		value = ""
 	}
 	if err := config.SetValue(path, key, value); err != nil {
@@ -393,7 +407,40 @@ func cmdConfig(args []string) error {
 // savedText confirms a setting change. Settings are read at the start of
 // every run, scheduled or by hand, so a change applies from the next one.
 func savedText(key, value string) string {
-	return fmt.Sprintf("Saved %s = %s. It applies from the next collection or report, including one you run now with \"blackbox report\".", key, value)
+	const applies = "It applies from the next collection or report, including one you run now with \"blackbox report\"."
+	if value == "" {
+		return fmt.Sprintf("Cleared %s. %s", key, applies) // E1: not "Saved exclude_users = ."
+	}
+	return fmt.Sprintf("Saved %s = %s. %s", key, value, applies)
+}
+
+// retentionFloor is a year: AU-11 audit record retention, the period sites
+// usually set, and how far back an assessor looks.
+const retentionFloor = 365
+
+// confirmRetention asks before reports are kept less than a year (A9):
+// shortening retention deletes reports and their original logs at the
+// next scheduled report.
+func confirmRetention(key, value string, yes, interactive bool, in io.Reader) error {
+	if key != "retention_days" {
+		return nil
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || n <= 0 || n >= retentionFloor || yes {
+		return nil // invalid values are refused by the settings check
+	}
+	warn := fmt.Sprintf("retention_days = %d keeps reports, and the original logs saved with them, for less than a year (%d days). "+
+		"At the next scheduled report, every report older than %d days is deleted for good.", n, retentionFloor, n)
+	if !interactive {
+		return fmt.Errorf("%s\nTo do this anyway, add --yes: blackbox config set retention_days %d --yes", warn, n)
+	}
+	fmt.Println(warn)
+	fmt.Print("Type yes to keep them for only ", n, " days: ")
+	line, _ := bufio.NewReader(in).ReadString('\n')
+	if strings.TrimSpace(strings.ToLower(line)) != "yes" {
+		return fmt.Errorf("not changed")
+	}
+	return nil
 }
 
 func cmdStatus(args []string) error {

@@ -243,7 +243,7 @@ Each chart shows this week's value, its % vs. the 12-week average, 12 weekly bar
 - totals
 - a detections table (Severity, Detection, System, When)
 - the audit-trail checklist
-- blank ISSO / Date / ISSM signature lines
+- blank ISSO / Date / ISSM lines
 
 ## Behaviour rules agreed during design
 - **VMs are on 25–75% of the week; that is normal.**

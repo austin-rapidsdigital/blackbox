@@ -98,7 +98,7 @@ func Install(opt Options) error {
 	if out, err := hidden.Command("schtasks.exe", "/Create", "/TN", TaskName, "/XML", tmp, "/F").CombinedOutput(); err != nil {
 		return fmt.Errorf("create scheduled task: %v: %s", err, strings.TrimSpace(string(out)))
 	}
-	logf("Scheduled task:      \"%s\" — collects %s as SYSTEM; %s reports", TaskName, EveryText(opt.CollectEvery), opt.ReportEvery)
+	logf("Scheduled task:      \"%s\" — collects %s as SYSTEM; %s", TaskName, EveryText(opt.CollectEvery), scheduleWhat(opt))
 
 	// 5. The status icon, for administrators on a collector or standalone computer.
 	if err := setupTray(opt.Tray && opt.SendTo == "", logf); err != nil {

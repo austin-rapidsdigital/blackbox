@@ -65,7 +65,7 @@ Wants=network-online.target
 What=%s
 Where=%s
 Type=cifs
-Options=credentials=%s,uid=0,gid=0,file_mode=0600,dir_mode=0700,nosuid,nodev,noexec,_netdev
+Options=credentials=%s,uid=0,gid=0,file_mode=0600,dir_mode=0700,nosuid,nodev,noexec,seal,_netdev
 TimeoutSec=30
 `, what, what, share.MountPoint(config.DefaultDataDir()), share.CredentialFile)
 }
@@ -77,6 +77,18 @@ func credentialText(user, pw string) string {
 		s += "domain=" + domain + "\n"
 	}
 	return s
+}
+
+// mountError explains a failed SMB mount. Blackbox asks for an encrypted
+// connection (seal, SMB 3); a collector that can't provide one refuses it
+// with "operation not supported" (N1).
+func mountError(out string) error {
+	out = strings.TrimSpace(out)
+	l := strings.ToLower(out)
+	if strings.Contains(l, "error(95)") || strings.Contains(l, "operation not supported") || strings.Contains(l, "error(22)") {
+		return fmt.Errorf("could not connect with an encrypted connection (%s). The collector must offer SMB 3 encryption: install or upgrade Blackbox on it (it turns encryption on for its share), or on the collector run: Set-SmbShare -Name %s -EncryptData $true", out, ShareName)
+	}
+	return fmt.Errorf("could not connect: %s", out)
 }
 
 // TryInbox checks the collector's inbox can be reached: a folder must
@@ -113,9 +125,9 @@ func TryInbox(sendTo, user, pw string) error {
 	cred.Chmod(0o600)
 	cred.WriteString(credentialText(user, pw))
 	cred.Close()
-	out, err := exec.Command("mount", "-t", "cifs", sendTo, dir, "-o", "credentials="+cred.Name()+",uid=0,gid=0,file_mode=0600,dir_mode=0700,nosuid,nodev,noexec").CombinedOutput()
+	out, err := exec.Command("mount", "-t", "cifs", sendTo, dir, "-o", "credentials="+cred.Name()+",uid=0,gid=0,file_mode=0600,dir_mode=0700,nosuid,nodev,noexec,seal").CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("could not connect: %s", strings.TrimSpace(string(out)))
+		return mountError(string(out))
 	}
 	defer exec.Command("umount", dir).Run()
 	if !lan.IsInbox(dir) {
@@ -179,7 +191,7 @@ func prepareSendTo(opt Options, dataDir string, logf func(string, ...any)) error
 	exec.Command("systemctl", "daemon-reload").Run()
 	exec.Command("systemctl", "restart", mountUnitName()).Run()
 	if lan.IsInbox(mp) {
-		logf("Sends to:            %s (mounted at %s for Blackbox only)", opt.SendTo, mp)
+		logf("Sends to:            %s (mounted for Blackbox only, at %s)", opt.SendTo, mp)
 	} else {
 		logf("Sends to:            %s (NOT reachable now; data waits here until it is)", opt.SendTo)
 	}
