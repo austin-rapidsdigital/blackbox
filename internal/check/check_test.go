@@ -408,3 +408,18 @@ func TestSudoRs(t *testing.T) {
 		t.Errorf("sudo: %+v", r)
 	}
 }
+
+// Rules on files a system doesn't have are left out of --audit-rules:
+// auditctl refuses them and the rest would not load.
+func TestRulesForThisSystem(t *testing.T) {
+	out := RulesForThisSystem(AuditRules, func(p string) bool { return p != "/usr/sbin/semanage" && p != "/etc/cron.hourly" })
+	if strings.Contains(out, "-F path=/usr/sbin/semanage") || strings.Contains(out, "-F dir=/etc/cron.hourly/") {
+		t.Error("rule on a missing file kept")
+	}
+	if !strings.Contains(out, "## Left out: /usr/sbin/semanage is not on this system.") || !strings.Contains(out, "-F path=/etc/passwd") {
+		t.Errorf("output:\n%s", out)
+	}
+	if RulesForThisSystem(AuditRules, nil) != AuditRules {
+		t.Error("nil exists changed the rules")
+	}
+}

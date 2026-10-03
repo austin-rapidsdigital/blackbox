@@ -222,7 +222,7 @@ jobs:
           sudo auditctl -s
           # --missing keeps the rules in its own file and adds nothing twice.
           sudo ./blackbox check --audit-rules --missing > missing.rules
-          test "$(grep -c -- '-w /etc/sudoers ' missing.rules)" -le 1
+          test "$(grep -c -- 'path=/etc/sudoers ' missing.rules)" -le 1
       - name: Make changes an auditor must see
         run: |
           sudo useradd -m bbtestuser
