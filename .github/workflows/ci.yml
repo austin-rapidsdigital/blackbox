@@ -200,6 +200,27 @@ jobs:
           schtasks /Query /TN "Blackbox Status" 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) { throw "status icon task not removed by uninstall" }
           $global:LASTEXITCODE = 0
+      - name: The release setup file installs the console program it carries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          # As the release builds it (unsigned here): the console program
+          # travels inside the setup file and is installed unchanged (A10).
+          $env:VERSION = "0.0.2-ci"
+          bash scripts/build.sh
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          if (-not (Test-Path dist/blackbox-0.0.2-ci.spdx.json)) { throw "no SBOM" }
+          $setup = (Resolve-Path dist/Blackbox-Setup-0.0.2-ci.exe).Path
+          $p = Start-Process -Wait -PassThru -FilePath $setup -ArgumentList "install", "--yes", "--site", "CI2", "--no-first-report", "--tray=false"
+          if ($p.ExitCode -ne 0) { throw "setup file install failed: $($p.ExitCode)" }
+          $exe = "C:\Program Files\Blackbox\blackbox.exe"
+          if ((& $exe version) -ne "blackbox 0.0.2-ci") { throw "installed program answered the wrong version" }
+          $b = [IO.File]::ReadAllBytes($exe); $pe = [BitConverter]::ToInt32($b, 0x3c)
+          if ([BitConverter]::ToUInt16($b, $pe + 24 + 68) -ne 3) { throw "installed blackbox.exe is not a console program" }
+          # The carried copy is the program alone: well under the setup file's size.
+          if ($b.Length -gt (Get-Item $setup).Length * 0.75) { throw "blackbox.exe was made from the setup file, not the copy it carries" }
+          & $exe uninstall
+          $global:LASTEXITCODE = 0
   linux-live:
     # End-to-end on a real Ubuntu machine: install auditd with Blackbox's
     # recommended rules, make some changes an auditor must see, then

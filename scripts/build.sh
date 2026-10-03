@@ -13,6 +13,27 @@ VERSION="${VERSION#v}"
 LDFLAGS="-s -w -buildid= -X main.version=${VERSION}"
 rm -rf dist && mkdir -p dist/stage
 
+# Authenticode signing, when a certificate is given (CI secrets):
+#   SIGN_PFX       path to the code-signing certificate (.pfx)
+#   SIGN_PASSWORD  its password
+#   SIGN_TIMESTAMP timestamp server (optional)
+# Without them the programs are built unsigned, as before.
+sign() {
+	if [ -z "${SIGN_PFX:-}" ]; then
+		echo "not signed (no certificate given): $1"
+		return 0
+	fi
+	command -v osslsigncode >/dev/null || { echo "osslsigncode is needed to sign" >&2; exit 1; }
+	ts=""
+	[ -n "${SIGN_TIMESTAMP:-}" ] && ts="-ts ${SIGN_TIMESTAMP}"
+	# shellcheck disable=SC2086
+	osslsigncode sign -pkcs12 "$SIGN_PFX" -pass "${SIGN_PASSWORD:-}" -n "Blackbox" \
+		-i "https://github.com/casea1/blackbox" -h sha256 $ts -in "$1" -out "$1.signed"
+	mv "$1.signed" "$1"
+	osslsigncode verify -in "$1" >/dev/null 2>&1 || osslsigncode verify -in "$1" | tail -3
+	echo "signed: $1"
+}
+
 package() { # os arch
 	name="blackbox-${VERSION}-$1-$2"
 	dir="dist/stage/$name"
@@ -27,10 +48,17 @@ package() { # os arch
 	echo "building $name"
 	CGO_ENABLED=0 GOOS="$1" GOARCH="$2" go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$dir/$exe" ./cmd/blackbox
 	if [ "$1" = windows ]; then
+		# The console blackbox.exe, signed, travels inside the setup file,
+		# which setup installs unchanged; the setup file itself is the same
+		# program marked windowed, then signed (A10).
+		sign "$dir/$exe"
+		go run ./scripts/winres -version "$VERSION" -arch "$2" -payload "$dir/$exe" -o "$syso"
+		CGO_ENABLED=0 GOOS="$1" GOARCH="$2" go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$dir/setup.exe" ./cmd/blackbox
 		rm -f "$syso"
 		# Double-clicking it opens the setup window without a console;
 		# setup installs blackbox.exe (console) and blackboxw.exe from it.
-		go run ./scripts/winres -windowed "$dir/$exe" -o "dist/Blackbox-Setup-${VERSION}.exe"
+		go run ./scripts/winres -windowed "$dir/setup.exe" -o "dist/Blackbox-Setup-${VERSION}.exe"
+		sign "dist/Blackbox-Setup-${VERSION}.exe"
 	else
 		cp packaging/linux/* "$dir/"
 		cp LICENSE NOTICE "$dir/"
@@ -42,5 +70,8 @@ package windows amd64
 package linux amd64
 package linux arm64
 rm -rf dist/stage
-(cd dist && sha256sum -- *.exe *.tar.gz > SHA256SUMS)
+# A software bill of materials (SPDX), from the module and the Go
+# toolchain that built it: no third-party modules to list.
+go run ./scripts/sbom -version "$VERSION" > "dist/blackbox-${VERSION}.spdx.json"
+(cd dist && sha256sum -- *.exe *.tar.gz *.spdx.json > SHA256SUMS)
 cat dist/SHA256SUMS

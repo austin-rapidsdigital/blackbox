@@ -10,14 +10,14 @@ Agreed with the product owner on 2 Oct 2026. It follows the same rules as `SPEC.
 | Built with | **Go only, standard library.** The window and the tray are plain Windows controls drawn through the Windows API. No C#, no Inno Setup, no second codebase. |
 | Which computers get the tray | **Collector or standalone computers only.** It is never installed on a sender. |
 | Who sees the tray | **Members of the local Administrators group only.** |
-| Code signing | **None.** No application control (AppLocker/WDAC) blocks unsigned programs where Blackbox runs. |
+| Code signing | **Optional.** No application control (AppLocker/WDAC) blocks unsigned programs where Blackbox runs. When a certificate is set in the release workflow's secrets, the release signs the setup file and the console program it carries (A10, 3 Oct 2026); without one it is unsigned. |
 | Linux | **Unchanged:** `sudo ./install.sh` or `sudo ./blackbox install`, with no window. |
 
 ## Files
 
 The release publishes `Blackbox-Setup-<version>.exe` in place of the Windows zip, alongside the Linux tarballs and `SHA256SUMS`.
 
-The setup file is `blackbox.exe` with its Windows subsystem set to "windowed", so double-clicking it opens no console. Setup installs two copies of the same program:
+The setup file is `blackbox.exe` with its Windows subsystem set to "windowed", so double-clicking it opens no console. A release's setup file also carries the console `blackbox.exe` (signed, when the release is), which it installs unchanged; it installs itself as `blackboxw.exe` (A10). Setup installs two copies of the same program:
 
 | File | Kind | Used for |
 |---|---|---|

@@ -43,6 +43,7 @@ func main() {
 	arch := flag.String("arch", "amd64", "amd64 or 386")
 	preview := flag.String("png", "", "also write a 256px PNG preview of the icon here")
 	windowed := flag.String("windowed", "", "write a copy of this program marked windowed to -o, and do nothing else")
+	payload := flag.String("payload", "", "embed this file (the signed console blackbox.exe) for setup to install as is")
 	flag.Parse()
 
 	if *windowed != "" {
@@ -60,7 +61,16 @@ func main() {
 		return
 	}
 
-	obj, err := Object(*arch, Resources(*version))
+	res := Resources(*version)
+	if *payload != "" {
+		b, err := os.ReadFile(*payload)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "winres:", err)
+			os.Exit(1)
+		}
+		res = append(res, Resource{rtRCData, winexe.ConsoleResource, b})
+	}
+	obj, err := Object(*arch, res)
 	if err == nil {
 		err = os.WriteFile(*out, obj, 0o644)
 	}
@@ -78,6 +88,7 @@ const (
 	rtIcon      = 3
 	rtGroupIcon = 14
 	rtVersion   = 16
+	rtRCData    = 10
 	rtManifest  = 24
 	langEnUS    = 0x0409
 )

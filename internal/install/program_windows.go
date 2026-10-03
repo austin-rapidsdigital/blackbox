@@ -33,12 +33,22 @@ func placePrograms(self string) ([]kept, error) {
 		return nil, err
 	}
 	RemoveOld()
+	// A release's setup file carries the console program, signed: it is
+	// installed as it is, so its signature stays valid (A10). Otherwise
+	// both are made from this program.
+	console := embeddedConsole()
 	var ks []kept
 	for _, p := range []struct {
 		path     string
 		windowed bool
 	}{{ProgramPath(), false}, {WindowedPath(), true}} {
-		b, err := winexe.SetSubsystem(src, p.windowed)
+		var b []byte
+		var err error
+		if !p.windowed && console != nil {
+			b = console
+		} else {
+			b, err = winexe.SetSubsystem(src, p.windowed)
+		}
 		if err != nil {
 			return ks, err
 		}
