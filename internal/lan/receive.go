@@ -57,11 +57,18 @@ type ImportResult struct {
 	Batches  int
 	Records  int
 	Archives int      // log archives filed
+	Scap     int      // SCAP scan results filed
 	Rejected []string // files that could not be used, and why
 }
 
 // maxClockLead is how far a sender's clock may be ahead before it is noted.
 const maxClockLead = 10 * time.Minute
+
+// Dirs are where a collector files what senders deliver besides events:
+// log archives, and SCAP scan results ("" leaves them in the inbox).
+type Dirs struct {
+	Archives, Scap string
+}
 
 // Import reads every complete batch in the inbox into the store, in order
 // for each sender, and removes each file once its data is safely stored.
@@ -70,7 +77,8 @@ const maxClockLead = 10 * time.Minute
 //
 // Log archives are checked against their recorded hashes and filed under
 // archivesDir.
-func Import(st *store.Store, inbox, archivesDir string, now time.Time, logf func(string, ...any)) (ImportResult, error) {
+func Import(st *store.Store, inbox string, dirs Dirs, now time.Time, logf func(string, ...any)) (ImportResult, error) {
+	archivesDir := dirs.Archives
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
@@ -92,6 +100,14 @@ func Import(st *store.Store, inbox, archivesDir string, now time.Time, logf func
 				res.Rejected = append(res.Rejected, reject(inbox, n, err.Error()))
 			} else {
 				res.Archives++
+			}
+			continue
+		}
+		if dirs.Scap != "" && !e.IsDir() && strings.HasPrefix(n, scapPrefix) && strings.HasSuffix(n, scapExt) {
+			if err := importScap(st, inbox, n, dirs.Scap); err != nil {
+				res.Rejected = append(res.Rejected, reject(inbox, n, err.Error()))
+			} else {
+				res.Scap++
 			}
 			continue
 		}

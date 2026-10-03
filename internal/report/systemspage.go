@@ -129,6 +129,9 @@ func (r *Report) systemsPage() *SystemsPage {
 		if r.Collector && s.Via == "" && strings.EqualFold(s.Name, r.collectorName()) {
 			v.Line += " · collector"
 		}
+		if l := r.scapLine(s.Name); l != "" {
+			v.Line += " · " + l
+		}
 
 		// Detections on this computer.
 		high, med := 0, 0

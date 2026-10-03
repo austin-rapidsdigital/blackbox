@@ -431,6 +431,70 @@ The answers are in section 13. The original questions were:
 | Report chain | Each report covers the time up to its period end and includes every event not already reported. Events collected late, for example from before a system was powered off, go into the next report marked *Late*. Every event appears in exactly one report (`app.SelectWindow`). |
 | Log volume | Every report lists the busiest event IDs with their share of all events read. This identifies noisy tools and over-broad audit settings, the cause of fast rollover. |
 
+## 13a. Design note: STIG compliance from SCAP scans (for owner approval)
+
+*Written 3 Oct 2026 for the v0.10.1 findings (§6). Implemented as
+described here; anything the owner changes is changed before release.*
+
+**Why.** An assessor checks that the system is configured to the STIG,
+not only that what the STIG audits is reviewed. Sites already scan with
+DISA SCC (Windows) or OpenSCAP (Linux). Blackbox puts the latest result
+next to the audit review, so the weekly report answers both questions.
+
+**What Blackbox does, and does not do.**
+
+- It **reads** scan results that already exist. It never bundles,
+  installs or runs a scanner, never changes a setting and never
+  remediates.
+- Results are XCCDF 1.1 or 1.2 `TestResult` files (SCC's
+  `*_XCCDF-Results_*.xml`, `oscap xccdf eval --results`) or ARF files
+  (`--results-arf`), parsed with `encoding/xml`. Nothing else is needed.
+
+**Where results come from.**
+
+- `scap_results` (setting): a folder Blackbox searches, including
+  subfolders (SCC writes `Sessions\<date>\Results\SCAP\XML`). Blank
+  reads `scap` in the data folder; point it at SCC's or OpenSCAP's output
+  folder instead, or `none` to turn the feature off. The table appears
+  once SCAP is in use (a folder chosen, or any scan found), so sites that
+  don't scan see nothing new.
+- For each computer and benchmark, the newest result counts; the one
+  before it gives the change since the previous scan.
+- The computer is named by the result's `target` (or its `fqdn` /
+  `host_name` facts), matched to systems as everywhere else.
+- **Senders ship their results.** A sender delivers each new result file
+  (gzip, once, by SHA-256) to the collector's inbox next to its batches,
+  like its log archives. The collector keeps them under
+  `scap-received\<computer>` in its data folder. Blackbox copies result
+  files into a report; it never moves or changes the originals.
+
+**What the report shows.**
+
+- **Audit health:** a "STIG compliance (SCAP)" table, one row per
+  computer: benchmark and version, profile, scan time, score, pass and
+  fail counts, open CAT I / II / III, and the change since the previous
+  scan (newly open, newly fixed, score up or down).
+  - A result older than `scap_max_age_days` (default 30) is marked stale.
+  - A computer with no result says "no scan found".
+- **Systems:** each computer's header line adds "SCAP 94% · 1 CAT I"
+  (the five facts stay as the locked design has them).
+- **Overview:** open CAT I findings are a red line in the audit-trail
+  checklist (with how many computers).
+- **Report folder:** each result used is copied into `scap/` and listed
+  in `manifest.sha256`, so the report proves which scan it showed.
+  `scap-open-rules.csv` lists every open rule: computer, benchmark, CAT,
+  Vuln ID, rule ID, title and the scan time. The Export menu offers it.
+- CAT comes from the rule's severity: high is CAT I, medium CAT II, low
+  CAT III. "Open" means `fail` or `error` (as STIG Viewer and SCC count
+  them); `notchecked` and `notapplicable` are counted, not open.
+
+**Later, only with owner approval: an opt-in scan (`scc_path`).** A
+setting naming the installed SCC command line (`cscc.exe`) would let the
+scheduled run start a scan before a report, read-only, with the site's
+own SCC configuration. It would never install SCC, never change a
+setting, and never run remediation. It is *not* implemented: running a
+third-party scanner from a SYSTEM task needs its own security review.
+
 ## 14. M1 implementation status
 
 **Done:**

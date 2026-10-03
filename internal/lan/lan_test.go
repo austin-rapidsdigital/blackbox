@@ -12,6 +12,7 @@ import (
 	"github.com/casea1/blackbox/internal/archive"
 	"github.com/casea1/blackbox/internal/check"
 	"github.com/casea1/blackbox/internal/event"
+	"github.com/casea1/blackbox/internal/scap"
 	"github.com/casea1/blackbox/internal/store"
 )
 
@@ -129,7 +130,7 @@ func TestSendAndImport(t *testing.T) {
 
 	col, _ := store.Open(t.TempDir())
 	now := t0.Add(30 * time.Minute)
-	res, err := Import(col, in, "", now, t.Logf)
+	res, err := Import(col, in, Dirs{}, now, t.Logf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +166,7 @@ func TestSendAndImport(t *testing.T) {
 	// Next hour: only new data travels.
 	collect(t, ws, "WS-01", "windows", 1, t0.Add(time.Hour))
 	send(t, ws, "WS-01", in, t0.Add(time.Hour))
-	res, _ = Import(col, in, "", now.Add(time.Hour), t.Logf)
+	res, _ = Import(col, in, Dirs{}, now.Add(time.Hour), t.Logf)
 	if res.Records != 3 { // 1 event, 1 run, 1 check
 		t.Errorf("second import had %d records, want 3 (nothing re-sent)", res.Records)
 	}
@@ -188,7 +189,7 @@ func TestDuplicateDeliveryAndMissingBatch(t *testing.T) {
 	os.Remove(filepath.Join(in, InboxName("WS-01", id, 2))) // lost in transit
 
 	col, _ := store.Open(t.TempDir())
-	if _, err := Import(col, in, "", t0.Add(3*time.Hour), nil); err != nil {
+	if _, err := Import(col, in, Dirs{}, t0.Add(3*time.Hour), nil); err != nil {
 		t.Fatal(err)
 	}
 	s := col.State.Senders[id]
@@ -197,7 +198,7 @@ func TestDuplicateDeliveryAndMissingBatch(t *testing.T) {
 	}
 	// Batch 1 delivered again (e.g. the sender crashed before removing it).
 	os.WriteFile(one, saved, 0o644)
-	res, _ := Import(col, in, "", t0.Add(4*time.Hour), nil)
+	res, _ := Import(col, in, Dirs{}, t0.Add(4*time.Hour), nil)
 	evs, _ := col.ReadEvents(time.Time{})
 	if res.Records != 0 || len(evs) != 2 {
 		t.Errorf("duplicate batch imported again: %d records, %d events", res.Records, len(evs))
@@ -227,7 +228,7 @@ func TestRejectsBadFiles(t *testing.T) {
 	os.WriteFile(filepath.Join(in, "notes.bbx"), []byte("x"), 0o644)
 	os.WriteFile(filepath.Join(in, ".WS-01_abc_0000000002.bbx.partial"), []byte("x"), 0o644) // still being copied
 	col, _ := store.Open(t.TempDir())
-	res, err := Import(col, in, "", t0, nil)
+	res, err := Import(col, in, Dirs{}, t0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +328,7 @@ func TestLogArchivesAreDeliveredAndFiled(t *testing.T) {
 
 	col, _ := store.Open(t.TempDir())
 	archives := filepath.Join(t.TempDir(), "archives")
-	res, err := Import(col, in, archives, t0, t.Logf)
+	res, err := Import(col, in, Dirs{Archives: archives}, t0, t.Logf)
 	if err != nil || res.Archives != 1 || len(res.Rejected) != 0 {
 		t.Fatalf("import: %+v %v", res, err)
 	}
@@ -338,7 +339,7 @@ func TestLogArchivesAreDeliveredAndFiled(t *testing.T) {
 
 	// A damaged archive is set aside, not filed.
 	os.WriteFile(filepath.Join(in, "archive_abc_WS-02_x.zip"), []byte("not a zip"), 0o640)
-	res, _ = Import(col, in, archives, t0, nil)
+	res, _ = Import(col, in, Dirs{Archives: archives}, t0, nil)
 	if res.Archives != 0 || len(res.Rejected) != 1 {
 		t.Fatalf("damaged archive: %+v", res)
 	}
@@ -366,12 +367,12 @@ func TestLateBatchFillsTheGap(t *testing.T) {
 	os.Remove(two) // delayed
 
 	col, _ := store.Open(t.TempDir())
-	Import(col, in, "", t0.Add(3*time.Hour), nil)
+	Import(col, in, Dirs{}, t0.Add(3*time.Hour), nil)
 	if s := col.State.Senders[id]; len(s.Missing) != 1 {
 		t.Fatalf("gap not noted: %+v", s)
 	}
 	os.WriteFile(two, held, 0o644) // arrives late
-	res, err := Import(col, in, "", t0.Add(4*time.Hour), nil)
+	res, err := Import(col, in, Dirs{}, t0.Add(4*time.Hour), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,11 +405,43 @@ func TestUnreadableBatchDoesNotBlockImport(t *testing.T) {
 		t.Skip("symlinks not available:", err)
 	}
 	col, _ := store.Open(t.TempDir())
-	res, err := Import(col, in, "", t0.Add(time.Minute), t.Logf)
+	res, err := Import(col, in, Dirs{}, t0.Add(time.Minute), t.Logf)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.Batches != 1 || len(res.Rejected) != 1 || !strings.Contains(res.Rejected[0], "could not be read") {
 		t.Errorf("import: %+v", res)
+	}
+}
+
+// §6: a sender's SCAP results go to the collector once each, and are filed
+// under the computer they are for.
+func TestScapResultsTravel(t *testing.T) {
+	in := inbox(t)
+	ws := system(t, "WS-07", "windows", 1, t0)
+	send(t, ws, "WS-07", in, t0) // gives the sender its ID
+	files := []string{"../../testdata/scap/scc/Sessions/2026-09-29_100000/Results/SCAP/XML/WS-07_SCC-5.10_2026-09-29_100000_XCCDF-Results_MS_Windows_11_STIG.xml"}
+	if n, err := QueueScap(ws, files, t0); err != nil || n != 1 {
+		t.Fatalf("queued %d %v", n, err)
+	}
+	if n, _ := QueueScap(ws, files, t0); n != 0 {
+		t.Error("the same result queued twice")
+	}
+	if n, err := DeliverScap(ws, in); err != nil || n != 1 || QueuedScap(ws) != 0 {
+		t.Fatalf("delivered %d %v", n, err)
+	}
+	col, _ := store.Open(t.TempDir())
+	scapDir := filepath.Join(t.TempDir(), "scap-received")
+	res, err := Import(col, in, Dirs{Scap: scapDir}, t0, t.Logf)
+	if err != nil || res.Scap != 1 || len(res.Rejected) != 0 {
+		t.Fatalf("import %+v %v", res, err)
+	}
+	got, _ := filepath.Glob(filepath.Join(scapDir, "WS-07", "scap_*.xml.gz"))
+	if len(got) != 1 {
+		t.Fatalf("filed: %v", got)
+	}
+	r, err := scap.ReadFile(got[0])
+	if err != nil || r[0].Host != "WS-07" || len(r[0].Open) != 3 {
+		t.Errorf("filed result: %+v %v", r, err)
 	}
 }

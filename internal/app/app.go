@@ -3,6 +3,8 @@
 package app
 
 import (
+	"github.com/casea1/blackbox/internal/scap"
+
 	"fmt"
 	"os"
 	"path/filepath"
@@ -67,6 +69,31 @@ func (a *App) ReportsDir() string { return a.Cfg.ReportsDir() }
 // logs (this computer's own, and those received from senders) until a
 // report takes them into its folder.
 func (a *App) pendingLogsDir() string { return filepath.Join(a.Cfg.DataDir, "archives") }
+
+// scapReceivedDir is where a collector keeps the SCAP results senders
+// deliver, by computer.
+func (a *App) scapReceivedDir() string { return filepath.Join(a.Cfg.DataDir, "scap-received") }
+
+// scapScans reads the SCAP results to show in a report: from the
+// scap_results folder and, on a collector, those senders delivered.
+func (a *App) scapScans() []*scap.Scan {
+	dir := a.Cfg.ScapDir()
+	if dir == "" {
+		return nil
+	}
+	if dir == filepath.Join(a.Cfg.DataDir, "scap") {
+		os.MkdirAll(dir, 0o750) // the default folder, ready for results
+	}
+	found, notes := scap.Find(dir, a.scapReceivedDir())
+	for _, n := range notes {
+		a.logf("SCAP results: %s", n)
+	}
+	out := make([]*scap.Scan, 0, len(found))
+	for _, s := range found {
+		out = append(out, s)
+	}
+	return out
+}
 
 // legacyLogsDir is where version 0.4 kept the daily archives; any left
 // there go into the next report too.
@@ -229,12 +256,15 @@ func (a *App) receive(st *store.Store) {
 			return
 		}
 	}
-	res, err := lan.Import(st, a.Cfg.Inbox, a.pendingLogsDir(), a.now(), a.Logf)
+	res, err := lan.Import(st, a.Cfg.Inbox, lan.Dirs{Archives: a.pendingLogsDir(), Scap: a.scapReceivedDir()}, a.now(), a.Logf)
 	if err != nil {
 		a.logf("receiving from %s: %v", a.Cfg.Inbox, err)
 	}
 	if res.Batches > 0 {
 		a.logf("received %d batch%s (%d records) from other systems", res.Batches, map[bool]string{true: "es"}[res.Batches != 1], res.Records)
+	}
+	if res.Scap > 0 {
+		a.logf("received %d SCAP scan result(s) from other systems", res.Scap)
 	}
 	if res.Archives > 0 {
 		a.logf("received %d log archive(s) from other systems", res.Archives)
@@ -256,6 +286,23 @@ func (a *App) send(st *store.Store) SendResult {
 	var r SendResult
 	host := collect.LocalHost()
 	r.Made, r.Err = lan.Export(st, host, a.Version, a.now())
+	// This computer's latest SCAP results go to the collector too.
+	if dir := a.Cfg.ScapDir(); dir != "" && r.Err == nil {
+		found, _ := scap.Find(dir)
+		var files []string
+		for _, s := range found {
+			if store.SystemKey(s.Latest.Host) != store.SystemKey(host) {
+				continue
+			}
+			files = append(files, s.Latest.File)
+			if s.Previous != nil {
+				files = append(files, s.Previous.File)
+			}
+		}
+		if _, err := lan.QueueScap(st, files, a.now()); err != nil {
+			a.logf("queueing SCAP results: %v", err)
+		}
+	}
 	if r.Err == nil {
 		dest, err := share.Destination(a.Cfg)
 		if err != nil {
@@ -264,6 +311,9 @@ func (a *App) send(st *store.Store) SendResult {
 			r.Delivered, r.Err = lan.Deliver(st, dest, host)
 			if r.Err == nil {
 				r.ArchivesDelivered, r.Err = lan.DeliverArchives(st, dest)
+			}
+			if r.Err == nil {
+				_, r.Err = lan.DeliverScap(st, dest)
 			}
 		}
 	}
@@ -414,7 +464,11 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 	}
 	sort.Slice(sets, func(i, j int) bool { return strings.ToLower(sets[i].Host) < strings.ToLower(sets[j].Host) })
 
+	scans := a.scapScans()
 	r := report.Build(events, runs, report.Options{
+		// The STIG compliance table shows once SCAP is in use: a folder
+		// chosen in the settings, or any scan found.
+		Scap: scans, ScapEnabled: len(scans) > 0 || (a.Cfg.ScapResults != "" && a.Cfg.ScapDir() != ""), ScapMaxAgeDays: a.Cfg.ScapMaxAgeDays,
 		Site:        a.Cfg.SiteName,
 		WindowStart: prevEnd, WindowEnd: end, Generated: generated, Version: a.Version,
 		Source: "Live collection", Location: a.loc(), InReportsDir: true, Interim: !advance, Period: a.Cfg.ReportEvery,
