@@ -96,3 +96,27 @@ func TestStandaloneShowsOnlyItself(t *testing.T) {
 		t.Errorf("a collector should show its sender: gaps %v, quiet %v", h.AuditGaps, h.Quiet)
 	}
 }
+
+// L3: the last collection found auditing off: status says so, for this
+// computer and in a collector's list of systems.
+func TestAuditOffInStatus(t *testing.T) {
+	st, _ := store.Open(t.TempDir())
+	now := time.Date(2026, 10, 2, 15, 0, 0, 0, time.UTC)
+	st.State.LastCollect = now.Add(-10 * time.Minute)
+	st.NoteSystem("ubu7", "linux", "0.10.1", "ubu7", now.Add(-time.Hour), now.Add(-time.Hour), now.Add(-time.Hour))
+	st.Save()
+	why := "the audit service (auditd) is not running (systemctl is-active auditd: inactive)"
+	st.AppendRun(&store.Run{Time: now.Add(-10 * time.Minute), Host: collect.LocalHost(), OS: "linux", AuditOff: why})
+	st.AppendRun(&store.Run{Time: now.Add(-time.Hour), Host: "ubu7", OS: "linux", AuditOff: why})
+	a := &App{Cfg: &config.Config{DataDir: st.Dir, Inbox: t.TempDir(), ReportEvery: "weekly", ReportAt: config.DefaultReportAt, CollectEvery: time.Hour},
+		Now: func() time.Time { return now }, Loc: time.UTC}
+	var b bytes.Buffer
+	a.Status(&b)
+	if !strings.Contains(b.String(), "AUDITING OFF:") || !strings.Contains(b.String(), "14:00   AUDITING OFF") {
+		t.Errorf("status:\n%s", b.String())
+	}
+	h, _ := a.Health()
+	if len(h.AuditOff) != 2 {
+		t.Errorf("health: %v", h.AuditOff)
+	}
+}

@@ -251,6 +251,7 @@ func Build(events []*event.Event, runs []*store.Run, opt Options) *Report {
 
 	sort.SliceStable(events, func(i, j int) bool { return events[i].Time.Before(events[j].Time) })
 	events = r.exclude(events)
+	unknownNames(events)
 	events = r.dedupe(events)
 	attributeDevices(events)
 	shutdownStops(events)
@@ -464,6 +465,31 @@ func (r *Report) dedupe(in []*event.Event) []*event.Event {
 		out = append(out, e)
 	}
 	return out
+}
+
+// unknownNames corrects the reason of a Linux password check that failed
+// because the account doesn't exist: PAM records it as a wrong password,
+// and sshd says a moment later that the name was unknown.
+func unknownNames(events []*event.Event) {
+	const unknown = "the user name does not exist"
+	for i, e := range events {
+		if e.OS != "linux" || e.Action != "logon_failed" || !strings.HasSuffix(e.Summary, "— "+unknown+".") {
+			continue
+		}
+		for j := i - 1; j >= 0 && e.Time.Sub(events[j].Time) <= 10*time.Second; j-- {
+			x := events[j]
+			if x.Host != e.Host || x.Action != "logon_failed" || x.Target != e.Target || x.SourceIP != e.SourceIP ||
+				!strings.HasSuffix(x.Summary, "— wrong password.") {
+				continue
+			}
+			x.Summary = strings.TrimSuffix(x.Summary, "wrong password.") + unknown + "."
+			for k := range x.Details {
+				if x.Details[k].Label == "Reason" {
+					x.Details[k].Value = unknown
+				}
+			}
+		}
+	}
 }
 
 // rebootCmd is a command that restarts or shuts down the system.

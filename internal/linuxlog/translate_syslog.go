@@ -256,7 +256,7 @@ var (
 func (t *Translator) auth(l Line) *event.Event {
 	m := l.Msg
 	switch l.Prog {
-	case "sshd":
+	case "sshd", "sshd-session", "sshd-auth":
 		if x := sshFailRE.FindStringSubmatch(m); x != nil {
 			acct, reason := x[3], "wrong password"
 			if x[2] != "" {

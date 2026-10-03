@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/casea1/blackbox/internal/event"
@@ -51,7 +52,10 @@ func Linux(st *store.Store, opt Options) (*store.Run, error) {
 	if fi, err := os.Stat(AuditLog); err == nil && !fi.IsDir() {
 		haveAudit = true
 		run.Channels = append(run.Channels, followAudit(st, tr, host, start, opt))
-		run.Channels = append(run.Channels, kernelLost(st, host))
+		status, statusErr := exec.Command("auditctl", "-s").Output()
+		run.Channels = append(run.Channels, kernelLost(st, host, status, statusErr))
+		active, _ := exec.Command("systemctl", "is-active", "auditd").Output()
+		run.AuditOff = AuditOffText(string(status), statusErr, string(active))
 	} else {
 		run.Channels = append(run.Channels, store.ChannelRun{Channel: AuditLog,
 			Unavailable: "auditd is not installed or not logging — logons, sudo and account changes are read from the authentication log instead"})
@@ -238,9 +242,8 @@ var lostRE = regexp.MustCompile(`(?m)^lost (\d+)`)
 // kernelLost records audit records the kernel dropped because its backlog
 // was full (reported by `auditctl -s`). They never reach the log file, so
 // this is the only way to know they are missing.
-func kernelLost(st *store.Store, host string) store.ChannelRun {
+func kernelLost(st *store.Store, host string, out []byte, err error) store.ChannelRun {
 	cr := store.ChannelRun{Channel: "kernel audit backlog"}
-	out, err := exec.Command("auditctl", "-s").Output()
 	if err != nil {
 		cr.Unavailable = "could not run auditctl -s"
 		return cr
@@ -258,6 +261,24 @@ func kernelLost(st *store.Store, host string) store.ChannelRun {
 	}
 	st.State.Bookmarks[key] = store.Bookmark{RecordID: lost, Time: time.Now()}
 	return cr
+}
+
+var enabledRE = regexp.MustCompile(`(?m)^enabled (\d+)`)
+
+// AuditOffText says why auditing isn't running, from `auditctl -s` and
+// `systemctl is-active auditd`, or "" when it is (or it can't be told).
+func AuditOffText(status string, statusErr error, active string) string {
+	var why []string
+	if statusErr == nil {
+		if m := enabledRE.FindStringSubmatch(status); m != nil && m[1] == "0" {
+			why = append(why, "kernel auditing is off (auditctl -s shows enabled 0)")
+		}
+	}
+	switch a := strings.TrimSpace(active); a {
+	case "inactive", "failed", "deactivating":
+		why = append(why, "the audit service (auditd) is not running (systemctl is-active auditd: "+a+")")
+	}
+	return strings.Join(why, "; ")
 }
 
 // LinuxFiles translates exported Linux logs for a one-off report. Audit

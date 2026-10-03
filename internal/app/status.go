@@ -60,6 +60,12 @@ func (a *App) Status(w io.Writer) error {
 		p("Log archive:", "original logs saved up to %s (%s)", stampLocal(s.ArchivedUntil, a.loc()), where)
 	}
 
+	off := auditOffNow(st, now)
+	for h, why := range off {
+		if store.SystemKey(h) == store.SystemKey(host) {
+			p("AUDITING OFF:", "%s — nothing is being recorded. Start it with: systemctl start auditd (and auditctl -e 1 if needed)", why)
+		}
+	}
 	for _, l := range lostSince(st, s.LastWindowEnd, now) {
 		p("Events lost:", "%s", LostText(l, a.loc()))
 	}
@@ -143,6 +149,10 @@ func (a *App) writeSystems(w io.Writer, st *store.Store, now time.Time) {
 	}
 	fmt.Fprintf(w, "  %-20s %-8s %-18s %-18s %s\n", "NAME", "OS", "LAST COLLECTION", "LAST RECEIVED", "NOTE")
 	self := store.SystemKey(collect.LocalHost())
+	off := map[string]bool{}
+	for h := range auditOffNow(st, now) {
+		off[store.SystemKey(h)] = true
+	}
 	for _, s := range list {
 		recv := stampLocal(s.LastReceived, a.loc())
 		note := ""
@@ -159,6 +169,9 @@ func (a *App) writeSystems(w io.Writer, st *store.Store, now time.Time) {
 			// Earlier than the silence above: a sender whose deliveries
 			// are refused (or that is switched off) shows here first.
 			note = strings.TrimSpace(note + "  no batch since " + stampLocal(s.LastReceived, a.loc()))
+		}
+		if off[store.SystemKey(s.Name)] {
+			note = strings.TrimSpace("AUDITING OFF  " + note)
 		}
 		fmt.Fprintf(w, "  %-20s %-8s %-18s %-18s %s\n", s.Name, s.OS, stampLocal(s.LastRun, a.loc()), recv, note)
 	}

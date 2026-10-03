@@ -143,7 +143,7 @@ func (r *Report) systemsPage() *SystemsPage {
 			}
 		}
 		switch {
-		case s.Status == "silent" || len(cleared[h]) > 0 || high > 0:
+		case s.Status == "silent" || s.AuditOff != "" || len(cleared[h]) > 0 || high > 0:
 			v.Level, v.Status = "bad", "Needs attention"
 		case s.Status == "warn" || med > 0:
 			v.Level, v.Status = "warn", "Worth a look"
@@ -152,6 +152,8 @@ func (r *Report) systemsPage() *SystemsPage {
 		}
 		if s.Status == "silent" {
 			v.Status = "Silent"
+		} else if s.AuditOff != "" {
+			v.Status = "Auditing off"
 		}
 
 		// Five facts.

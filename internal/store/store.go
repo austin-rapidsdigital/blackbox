@@ -106,6 +106,9 @@ type Run struct {
 	Duration float64      `json:"duration_seconds"`
 	Received time.Time    `json:"received,omitzero"` // when it arrived from another system (collector only)
 	Channels []ChannelRun `json:"channels"`
+	// AuditOff says, in plain words, that auditing was not running when
+	// this collection ran (Linux: auditd stopped, or kernel auditing off).
+	AuditOff string `json:"audit_off,omitempty"`
 }
 
 // Store is an opened data directory.

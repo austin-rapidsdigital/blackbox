@@ -20,7 +20,7 @@ type trayState int
 const (
 	stateOK      trayState = iota // green: collecting on schedule
 	stateLook                     // amber: something to look at
-	stateStopped                  // red: collection stopped or failed
+	stateStopped                  // red: collection stopped or failed, or auditing is off
 	stateUnknown                  // grey: status can't be read
 )
 
@@ -32,6 +32,7 @@ type trayView struct {
 	Items   []string // one line per thing to look at
 	Report  string   // latest report.html ("" if none)
 	Reports string   // reports folder
+	Down    bool     // collection has stopped or the last run failed
 }
 
 // overdue is how long without a run before collection counts as stopped:
@@ -80,11 +81,11 @@ func classify(h app.Health, err error, now time.Time) trayView {
 		v.Status = "Waiting for the first collection"
 		v.Tip = "Blackbox: waiting for the first collection"
 	case h.LastRun.Error != "" && !h.LastRun.Time.Before(h.LastCollect):
-		v.State = stateStopped
+		v.State, v.Down = stateStopped, true
 		v.Status = "The last run failed (" + when(h.LastRun.Time, now) + "): " + h.LastRun.Error
 		v.Tip = "Blackbox: the last run failed"
 	case now.Sub(h.LastCollect) > overdue(h.Every):
-		v.State = stateStopped
+		v.State, v.Down = stateStopped, true
 		v.Status = "Collection has stopped: last run " + when(h.LastCollect, now)
 		v.Tip = "Blackbox: collection has stopped"
 	default:
@@ -97,6 +98,22 @@ func classify(h app.Health, err error, now time.Time) trayView {
 			}
 		}
 		v.Tip = "Blackbox: collecting · last " + clock(h.LastCollect)
+	}
+
+	// Auditing not running is red: nothing is being recorded.
+	var off []string
+	for host := range h.AuditOff {
+		off = append(off, host)
+	}
+	sort.Strings(off)
+	for _, host := range off {
+		v.Items = append(v.Items, "Auditing is off on "+host)
+	}
+	if len(off) > 0 {
+		v.State = stateStopped
+		if !v.Down {
+			v.Tip = "Blackbox: auditing is off on " + strings.Join(off, ", ")
+		}
 	}
 
 	// Things to look at, by system name.
@@ -160,6 +177,7 @@ type trayMemory struct {
 	Gaps    map[string]bool   `json:"gaps"`    // hosts whose settings didn't match
 	Version string            `json:"version"` // version last running
 	Lost    string            `json:"lost"`    // report period whose lost events were notified
+	Off     map[string]string `json:"off"`     // host → auditing-off reason notified
 }
 
 // notice is one notification.
@@ -173,7 +191,8 @@ type notice struct {
 // look nothing is notified: only what changes after it.
 func notices(m trayMemory, h app.Health, v trayView, version string, now time.Time) ([]notice, trayMemory) {
 	var out []notice
-	next := trayMemory{Seen: true, Report: m.Report, Stopped: m.Stopped, Quiet: map[string]string{}, Gaps: map[string]bool{}, Version: version, Lost: m.Lost}
+	next := trayMemory{Seen: true, Report: m.Report, Stopped: m.Stopped, Quiet: map[string]string{}, Gaps: map[string]bool{}, Version: version, Lost: m.Lost,
+		Off: map[string]string{}}
 	first := !m.Seen
 
 	if m.Version != "" && m.Version != version {
@@ -202,7 +221,19 @@ func notices(m trayMemory, h app.Health, v trayView, version string, now time.Ti
 		next.Report = l.Dir
 	}
 
-	if v.State == stateStopped {
+	var off []string
+	for host := range h.AuditOff {
+		off = append(off, host)
+	}
+	sort.Strings(off)
+	for _, host := range off {
+		if m.Off[host] != h.AuditOff[host] && !first {
+			out = append(out, notice{Title: "Blackbox", Warn: true, Text: fmt.Sprintf("Auditing is off on %s: %s.", host, h.AuditOff[host])})
+		}
+		next.Off[host] = h.AuditOff[host]
+	}
+
+	if v.Down {
 		key := h.LastCollect.String() + "|" + h.LastRun.Error
 		if key != m.Stopped && !first {
 			out = append(out, notice{Title: "Blackbox", Text: v.Status, Warn: true})
