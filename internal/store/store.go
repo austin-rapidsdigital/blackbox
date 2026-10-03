@@ -74,6 +74,10 @@ type State struct {
 	// RemovedReports are report folders deleted under retention_days since
 	// the last scheduled report, which lists them (A9).
 	RemovedReports []string `json:"removed_reports,omitempty"`
+
+	// ScapSent are the SCAP result files (by SHA-256) a sender has queued
+	// for its collector, so each goes once.
+	ScapSent map[string]time.Time `json:"scap_sent,omitempty"`
 }
 
 // Gap records events lost before they could be collected.

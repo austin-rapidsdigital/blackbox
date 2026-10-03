@@ -233,6 +233,43 @@ reports after `retention_days`.
 Expect a few MB a day per Windows computer (much less for Linux),
 compressed. It depends on how busy the Security log is.
 
+## STIG compliance (SCAP)
+
+An assessor asks two things: is what the STIG audits reviewed, and is the
+system configured to the STIG? The report answers the second from the
+SCAP scans you already run, DISA SCC on Windows or OpenSCAP on Linux.
+Blackbox **reads** their results; it never runs a scan, and never changes
+a setting.
+
+**Where results come from.** Put the result files (SCC's
+`*_XCCDF-Results_*.xml`, or OpenSCAP's `--results` or `--results-arf`
+files) in the `scap` folder in Blackbox's data folder, or set
+`scap_results` to the folder your scanner writes to (subfolders are
+searched, so SCC's `Sessions\<date>\Results\SCAP\XML` layout works).
+A sender sends its own results to the collector with its events, once
+each. The files are copied, never moved or changed.
+
+**What the report shows.** Once any scan is found (or `scap_results` is
+set), Audit health has a **STIG compliance (SCAP)** table: for each
+computer and benchmark, the version and profile, when it was scanned,
+the score, pass and fail counts, open CAT I, II and III findings, and
+what changed since the previous scan (newly open, fixed, score). A scan
+older than `scap_max_age_days` (30 by default) is marked **Stale**, and a
+computer in the report with no scan says **No scan found**.
+
+- CAT comes from each rule's severity: high is CAT I, medium CAT II, low
+  CAT III. Open means `fail` or `error`, as STIG Viewer and SCC count
+  them.
+- **Overview:** open CAT I findings are a red line in the checklist;
+  computers with no scan, or a stale one, are amber.
+- **Systems:** each computer's header adds "SCAP 94% · 1 CAT I".
+- **Report folder:** each result shown is copied into `scap/` and listed
+  in `manifest.sha256`, so the report proves which scan it showed.
+  `scap-open-rules.csv` lists every open rule (computer, benchmark, CAT,
+  Vuln ID, STIG ID, rule ID, title, scan time) for a POA&M; the Export
+  menu offers it. `summary.json` has each computer's score and open
+  findings.
+
 ## Is the audit trail complete?
 
 The Overview flags a report as incomplete when:

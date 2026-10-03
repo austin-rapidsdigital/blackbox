@@ -177,7 +177,7 @@ func TestDemoReport(t *testing.T) {
 	r := Build(events, runs, Options{Site: site, WindowStart: start, WindowEnd: end, Generated: end.Add(5 * time.Minute), Location: time.UTC,
 		Source: "Live collection", Collector: !standalone, Systems: infos, CheckSets: checks, History: history, Period: "weekly",
 		KnownDevices: map[string]time.Time{}, WorkingHours: mustHours("Mon-Fri 06:00-18:00"),
-		Archives: archives, ArchivesKept: true, Interim: days != 7})
+		Archives: archives, ArchivesKept: true, Interim: days != 7, Scap: scapScans(t), ScapEnabled: true, ScapMaxAgeDays: 30})
 	os.RemoveAll(out)
 	if err := r.Write(out); err != nil {
 		t.Fatal(err)

@@ -41,6 +41,7 @@ type Summary struct {
 	LogClears   int            `json:"log_clears"`
 	AuditOff    int            `json:"audit_off_periods,omitempty"`
 	Removed     []string       `json:"removed_reports,omitempty"` // deleted under retention_days since the last report
+	Scap        []ScapSummary  `json:"scap,omitempty"`            // STIG compliance from the latest SCAP scans
 	Version     string         `json:"blackbox_version"`
 	Source      string         `json:"source"`
 	Systems     []SystemStatus `json:"systems,omitempty"`
@@ -119,6 +120,7 @@ func (r *Report) summary() Summary {
 	}
 	s.AuditOff = len(r.Health.AuditOff)
 	s.Removed = r.Removed
+	s.Scap = r.scapSummary()
 	if r.ShowSystems() {
 		for _, sys := range r.SystemRows {
 			st := SystemStatus{Name: sys.Name, Status: sys.Status, LastRun: sys.LastRun, Events: sys.Events, High: sys.High, Explanation: sys.StatusMsg}
@@ -154,6 +156,11 @@ func (r *Report) Write(dir string) error {
 		st.Contents, _ = archive.Contents(dst)
 		r.archiveState[a.Name] = st
 	}
+	// The SCAP results shown, copied in first so the page can link them.
+	scapSums, err := r.scapFiles(dir)
+	if err != nil {
+		return err
+	}
 	pages, data, err := r.buildData()
 	if err != nil {
 		return fmt.Errorf("event data: %w", err)
@@ -178,8 +185,14 @@ func (r *Report) Write(dir string) error {
 	for _, f := range data {
 		contents["data/"+f.Name] = f.Body
 	}
+	if len(scapSums) > 0 {
+		contents["scap-open-rules.csv"] = r.scapCSV()
+	}
 
 	sums := map[string]string{}
+	for name, sum := range scapSums {
+		sums[name] = sum
+	}
 	for _, a := range r.Archives {
 		if a.Path != "" {
 			sums[a.Name] = a.SHA256
@@ -321,8 +334,9 @@ func Verify(dir string) ([]string, error) {
 		}
 		n++
 		listed[name] = true
-		// Files are in the report folder, or (event data) in its data folder.
-		base := strings.TrimPrefix(name, "data/")
+		// Files are in the report folder, or in its data (event data) or
+		// scap (scan results) folder.
+		base := strings.TrimPrefix(strings.TrimPrefix(name, "data/"), "scap/")
 		if strings.ContainsAny(base, `/\`) || base == ".." || base == "." || base == "" {
 			problems = append(problems, fmt.Sprintf("%s: unexpected path in manifest", name))
 			continue
@@ -359,7 +373,7 @@ func Verify(dir string) ([]string, error) {
 		}
 	}
 	// A file the manifest doesn't list was added (or renamed) afterwards.
-	for _, sub := range []string{"", "data"} {
+	for _, sub := range []string{"", "data", "scap"} {
 		entries, _ := os.ReadDir(filepath.Join(dir, sub))
 		for _, e := range entries {
 			name := path.Join(sub, e.Name())
@@ -596,6 +610,16 @@ func fileSHA256(path string) (string, error) {
 // came from (the data folder, Administrators and SYSTEM only), while a new
 // file takes the report folder's, like the rest of the report.
 func copyIn(src, dst string) (string, error) {
+	sum, err := copyFile(src, dst)
+	if err != nil {
+		return "", err
+	}
+	return sum, os.Remove(src)
+}
+
+// copyFile copies src to dst, leaving src as it is, and returns the
+// copy's SHA-256.
+func copyFile(src, dst string) (string, error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return "", err
@@ -624,8 +648,7 @@ func copyIn(src, dst string) (string, error) {
 	if err := os.Rename(part, dst); err != nil {
 		return "", err
 	}
-	in.Close()
-	return hex.EncodeToString(h.Sum(nil)), os.Remove(src)
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // archiveState is what Write found about one original-log zip.

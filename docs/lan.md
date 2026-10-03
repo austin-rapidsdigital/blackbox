@@ -240,6 +240,14 @@ current settings as the defaults. From a script, run
 `blackbox config set send_to \\NEWCOLLECTOR\BlackboxInbox` as an
 administrator. The share password is read from `BLACKBOX_SHARE_PASSWORD`.
 
+## SCAP scan results
+
+A sender also sends its own SCAP scan results (see
+[STIG compliance](reports.md#stig-compliance-scap)) to the collector, each
+file once, compressed, next to its batches. The collector keeps them in
+`scap-received` in its data folder, and its reports show every
+computer's latest scan.
+
 ## What the report shows
 
 The report points these out, both on its Overview and Audit health pages

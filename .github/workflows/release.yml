@@ -90,5 +90,10 @@ jobs:
 
           Check downloads with \`sha256sum -c SHA256SUMS\`, and, when \`SHA256SUMS.asc\` is attached, the checksums themselves with \`gpg --verify SHA256SUMS.asc SHA256SUMS\` (the key is in the [README](https://github.com/casea1/blackbox#verifying-a-release)). \`blackbox-${VERSION}.spdx.json\` is the software bill of materials. See the [README](https://github.com/casea1/blackbox#readme) and the [Windows](https://github.com/casea1/blackbox/blob/main/docs/windows.md) and [Linux](https://github.com/casea1/blackbox/blob/main/docs/linux.md) guides.
           NOTES
+          # What this version fixes, when its notes are in the repository.
+          if [ -f "docs/releases/${VERSION}.md" ]; then
+            printf '\n' >> notes.md
+            cat "docs/releases/${VERSION}.md" >> notes.md
+          fi
           gh release create "$TAG" dist/*.exe dist/*.tar.gz dist/*.spdx.json dist/SHA256SUMS $(ls dist/SHA256SUMS.asc 2>/dev/null) \
             --target "$GITHUB_SHA" --title "Blackbox $TAG" --notes-file notes.md

@@ -96,6 +96,7 @@ type HealthPage struct {
 	Single  string // a report of one system opens its table directly
 	Checked int
 	Other   []OtherRow // Security-log events Blackbox doesn't translate
+	Scap    []ScapRow  // STIG compliance from SCAP scans
 }
 
 // OtherRow is one Security-log event ID Blackbox has no translation for,
@@ -148,7 +149,7 @@ func (r *Report) healthPage() *HealthPage {
 			return nil
 		}
 	}
-	hp := &HealthPage{Cols: healthCols, Other: r.otherEvents()}
+	hp := &HealthPage{Cols: healthCols, Other: r.otherEvents(), Scap: r.scapTable}
 	cleared := map[string][]*Row{}
 	for _, row := range r.rows {
 		if row.Action == "log_cleared" {

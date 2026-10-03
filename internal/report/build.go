@@ -3,6 +3,8 @@
 package report
 
 import (
+	"github.com/casea1/blackbox/internal/scap"
+
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -87,6 +89,13 @@ type Options struct {
 	// original logs, since the last scheduled report (A9).
 	Removed       []string
 	RetentionDays int
+
+	// SCAP scan results to show (docs/design.md 13a): the latest and
+	// previous scan of each computer and benchmark. ScapEnabled shows the
+	// table even when no scan was found.
+	Scap           []*scap.Scan
+	ScapEnabled    bool
+	ScapMaxAgeDays int
 }
 
 // ArchiveRef is one computer's original logs for the period: a zip that
@@ -242,7 +251,8 @@ type Report struct {
 
 	archiveState map[string]archiveState // set by Write
 	dataSums     map[string]string       // data file → SHA-256 of its payload
-	evPages      []string                // event index → the event page listing it (see evRef)
+	scapTable    []ScapRow
+	evPages      []string // event index → the event page listing it (see evRef)
 }
 
 // Build assembles a report from events (already filtered to the period)
@@ -290,6 +300,7 @@ func Build(events []*event.Event, runs []*store.Run, opt Options) *Report {
 	r.buildUsers(events)
 	r.buildHealth(runs, events)
 	r.buildSystems(runs, events)
+	r.scapTable = r.scapRows()
 	r.checkArchives()
 	for _, s := range r.Silent {
 		r.Health.Warnings = append(r.Health.Warnings, s.Name+": "+s.StatusMsg)
