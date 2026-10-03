@@ -333,6 +333,7 @@ func TestDefender(t *testing.T) {
 		t.Errorf("no Defender: %+v", rs)
 	}
 }
+
 // Rules on files a system doesn't have are left out of --audit-rules:
 // auditctl refuses them and the rest would not load.
 func TestRulesForThisSystem(t *testing.T) {
