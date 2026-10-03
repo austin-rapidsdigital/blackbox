@@ -53,8 +53,12 @@ func tamperAction(r *Row) bool {
 	case "audit_disabled", "audit_policy_changed", "audit_rule_added", "audit_rule_removed", "audit_config_changed", "audit_rules_refused",
 		"audit_tamper_command", "powershell_tamper", "powershell_av_tamper":
 		return person(r.User)
-	case "av_disabled":
+	case "av_disabled", "av_exclusion_added", "firewall_stopped", "firewall_rules_cleared":
 		return r.User == "" || person(r.User) // Defender's own events name no user
+	case "blackbox_stopped", "blackbox_uninstalled", "blackbox_files_removed", "blackbox_files_changed", "object_audit_changed":
+		return person(r.User)
+	case "blackbox_config_changed":
+		return person(r.User) && r.Severity == event.SevHigh
 	case "audit_stopped":
 		return r.Severity == event.SevHigh // stopped by a person, not at shutdown
 	}

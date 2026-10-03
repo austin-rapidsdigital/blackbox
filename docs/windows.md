@@ -157,12 +157,16 @@ account read access to that folder. This is the same as Explorer's
 
 | Event log | Used for |
 |---|---|
-| Security | Logons, failed logons, lockouts, admin logons, elevated programs, account and group changes, audit policy changes, log cleared, removable storage file access |
+| Security | Logons, failed logons, lockouts, admin logons, elevated programs, account and group changes, audit policy changes, log cleared, removable storage file access; audit events dropped (4612), LSA packages (4611/4614/4622), user rights (4704/4705), domain, Kerberos and trust policy (4739, 4713, 4706/4707/4716), weakened boot settings (4826), auditing settings on objects (4907), firewall rules, settings and service (4946–4950, 5024/5025/5030), code integrity (5038/6281), shares (5140, refused 5145), security registry keys (4657), permissions (4670), SID history (4765/4766), lock and unlock (4800/4801), files with auditing set (File System 4656/4663: refused access, writes and deletes). Every other Security event is listed as "Security event <ID>" on Other security, or counted when too frequent (see below). |
 | System | Services installed, startup and shutdown, other logs cleared |
+| Application | Software installed and removed (Windows Installer 1033/1034, 11707/11724) |
+| Microsoft-Windows-Windows Firewall With Advanced Security/Firewall | Who changed a firewall rule or setting (2003, 2004/2097, 2006, 2033); merged with the Security log's firewall events |
+| Microsoft-Windows-TerminalServices-LocalSessionManager/Operational and RemoteConnectionManager/Operational | Remote Desktop sign-ins (21, 1149), disconnects and reconnects (24, 25), with the client address; merged with the Security log's |
+| Microsoft-Windows-PrintService/Operational | Documents printed (307). Off by default; `check` shows it as optional |
 | Microsoft-Windows-Partition/Diagnostic | USB storage make, model, serial and size (on by default) |
 | Microsoft-Windows-Kernel-PnP/Configuration | First-time USB device setup |
 | Microsoft-Windows-DriverFrameworks-UserMode/Operational | Extra USB detail (optional, off by default) |
-| Microsoft-Windows-Windows Defender/Operational | Malware detections, protection turned off |
+| Microsoft-Windows-Windows Defender/Operational | Malware detections, protection turned off, settings changed and exclusions added (5007), changes blocked by Tamper Protection (5013) |
 | Microsoft-Windows-PowerShell/Operational | Suspicious PowerShell scripts: clearing logs or weakening auditing, turning off Defender, downloading and running code, password-stealing tools, malware-scanning (AMSI) bypasses |
 
 PowerShell records every script it runs (event 4104, Script Block
@@ -176,6 +180,40 @@ not listed, and stay in the original log saved with each report. A large
 script is recorded in several parts; matching parts of one script are
 shown as one row. Windows PowerShell 5.1 is read; PowerShell 7 writes to a
 separate log that Blackbox does not read yet.
+
+**Other Security-log events.** Nothing the audit policy records is
+silently dropped. A Security event Blackbox has no translation for is a
+row on Other security ("Security event 5376 (Credential Manager
+credentials backed up) by jsmith"). The frequent ones (Filtering Platform
+connections 5156–5158, handle events 4658/4690, privileged service calls
+4673/4674, group membership 4627, Kerberos tickets 4768/4769 and similar)
+are counted, not listed: Audit health lists every such ID with its count
+and where to find it, and the original logs are in each report's archive.
+In each system's settings on Audit health, an audit subcategory whose
+events Blackbox only counts or lists untranslated says so (for example
+Sensitive Privilege Use, Handle Manipulation).
+
+**Watching Blackbox itself (AU-9).** Changes to Blackbox are reported
+High: `blackbox config set` for `exclude_users`, `exclude_processes`,
+`retention_days`, `report_dir`, `send_to` or `inbox` (other settings
+Medium), `blackbox uninstall`, `schtasks` or PowerShell disabling or
+deleting the **Blackbox Audit Collection** task (4699/4701), and edits to
+`C:\ProgramData\Blackbox` by anything other than Blackbox. Creating or
+updating its task (an install or upgrade) is Medium. Edits to the folder
+are only recorded if it has an auditing entry, which Blackbox does not
+set itself (it never changes audit settings). To add one, as an
+administrator:
+
+```powershell
+$acl = Get-Acl C:\ProgramData\Blackbox -Audit
+$rule = New-Object System.Security.AccessControl.FileSystemAuditRule("Everyone",
+  "Write,Delete,ChangePermissions,TakeOwnership", "ContainerInherit,ObjectInherit", "None", "Success,Failure")
+$acl.AddAuditRule($rule)
+Set-Acl C:\ProgramData\Blackbox $acl
+```
+
+This needs File System auditing (success and failure), which the STIG
+already requires.
 
 Script Block Logging must be turned on by Group Policy: Administrative
 Templates > Windows Components > Windows PowerShell > Turn on PowerShell

@@ -294,6 +294,7 @@ func (t *Translator) auth(l Line) *event.Event {
 			case tampers(cmd):
 				e.Action, e.Severity = "audit_tamper_command", event.SevHigh
 				e.Summary = fmt.Sprintf("%s used sudo to run a command that can stop or weaken auditing: %s", user, cmd)
+			case blackboxChange(e, cmd, user):
 			default:
 				e.Action, e.Severity = "sudo_command", event.SevLow
 				e.Summary = fmt.Sprintf("%s ran %s: %s", user, as, cmd)

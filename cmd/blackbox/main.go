@@ -613,7 +613,13 @@ func cmdCheck(args []string) error {
 		return nil
 	}
 	if *rules {
-		fmt.Print(check.AuditRules)
+		// On Linux, rules for files this system doesn't have are left
+		// out: auditctl refuses them, and the rest would not load.
+		var exists func(string) bool
+		if runtime.GOOS == "linux" {
+			exists = func(p string) bool { _, err := os.Stat(p); return err == nil }
+		}
+		fmt.Print(check.RulesForThisSystem(check.AuditRules, exists))
 		return nil
 	}
 	if !check.Supported {

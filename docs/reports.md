@@ -79,7 +79,7 @@ each report's `summary.json`.
 | Possible password guessing | High | 5 or more failed logons for one account on one computer within 15 minutes |
 | One source tried several accounts | High | Failures for 3 or more accounts from one address within 15 minutes |
 | Same account failing on several computers | High | Failed logons for one account on 3 or more computers within 30 minutes (a collector sees every computer) |
-| Possible covering of tracks | High | An account created, someone added to a privileged group, or sudo rules changed, then within 24 hours on the same computer a log cleared or altered, auditing stopped, an audit rule added or removed, or anti-malware turned off, by a person |
+| Possible covering of tracks | High | An account created, someone added to a privileged group, or sudo rules changed, then within 24 hours on the same computer a log cleared or altered, auditing stopped, an audit rule added, removed or refused, auditing on an object changed, anti-malware turned off or an exclusion added, the firewall stopped, or Blackbox stopped, removed or its exclusions or retention changed, by a person |
 | Account created and deleted within a day | High | The same account created and deleted on one computer within 24 hours |
 | Auditing was switched off | High | The audit service stopped by a person, with how long it stayed off |
 | Successful logon after failures | Medium | 3 or more failures, then a success, within 30 minutes |
@@ -174,6 +174,15 @@ High however it is written, including with the program's path in quotes.
 **Process starts.** Programs started with administrator rights are
 listed. Programs a standard user starts are not, to keep reports
 readable; their logons and anything they change still are.
+
+**Nothing dropped silently.** A Windows Security-log event Blackbox has
+no translation for is listed on Other security as "Security event <ID>";
+the very frequent ones are counted instead. Audit health lists them all
+with their counts, and marks the audit subcategories whose events are
+only counted. On Linux, a record of any keyed audit rule Blackbox has no
+translation for (your site's own rules included) is an Info row naming
+the rule. See the [Windows](windows.md#what-blackbox-reads) and
+[Linux](linux.md#set-up-auditd) guides.
 
 **Exclusions.** `exclude_users` and `exclude_processes` leave out routine
 activity only. Failed logons against an excluded account, changes to it,

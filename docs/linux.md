@@ -92,6 +92,35 @@ Review the rules against your site's STIG checklist before using them. The
 last rule (`-e 2`) locks the rules until the next reboot, as the STIG
 requires.
 
+What the rules record, beyond logons and sudo (each is a report row):
+
+| Rules (key) | In the report |
+|---|---|
+| `perm_access` (EACCES and EPERM) | A person refused access to a file (Medium) |
+| `perm_mod` (chmod, chown, setxattr) | Permission and owner changes: setuid or setgid set High, files under `/etc`, `/usr`, `/var/log` and other system folders Medium, the rest Low; `setcap` High |
+| `delete` | Files deleted or renamed by a person (Low; system folders Medium), one row per folder |
+| `logon_config` | Changes to PAM and `/etc/security` (High), `sshd_config` and the login message scripts (Medium) |
+| `scheduled_jobs`, `systemd_units` | Cron jobs and systemd services or timers created or changed (Medium) |
+| `blackbox` | Changes to Blackbox's settings, data, program or timer by anything other than Blackbox (High) |
+| `privileged-*`, `modules`, `perm_chng` | The STIG's privileged programs, `kmod`, `setfacl`, `chacl` |
+| `session`, `logins` | utmp, wtmp, btmp, lastlog and faillock |
+
+Files written by the package manager (`dpkg`, `rpm`, `dnf`, `apt`) are
+not listed: the `sudo apt …` command that ran it is. Any other keyed rule,
+including your site's own, is still a row: "jsmith: the audit rule
+"my_rule" recorded openat on /srv/plan.txt".
+
+Files and folders are watched with `-a always,exit -F path=` (or `dir=`)
+rules, not `-w`, as the current STIGs write them. `--missing` treats the
+two as the same rule, so a baseline loaded with `-w` is not duplicated.
+
+**Watching Blackbox itself (AU-9).** Besides the `blackbox` rules above,
+commands that change Blackbox are reported High whoever runs them:
+`blackbox config set` for `exclude_users`, `exclude_processes`,
+`retention_days`, `report_dir`, `send_to` or `inbox` (other settings
+Medium), `systemctl stop`, `disable` or `mask` of `blackbox.timer`,
+`blackbox uninstall`, and deleting Blackbox's files.
+
 **On a STIG-hardened system** (for example, one built with Ubuntu's USG
 or an Ansible STIG role), most of these rules are already loaded under
 other key names. Install only the ones that are missing, so nothing is

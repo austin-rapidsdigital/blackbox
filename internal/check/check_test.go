@@ -197,6 +197,17 @@ var usgLoaded = strings.Join([]string{
 	"-a always,exit -F arch=b32 -S delete_module -F auid>=1000 -F auid!=-1 -F key=module_chng",
 	"-a always,exit -S all -F path=/usr/bin/mount -F perm=x -F auid>=1000 -F auid!=-1 -F key=privileged-mount",
 	"-w /var/log/lastlog -p wa -k logins",
+	"-w /var/run/utmp -p wa -k logins",
+	"-w /var/log/wtmp -p wa -k logins",
+	"-w /var/log/btmp -p wa -k logins",
+	"-a always,exit -F arch=b64 -S creat,open,openat,open_by_handle_at,truncate,ftruncate -F exit=-EPERM -F auid>=1000 -F auid!=-1 -F key=perm_access",
+	"-a always,exit -F arch=b64 -S creat,open,openat,open_by_handle_at,truncate,ftruncate -F exit=-EACCES -F auid>=1000 -F auid!=-1 -F key=perm_access",
+	"-a always,exit -F arch=b64 -S chown,fchown,fchownat,lchown -F auid>=1000 -F auid!=-1 -F key=perm_chng",
+	"-a always,exit -F arch=b64 -S chmod,fchmod,fchmodat -F auid>=1000 -F auid!=-1 -F key=perm_chng",
+	"-a always,exit -F arch=b64 -S setxattr,fsetxattr,lsetxattr,removexattr,fremovexattr,lremovexattr -F auid>=1000 -F auid!=-1 -F key=perm_chng",
+	"-a always,exit -S all -F path=/usr/bin/kmod -F perm=x -F auid>=1000 -F auid!=-1 -F key=modules",
+	"-a always,exit -S all -F path=/usr/bin/setfacl -F perm=x -F auid>=1000 -F auid!=-1 -F key=perm_chng",
+	"-a always,exit -S all -F path=/usr/bin/chacl -F perm=x -F auid>=1000 -F auid!=-1 -F key=perm_chng",
 }, "\n")
 
 func TestSTIGHardenedRulesPass(t *testing.T) {
@@ -228,16 +239,25 @@ func TestLockedRulesSayReboot(t *testing.T) {
 
 func TestMissingRulesAddsOnlyGaps(t *testing.T) {
 	exists := func(p string) bool { return p != "/var/run/faillock" }
+	// auditctl -l lists a path rule with -S all and key= (A12).
+	if m := MissingRules("-a always,exit -F path=/etc/shadow -F perm=wa -k identity", "-a always,exit -S all -F path=/etc/shadow -F perm=wa -F key=x", nil); len(m) != 0 {
+		t.Errorf("listed path rule not recognised: %v", m)
+	}
+	if m := MissingRules("-a always,exit -F dir=/etc/cron.d/ -F perm=wa -k jobs", "-w /etc/cron.d -p wa -k cron", nil); len(m) != 0 {
+		t.Errorf("-w on a folder doesn't cover dir=: %v", m)
+	}
 	missing := MissingRules(AuditRules, usgLoaded, exists)
 	joined := strings.Join(missing, "\n")
 	// Already loaded under the STIG's own keys: not added again.
-	for _, dup := range []string{"-w /etc/passwd ", "-w /etc/sudoers ", "-w /etc/sudoers.d/", "uid!=euid", "init_module", "-w /var/log/lastlog"} {
+	// A12: the baseline's "-w" watches cover the recommended "path=" and
+	// "dir=" rules.
+	for _, dup := range []string{"path=/etc/passwd ", "path=/etc/sudoers ", "dir=/etc/sudoers.d/", "uid!=euid", "init_module", "path=/var/log/lastlog"} {
 		if strings.Contains(joined, dup) {
 			t.Errorf("rule already loaded would be added again: %s", dup)
 		}
 	}
 	// Not loaded: added.
-	for _, want := range []string{"-S mount,umount2", "clock_settime", "-w /etc/audit/", "-k root_commands", "-k log_tamper"} {
+	for _, want := range []string{"-S mount,umount2", "clock_settime", "dir=/etc/audit/", "-k root_commands", "-k blackbox", "-k scheduled_jobs", "-k log_tamper"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing rule not added: %s\n%s", want, joined)
 		}
@@ -311,5 +331,20 @@ func TestDefender(t *testing.T) {
 	}
 	if rs := EvaluateDefender("", errors.New("not installed"), now); len(rs) != 1 || rs[0].Status != Warn {
 		t.Errorf("no Defender: %+v", rs)
+	}
+}
+
+// Rules on files a system doesn't have are left out of --audit-rules:
+// auditctl refuses them and the rest would not load.
+func TestRulesForThisSystem(t *testing.T) {
+	out := RulesForThisSystem(AuditRules, func(p string) bool { return p != "/usr/sbin/semanage" && p != "/etc/cron.hourly" })
+	if strings.Contains(out, "-F path=/usr/sbin/semanage") || strings.Contains(out, "-F dir=/etc/cron.hourly/") {
+		t.Error("rule on a missing file kept")
+	}
+	if !strings.Contains(out, "## Left out: /usr/sbin/semanage is not on this system.") || !strings.Contains(out, "-F path=/etc/passwd") {
+		t.Errorf("output:\n%s", out)
+	}
+	if RulesForThisSystem(AuditRules, nil) != AuditRules {
+		t.Error("nil exists changed the rules")
 	}
 }

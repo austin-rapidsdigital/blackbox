@@ -1,6 +1,8 @@
 package report
 
 import (
+	"github.com/casea1/blackbox/internal/winevt"
+
 	"fmt"
 	"sort"
 	"strings"
@@ -75,6 +77,7 @@ type HealthRow struct {
 // SettingLine is one line of a system's settings table.
 type SettingLine struct {
 	Check, STIG, Want, Have, Result, Class, Fix string
+	Note                                        string // how the report covers it, when it doesn't review it
 }
 
 // GapCard is one gap on the Audit health page.
@@ -92,6 +95,35 @@ type HealthPage struct {
 	Gaps    []GapCard
 	Single  string // a report of one system opens its table directly
 	Checked int
+	Other   []OtherRow // Security-log events Blackbox doesn't translate
+}
+
+// OtherRow is one Security-log event ID Blackbox has no translation for,
+// with how many were read in this period.
+type OtherRow struct {
+	ID     int
+	Name   string
+	Count  int
+	Listed bool   // shown as "Security event <ID>" rows; otherwise only counted
+	Href   string // the rows, in Search
+}
+
+// otherEvents lists the Security-log events read in this period that the
+// report doesn't translate, busiest first (A1).
+func (r *Report) otherEvents() []OtherRow {
+	var out []OtherRow
+	for _, v := range r.Health.Volume {
+		if v.Channel != "Security" || v.EventID == 0 || winevt.Reviewed[v.EventID] {
+			continue
+		}
+		o := OtherRow{ID: v.EventID, Name: orDash(winevt.EventNames[v.EventID]), Count: v.Count, Listed: !winevt.Counted[v.EventID]}
+		if o.Listed {
+			o.Href = searchLink("page", "other", "text", fmt.Sprintf("Security event %d", v.EventID))
+		}
+		out = append(out, o)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Count > out[j].Count })
+	return out
 }
 
 // HealthGroup is a group of rows in the grid.
@@ -116,7 +148,7 @@ func (r *Report) healthPage() *HealthPage {
 			return nil
 		}
 	}
-	hp := &HealthPage{Cols: healthCols}
+	hp := &HealthPage{Cols: healthCols, Other: r.otherEvents()}
 	cleared := map[string][]*Row{}
 	for _, row := range r.rows {
 		if row.Action == "log_cleared" {
@@ -310,6 +342,14 @@ func (r *Report) healthPage() *HealthPage {
 					continue
 				}
 				l := SettingLine{Check: res.Item, STIG: res.STIG, Want: orDash(res.Want), Have: orDash(res.Have), Fix: res.Fix}
+				if res.Area == "Audit policy" {
+					switch winevt.SubcategoryReviewed(res.Item) {
+					case "counted":
+						l.Note = "Not reviewed: Blackbox only counts these events (see Other Security-log events below). The original logs are in the archive."
+					case "other":
+						l.Note = "Not translated: these events are listed only as \"Security event <ID>\" rows on Other security."
+					}
+				}
 				switch res.Status {
 				case check.Pass:
 					l.Result, l.Class = "Matches", "ok"
