@@ -40,12 +40,38 @@ func Run() []Result {
 			out = append(out, EvaluateAuditRules(string(rules), string(status))...)
 		}
 		if conf, err := os.ReadFile("/etc/audit/auditd.conf"); err == nil {
-			out = append(out, EvaluateAuditdConf(ParseAuditdConf(string(conf)))...)
+			c := ParseAuditdConf(string(conf))
+			out = append(out, EvaluateAuditdConf(c)...)
+			out = append(out, EvaluateAuditdActions(c)...)
 		}
+		f, ferr := os.Stat("/var/log/audit/audit.log")
+		d, derr := os.Stat("/var/log/audit")
+		var fm, dm os.FileMode
+		if ferr == nil && derr == nil {
+			fm, dm = f.Mode(), d.Mode()
+		}
+		out = append(out, EvaluateAuditLogPerms(fm, dm, ferr, derr))
 	}
 	if cl, err := os.ReadFile("/proc/cmdline"); err == nil {
-		out = append(out, EvaluateCmdline(string(cl)))
+		grub, _ := os.ReadFile("/etc/default/grub")
+		if more, _ := filepath.Glob("/etc/default/grub.d/*.cfg"); len(more) > 0 {
+			for _, m := range more {
+				if b, err := os.ReadFile(m); err == nil {
+					grub = append(grub, '\n')
+					grub = append(grub, b...)
+				}
+			}
+		}
+		out = append(out, EvaluateBoot(string(cl), string(grub))...)
 	}
+	active := map[string]string{}
+	for _, s := range []string{"chronyd", "chrony", "systemd-timesyncd", "ntpd", "ntp"} {
+		b, _ := exec.Command("systemctl", "is-active", s).Output()
+		active[s] = strings.TrimSpace(string(b))
+	}
+	out = append(out, EvaluateTimeSync(active))
+	sudoV, _ := exec.Command("sudo", "-V").Output()
+	out = append(out, EvaluateSudo(string(sudoV)))
 	sys := Result{Area: "System log", Item: "Kernel and udisks messages kept", Want: "syslog file or persistent journal",
 		Affects: "USB & Removable Media (device details and who mounted them)"}
 	switch {

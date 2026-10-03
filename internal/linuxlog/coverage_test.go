@@ -88,3 +88,32 @@ func TestBlackboxCommands(t *testing.T) {
 		t.Errorf("sudo config set: %s", summaries(evs))
 	}
 }
+
+// U12: Ubuntu 26.04's GNU coreutils are named gnurm, gnucp…
+func TestGnuCoreutilsNames(t *testing.T) {
+	if base("/usr/bin/gnurm") != "rm" || base("/usr/bin/gnupg") != "gnupg" {
+		t.Errorf("base: %q %q", base("/usr/bin/gnurm"), base("/usr/bin/gnupg"))
+	}
+	if g := gnuName("/usr/bin/gnurm -rf /var/log/x"); g != "/usr/bin/rm -rf /var/log/x" {
+		t.Errorf("gnuName: %q", g)
+	}
+	evs := translateLines(t, Users{1001: "jsmith"}, sysRec(20, "263", "yes", "0", "7ffd", "0", "/usr/bin/gnurm", "delete", "/home/jsmith/a.txt")...)
+	if len(evs) != 1 || !strings.Contains(evs[0].Summary, "(using rm)") {
+		t.Errorf("got %s", summaries(evs))
+	}
+}
+
+// O1: with sudo-rs, sudo commands come from the journal and merge with the
+// root command the audit log records.
+func TestSudoRsFromJournal(t *testing.T) {
+	tr := NewTranslator("ws12", Users{1001: "jsmith"})
+	tr.SudoFromSyslog = true
+	l := Line{Prog: "sudo", Host: "ws12", Msg: "jsmith : TTY=pts/0 ; PWD=/home/jsmith ; USER=root ; COMMAND=/usr/bin/systemctl status cron"}
+	e := tr.Syslog(l, "journal")
+	if e == nil || e.Action != "sudo_command" || e.DedupeKey != "cmd|jsmith|"+cmdKey("systemctl status cron") {
+		t.Fatalf("sudo line: %+v", e)
+	}
+	if e := tr.Syslog(Line{Prog: "sshd", Host: "ws12", Msg: "Accepted password for jsmith from 10.1.1.5 port 5000 ssh2"}, "journal"); e != nil {
+		t.Errorf("auditd records logons; the journal's must not repeat them: %s", e.Summary)
+	}
+}

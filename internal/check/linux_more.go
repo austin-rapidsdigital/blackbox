@@ -1,0 +1,197 @@
+package check
+
+import (
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
+)
+
+// More Linux checks (A6, A11, O1): what auditd does when its disk fills,
+// who it tells, the audit log's permissions, time synchronisation, boot
+// settings waiting for a reboot, and sudo-rs.
+
+// EvaluateAuditdActions checks what auditd does as its disk fills or
+// fails. SUSPEND and IGNORE stop recording without anyone knowing.
+func EvaluateAuditdActions(conf map[string]string) []Result {
+	var out []Result
+	act := func(key, want string, ok func(string) bool, affects, fix string) {
+		v := strings.ToLower(conf[key])
+		r := Result{Area: "auditd settings", Item: key, Have: orNotSet(conf[key]), Want: want, Affects: affects}
+		if ok(v) {
+			r.Status = Pass
+		} else {
+			r.Status, r.Fix = Fail, fix
+		}
+		out = append(out, r)
+	}
+	in := func(list ...string) func(string) bool {
+		return func(v string) bool {
+			for _, l := range list {
+				if v == l {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	notStop := func(v string) bool { return v != "" && v != "suspend" && v != "ignore" }
+	const conf_ = "/etc/audit/auditd.conf"
+	act("space_left_action", "email, exec or syslog (someone is told)", in("email", "exec", "syslog", "single", "halt"),
+		"Audit & System Integrity: nobody is warned before the audit disk fills", "set space_left_action = email in "+conf_+", then restart auditd")
+	act("admin_space_left_action", "single or halt", in("single", "halt"),
+		"Audit & System Integrity: events stop being recorded when the disk is nearly full", "set admin_space_left_action = single in "+conf_+", then restart auditd")
+	act("disk_full_action", "halt, single or syslog (not SUSPEND or IGNORE)", notStop,
+		"Audit & System Integrity: auditing silently stops when the disk is full", "set disk_full_action = halt (or single) in "+conf_+", then restart auditd")
+	act("disk_error_action", "halt, single or syslog (not SUSPEND or IGNORE)", notStop,
+		"Audit & System Integrity: auditing silently stops on a disk error", "set disk_error_action = halt (or syslog) in "+conf_+", then restart auditd")
+	mail := Result{Area: "auditd settings", Item: "action_mail_acct", Have: orNotSet(conf["action_mail_acct"]), Want: "root, or an administrator's mailbox"}
+	if conf["action_mail_acct"] != "" || conf["space_left_action"] == "" {
+		// auditd's default is root.
+		mail.Status = Pass
+		if mail.Have == "not set" {
+			mail.Have = "root (default)"
+		}
+	} else {
+		mail.Status, mail.Fix = Fail, "set action_mail_acct = root in "+conf_
+	}
+	return append(out, mail)
+}
+
+func orNotSet(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "not set"
+	}
+	return s
+}
+
+// EvaluateAuditLogPerms checks the audit log and its folder: readable only
+// by root (and its group), never by everyone.
+func EvaluateAuditLogPerms(file, dir os.FileMode, fileErr, dirErr error) Result {
+	r := Result{Area: "auditd settings", Item: "Audit log permissions", Want: "log 0600 or 0640, folder 0700 or 0750",
+		Affects: "Audit & System Integrity: anyone who can read or change the audit log can see or cover activity"}
+	if fileErr != nil || dirErr != nil {
+		r.Status, r.Have = Error, "could not read /var/log/audit (run as root)"
+		return r
+	}
+	f, d := file.Perm(), dir.Perm()
+	r.Have = fmt.Sprintf("log %04o, folder %04o", f, d)
+	if f&0o137 == 0 && d&0o027 == 0 {
+		r.Status = Pass
+	} else {
+		r.Status = Fail
+		r.Fix = "chmod 0600 /var/log/audit/audit.log && chmod 0750 /var/log/audit (and set log_group = root in /etc/audit/auditd.conf)"
+	}
+	return r
+}
+
+// EvaluateTimeSync checks that the clock is synchronised: audit records
+// from several computers only line up if their clocks agree (AU-8).
+// active maps a service name to its `systemctl is-active` answer.
+func EvaluateTimeSync(active map[string]string) Result {
+	r := Result{Area: "Time", Item: "Time synchronisation", Want: "chrony or systemd-timesyncd active",
+		Affects: "Every section: event times from different computers only line up if their clocks agree"}
+	for _, svc := range []string{"chronyd", "chrony", "systemd-timesyncd", "ntpd", "ntp"} {
+		if active[svc] == "active" {
+			r.Status, r.Have = Pass, svc+" active"
+			return r
+		}
+	}
+	r.Status, r.Have = Fail, "no time service running"
+	r.Fix = "enable chrony (apt install chrony, or dnf install chrony; systemctl enable --now chronyd) pointed at your site's time source"
+	return r
+}
+
+var (
+	grubLineRE = regexp.MustCompile(`(?m)^\s*GRUB_CMDLINE_LINUX(?:_DEFAULT)?\s*=\s*["']?([^"'\n]*)`)
+	backlogRE  = regexp.MustCompile(`(^|\s)audit_backlog_limit=(\d+)`)
+)
+
+// EvaluateBoot checks that auditing starts at boot (audit=1) with a large
+// enough backlog, in the running kernel and in GRUB's settings. A setting
+// in GRUB that the running kernel doesn't have yet takes effect at the
+// next boot (A11).
+func EvaluateBoot(cmdline, grub string) []Result {
+	var grubArgs string
+	for _, m := range grubLineRE.FindAllStringSubmatch(grub, -1) {
+		grubArgs += " " + m[1]
+	}
+	audit := Result{Area: "Boot", Item: "audit=1 on the kernel command line", Want: "Present",
+		Affects: "Activity during boot, before the audit service starts"}
+	switch {
+	case cmdlineAuditRE.MatchString(cmdline):
+		audit.Status, audit.Have = Pass, "Present"
+	case cmdlineAuditRE.MatchString(grubArgs):
+		audit.Status, audit.Have = Warn, "Set in GRUB; takes effect at the next boot"
+		audit.Fix = "reboot to apply it"
+	default:
+		audit.Status, audit.Have = Fail, "Missing"
+		audit.Fix = `add audit=1 to GRUB_CMDLINE_LINUX in /etc/default/grub, then run update-grub (Ubuntu) or grub2-mkconfig -o /boot/grub2/grub.cfg (Alma)`
+	}
+	out := []Result{audit}
+	bl := Result{Area: "Boot", Item: "audit_backlog_limit on the kernel command line", Want: "at least 8192",
+		Affects: "Records from early boot dropped before auditd starts"}
+	num := func(s string) int {
+		var n int
+		fmt.Sscan(s, &n)
+		return n
+	}
+	switch m, g := backlogRE.FindStringSubmatch(cmdline), backlogRE.FindStringSubmatch(grubArgs); {
+	case m != nil && num(m[2]) >= 8192:
+		bl.Status, bl.Have = Pass, m[2]
+	case g != nil && num(g[2]) >= 8192:
+		bl.Status, bl.Have, bl.Fix = Warn, g[2]+" set in GRUB; takes effect at the next boot", "reboot to apply it"
+	case m != nil:
+		bl.Status, bl.Have = Warn, m[2]
+		bl.Fix = "set audit_backlog_limit=8192 in GRUB_CMDLINE_LINUX in /etc/default/grub, update GRUB, then reboot"
+	default:
+		bl.Status, bl.Have = Warn, "not set"
+		bl.Fix = "add audit_backlog_limit=8192 to GRUB_CMDLINE_LINUX in /etc/default/grub, update GRUB, then reboot"
+	}
+	return append(out, bl)
+}
+
+// EvaluateSudo flags sudo-rs (Ubuntu 26.04's default sudo), which writes
+// no audit record of the commands it runs (O1). version is `sudo -V`.
+func EvaluateSudo(version string) Result {
+	r := Result{Area: "Audit service", Item: "sudo records its commands in the audit log", Want: "sudo (sudo-rs records no audit events)",
+		Affects: "Privileged Activity: sudo commands come only from root commands and the journal"}
+	switch {
+	case version == "":
+		r.Status, r.Have = Info, "sudo not found"
+	case strings.Contains(strings.ToLower(version), "sudo-rs"):
+		r.Status, r.Have = Warn, "sudo-rs"
+		r.Fix = "Blackbox reads sudo-rs's journal lines and the root_commands audit rule instead; for full audit records, install sudo (apt install sudo-ws) and make it the default with update-alternatives"
+	default:
+		r.Status, r.Have = Pass, firstLineOf(version)
+	}
+	return r
+}
+
+func firstLineOf(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
+}
+
+// EvaluateW32Time checks Windows time synchronisation (AU-8): the Windows
+// Time service running, synchronising from a domain or an NTP server.
+// state is `sc query w32time` output, typ the Parameters\Type value.
+func EvaluateW32Time(state, typ string) Result {
+	r := Result{Area: "Time", Item: "Windows Time service", Want: "running, synchronising (NT5DS or NTP)",
+		Affects: "Every section: event times from different computers only line up if their clocks agree"}
+	running := strings.Contains(strings.ToUpper(state), "RUNNING")
+	t := strings.ToUpper(strings.TrimSpace(typ))
+	switch {
+	case !running:
+		r.Status, r.Have = Fail, "not running"
+		r.Fix = "sc config w32time start= auto && net start w32time, then w32tm /resync"
+	case t == "NOSYNC" || t == "":
+		r.Status, r.Have = Fail, "running, not synchronising (Type "+orNotSet(typ)+")"
+		r.Fix = "Group Policy: Computer Configuration > Administrative Templates > System > Windows Time Service > Time Providers > Configure Windows NTP Client: Enabled, with your site's time source (or Type NT5DS on a domain)"
+	default:
+		r.Status, r.Have = Pass, "running, "+typ
+	}
+	return r
+}

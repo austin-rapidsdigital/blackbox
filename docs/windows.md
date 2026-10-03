@@ -263,6 +263,8 @@ What is checked:
   advanced audit policy can be ignored.
 - **PowerShell script block logging**, and on Windows 11 **PowerShell
   transcription**.
+- **Windows Time** running and synchronising (from the domain, or an NTP
+  server), so event times from different computers line up (AU-8).
 - **USB logs** (Partition/Diagnostic and Kernel-PnP/Configuration),
   which the report needs for device details, and the **PowerShell log**
   (on by default; shown for information, never as a failure). These are

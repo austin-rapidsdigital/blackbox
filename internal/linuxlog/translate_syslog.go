@@ -66,6 +66,8 @@ func (t *Translator) Syslog(l Line, source string) *event.Event {
 		e = t.udisks(l)
 	case t.AuthFromSyslog:
 		e = t.auth(l)
+	case t.SudoFromSyslog && (l.Prog == "sudo" || l.Prog == "sudo-rs"):
+		e = t.auth(l)
 	}
 	if e == nil {
 		return nil
@@ -275,14 +277,16 @@ func (t *Translator) auth(l Line) *event.Event {
 			e.AddDetail("Authentication", x[1])
 			return e
 		}
-	case "sudo":
+	case "sudo", "sudo-rs":
 		if x := sudoRE.FindStringSubmatch(m); x != nil {
 			user, note, runas, cmd := x[1], x[2], x[5], x[6]
 			as := "with sudo"
 			if runas != "root" {
 				as = "as " + runas + " with sudo"
 			}
-			e := &event.Event{Category: event.CatPrivileged, User: user, Target: runas, Command: cmd}
+			// Merges with the root command the audit log records for it.
+			e := &event.Event{Category: event.CatPrivileged, User: user, Target: runas, Command: cmd,
+				DedupeKey: "cmd|" + user + "|" + cmdKey(cmd), Priority: 2}
 			switch {
 			case strings.Contains(note, "incorrect password"):
 				e.Category, e.Action, e.Severity, e.Outcome = event.CatFailedLogon, "logon_failed", event.SevLow, "failure"
