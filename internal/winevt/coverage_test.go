@@ -182,3 +182,29 @@ func TestReviewedMatchesTranslations(t *testing.T) {
 		}
 	}
 }
+
+// A5, U9: Blackbox watching itself on Windows.
+func TestBlackboxSelfAudit(t *testing.T) {
+	tr := NewTranslator()
+	e := tr.Translate(elevatedRun(`"C:\Program Files\Blackbox\blackbox.exe" config set exclude_users bob`))
+	if e == nil || e.Action != "blackbox_config_changed" || e.Severity != event.SevHigh {
+		t.Errorf("config set: %+v", e)
+	}
+	e = tr.Translate(sec(4701, with(person, "TaskName", `\Blackbox Audit Collection`)))
+	if e == nil || e.Action != "blackbox_stopped" || e.Severity != event.SevHigh || !strings.Contains(e.Summary, "no longer collected") {
+		t.Errorf("task disabled: %+v", e)
+	}
+	sys := map[string]string{"SubjectUserSid": "S-1-5-18", "SubjectUserName": "WS-07$", "SubjectDomainName": "CORP", "TaskName": `\Blackbox Audit Collection`}
+	if e = tr.Translate(sec(4702, sys)); e == nil || e.Severity != event.SevMedium {
+		t.Errorf("task updated by SYSTEM: %+v", e)
+	}
+	r := sec(4663, with(person, "ObjectType", "File", "ObjectName", `C:\ProgramData\Blackbox\blackbox.conf`, "AccessList", "%%4417", "ProcessName", `C:\Windows\System32\notepad.exe`))
+	r.Task, r.Keywords = taskFileSystem, "0x8020000000000000"
+	if e = tr.Translate(r); e == nil || e.Action != "blackbox_config_changed" || e.Severity != event.SevHigh {
+		t.Errorf("conf edited: %+v", e)
+	}
+	r.Data["ProcessName"] = `C:\Program Files\Blackbox\blackbox.exe`
+	if e = tr.Translate(r); e != nil {
+		t.Errorf("Blackbox's own write: %s", e.Summary)
+	}
+}

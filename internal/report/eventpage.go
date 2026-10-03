@@ -169,7 +169,7 @@ var pageSpecs = map[string]pageSpec{
 			switch {
 			case has(e.Action, "log_cleared", "log_tampered", "audit_tamper"):
 				return "Log cleared"
-			case has(e.Action, "audit_policy", "audit_disabled", "audit_enabled", "audit_locked", "audit_rules"):
+			case has(e.Action, "audit_policy", "audit_disabled", "audit_enabled", "audit_locked", "audit_rules", "blackbox_config", "object_audit"):
 				return "Audit policy changed"
 			}
 			return "Logging stopped"

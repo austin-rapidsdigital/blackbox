@@ -9,7 +9,11 @@ import (
 // written differently (a rules file versus `auditctl -l` output, other key
 // names, other syscall order) can be compared.
 type auditRule struct {
-	watch    string          // -w path (normalised)
+	// watch is the file or folder a rule watches, normalised: from -w, or
+	// from a path= or dir= condition. "-w /etc/passwd -p wa" and
+	// "-a always,exit -F path=/etc/passwd -F perm=wa" are the same rule
+	// (A12), and so are a -w on a folder and dir=.
+	watch    string
 	perm     string          // -p / perm= letters, sorted
 	list     string          // -a always,exit
 	arch     string          // arch=b64 | b32 | ""
@@ -61,6 +65,7 @@ func parseAuditRule(line string) (auditRule, bool) {
 	switch f[0] {
 	case "-w":
 		r.watch = normPath(f[1])
+		r.list = "always,exit"
 	case "-a", "-A":
 		r.list = f[1]
 	default:
@@ -93,12 +98,22 @@ func parseAuditRule(line string) (auditRule, bool) {
 				r.arch = strings.TrimPrefix(v, "arch=")
 			case strings.HasPrefix(v, "perm="):
 				r.perm = sortedLetters(strings.TrimPrefix(v, "perm="))
+			case strings.HasPrefix(v, "path=") || strings.HasPrefix(v, "dir="):
+				_, r.watch, _ = strings.Cut(v, "=")
 			default:
 				r.filters = append(r.filters, v)
 			}
 		}
 	}
 	sort.Strings(r.filters)
+	if r.watch != "" {
+		// A watch records the file whatever the architecture, and a path
+		// rule is written with or without one.
+		r.arch = ""
+		if r.list == "exit,always" {
+			r.list = "always,exit"
+		}
+	}
 	return r, true
 }
 

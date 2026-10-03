@@ -451,6 +451,10 @@ func (t *Translator) processCreated(r *Raw) *event.Event {
 			break
 		}
 	}
+	if action, sev, what, ok := event.BlackboxChange(cmd + " " + decoded); ok && e.Action != "audit_tamper_command" {
+		e.Action, e.Severity, e.Category = action, sev, event.CatIntegrity
+		e.Summary = fmt.Sprintf("%s %s: %s", user, what, shown)
+	}
 	e.AddDetail("Program", proc)
 	e.AddDetail("Command line", cmd)
 	e.AddDetail("PowerShell command (decoded)", decoded)
@@ -480,11 +484,14 @@ func (t *Translator) serviceInstalled(r *Raw, name, path, account, by string) *e
 }
 
 func (t *Translator) scheduledTask(r *Raw) *event.Event {
+	task := r.Get("TaskName")
+	if blackboxTask(task) {
+		return t.blackboxTask(r, task)
+	}
 	if t.ignoredAccount(r, "Subject") && r.EventID != 4698 {
 		return nil // Windows updates its own tasks constantly
 	}
 	user := t.subject(r)
-	task := r.Get("TaskName")
 	verbs := map[int]string{4698: "created", 4699: "deleted", 4700: "enabled", 4701: "disabled", 4702: "updated"}
 	sev := event.SevLow
 	if r.EventID == 4698 {
@@ -501,6 +508,43 @@ func (t *Translator) scheduledTask(r *Raw) *event.Event {
 }
 
 // taskCommand pulls <Command> and <Arguments> out of a task definition.
+// blackboxTask reports Blackbox's own scheduled tasks.
+func blackboxTask(name string) bool {
+	n := strings.ToLower(strings.TrimPrefix(name, `\`))
+	return n == "blackbox audit collection" || n == "blackbox status"
+}
+
+// blackboxTask is a change to Blackbox's own scheduled task (A5): deleted
+// or disabled stops collection. Created or updated is an install or
+// upgrade.
+func (t *Translator) blackboxTask(r *Raw, task string) *event.Event {
+	user := t.subject(r)
+	e := &event.Event{Category: event.CatIntegrity, User: user, Target: task}
+	switch r.EventID {
+	case 4699, 4701:
+		e.Action, e.Severity = "blackbox_stopped", event.SevHigh
+		verb := map[int]string{4699: "deleted", 4701: "disabled"}[r.EventID]
+		e.Summary = fmt.Sprintf("Blackbox's scheduled task %s was %s by %s — events are no longer collected.", task, verb, orUnknown(user))
+		if strings.EqualFold(strings.TrimPrefix(task, `\`), "Blackbox Status") {
+			e.Severity = event.SevMedium
+			e.Summary = fmt.Sprintf("Blackbox's status icon task was %s by %s.", verb, orUnknown(user))
+		}
+	case 4700:
+		e.Action, e.Severity = "blackbox_task_changed", event.SevLow
+		e.Summary = fmt.Sprintf("Blackbox's scheduled task %s was enabled by %s.", task, orUnknown(user))
+	default:
+		e.Action, e.Severity = "blackbox_task_changed", event.SevMedium
+		verb := map[int]string{4698: "created", 4702: "updated"}[r.EventID]
+		e.Summary = fmt.Sprintf("Blackbox's scheduled task %s was %s by %s (an install, upgrade or settings change).", task, verb, orUnknown(user))
+		e.DedupeKey = "bbtask|" + strings.ToLower(task)
+	}
+	e.AddDetail("Task", task)
+	if cmd := taskCommand(r.Get("TaskContent")); cmd != "" {
+		e.AddDetail("Runs", cmd)
+	}
+	return e
+}
+
 func taskCommand(xmlText string) string {
 	get := func(tag string) string {
 		i := strings.Index(xmlText, "<"+tag+">")

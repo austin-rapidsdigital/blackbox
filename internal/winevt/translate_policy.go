@@ -455,6 +455,21 @@ func (t *Translator) fileAccess(r *Raw) *event.Event {
 		e.Summary += " (using " + filepath.Base(winPath(proc)) + ")"
 	}
 	e.Summary += "."
+	// Blackbox's own folder, with the auditing entry windows.md describes
+	// (A5): its settings, schedule state and collected events.
+	if lo := strings.ToLower(winPath(obj)); strings.Contains(lo, "/programdata/blackbox/") && !failed {
+		self := strings.EqualFold(filepath.Base(winPath(proc)), "blackbox.exe") || strings.EqualFold(filepath.Base(winPath(proc)), "blackboxw.exe")
+		switch {
+		case self:
+			return nil // Blackbox's own run, or config set (recorded as a command)
+		case strings.HasSuffix(lo, "/blackbox.conf"):
+			e.Action, e.Severity, e.Category = "blackbox_config_changed", event.SevHigh, event.CatIntegrity
+			e.Summary = fmt.Sprintf("%s edited Blackbox's settings file directly: %s (using %s).", orUnknown(who), obj, filepath.Base(winPath(proc)))
+		default:
+			e.Action, e.Severity, e.Category = "blackbox_files_changed", event.SevHigh, event.CatIntegrity
+			e.Summary = fmt.Sprintf("%s changed or deleted Blackbox's data: %s (using %s).", orUnknown(who), obj, filepath.Base(winPath(proc)))
+		}
+	}
 	e.DedupeKey = "file|" + e.Action + "|" + strings.ToLower(who+"|"+obj)
 	e.AddDetail("File", obj)
 	e.AddDetail("Access", expandTokens(r.Get("AccessList")))

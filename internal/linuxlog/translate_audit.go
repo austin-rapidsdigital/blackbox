@@ -643,6 +643,18 @@ func cmdKey(cmd string) string {
 	return strings.Join(f, " ")
 }
 
+// blackboxChange marks a command that changes Blackbox itself (A5, U9):
+// a setting, its schedule, or removing it.
+func blackboxChange(e *event.Event, cmd, who string) bool {
+	action, sev, what, ok := event.BlackboxChange(cmd)
+	if !ok {
+		return false
+	}
+	e.Action, e.Severity, e.Category = action, sev, event.CatIntegrity
+	e.Summary = fmt.Sprintf("%s %s: %s", who, what, cmd)
+	return true
+}
+
 func (t *Translator) userCmd(r *Record) *event.Event {
 	actor := t.actor(r)
 	if actor == "" {
@@ -659,6 +671,7 @@ func (t *Translator) userCmd(r *Record) *event.Event {
 	case tampers(cmd):
 		e.Action, e.Severity = "audit_tamper_command", event.SevHigh
 		e.Summary = fmt.Sprintf("%s used sudo to run a command that can stop or weaken auditing: %s", orUnknown(actor), cmd)
+	case blackboxChange(e, cmd, orUnknown(actor)):
 	case shells[firstWord(cmd)] || strings.TrimSpace(cmd) == "-i" || strings.TrimSpace(cmd) == "-s":
 		e.Action, e.Severity = "root_shell", event.SevLow
 		e.Summary = fmt.Sprintf("%s opened a root shell with sudo (commands run in it are listed as \"ran as root\").", orUnknown(actor))
@@ -1223,6 +1236,36 @@ func syscallName(r *Record) string {
 		return "rmdir"
 	case "169":
 		return "reboot"
+	case "90":
+		return "chmod"
+	case "91":
+		return "fchmod"
+	case "268":
+		return "fchmodat"
+	case "452":
+		return "fchmodat2"
+	case "92":
+		return "chown"
+	case "93":
+		return "fchown"
+	case "94":
+		return "lchown"
+	case "260":
+		return "fchownat"
+	case "188":
+		return "setxattr"
+	case "189":
+		return "lsetxattr"
+	case "190":
+		return "fsetxattr"
+	case "197":
+		return "removexattr"
+	case "198":
+		return "lremovexattr"
+	case "199":
+		return "fremovexattr"
+	case "304":
+		return "open_by_handle_at"
 	}
 	return r.Get("syscall")
 }
@@ -1247,9 +1290,6 @@ func commandLine(ev *Event) string {
 
 func (t *Translator) syscall(ev *Event, r *Record) *event.Event {
 	actor := t.actor(r)
-	if r.Get("success") == "no" {
-		return nil // an attempt that did nothing
-	}
 	// Changes to sudo rules, the account database and log files matter
 	// whoever makes them; everything else is reported only for people.
 	who := actor
@@ -1278,6 +1318,9 @@ func (t *Translator) syscall(ev *Event, r *Record) *event.Event {
 			}
 			paths = append(paths, n)
 		}
+	}
+	if r.Get("success") == "no" {
+		return t.refusedAccess(r, actor, sc, paths, exe, cmd) // an attempt that did nothing
 	}
 
 	// Changes to who can use sudo.
@@ -1318,6 +1361,9 @@ func (t *Translator) syscall(ev *Event, r *Record) *event.Event {
 
 	if actor == "" {
 		return nil // routine system activity
+	}
+	if e := t.watchedFile(r, actor, sc, paths, exe, cmd); e != nil {
+		return e
 	}
 	switch sc {
 	case "init_module", "finit_module":
@@ -1373,6 +1419,8 @@ func (t *Translator) syscall(ev *Event, r *Record) *event.Event {
 		if tampers(cmd) {
 			e.Action, e.Severity = "audit_tamper_command", event.SevHigh
 			e.Summary = fmt.Sprintf("%s ran a command that can stop or weaken auditing: %s", actor, shown)
+		} else {
+			blackboxChange(e, cmd, actor)
 		}
 		e.AddDetail("Program", exe)
 		e.AddDetail("Command", cmd)
@@ -1380,5 +1428,5 @@ func (t *Translator) syscall(ev *Event, r *Record) *event.Event {
 		e.AddDetail("Audit rule", key)
 		return e
 	}
-	return nil
+	return t.fileChange(r, actor, sc, paths, exe, cmd)
 }

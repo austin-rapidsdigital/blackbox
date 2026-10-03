@@ -81,6 +81,20 @@ var linuxRuleReqs = []ruleReq{
 	{"System time changes", "Audit & System Integrity", false,
 		func(r []string) bool { return anyRule(r, "settimeofday") || anyRule(r, "clock_settime") }},
 	{"Audit configuration watched (/etc/audit)", "Audit & System Integrity", false, watches("/etc/audit/")},
+	{"Unsuccessful file access (EACCES and EPERM)", "Other Security Events (files a person was refused)", true,
+		func(r []string) bool { return anyRule(r, "EACCES") && anyRule(r, "EPERM") }},
+	{"Permission and ownership changes (chmod, chown, setxattr)", "Other Security Events (setuid and permission changes)", true,
+		func(r []string) bool { return anyRule(r, "chmod") && anyRule(r, "chown") && anyRule(r, "setxattr") }},
+	{"Logon records watched (utmp, wtmp, btmp)", "Logon Activity", true,
+		func(r []string) bool {
+			return (watches("/var/run/utmp")(r) || watches("/run/utmp")(r)) && watches("/var/log/wtmp")(r) && watches("/var/log/btmp")(r)
+		}},
+	{"Module and ACL tools (kmod, setfacl, chacl)", "Other Security Events", true,
+		func(r []string) bool {
+			return (watches("/usr/bin/kmod")(r) || watches("/bin/kmod")(r)) && (watches("/usr/bin/setfacl")(r) || watches("/bin/setfacl")(r)) &&
+				(watches("/usr/bin/chacl")(r) || watches("/bin/chacl")(r))
+		}},
+	{"Blackbox's own files watched (/etc/blackbox)", "Audit & System Integrity (changes to Blackbox's settings)", false, watches("/etc/blackbox/")},
 }
 
 // EvaluateAuditRules compares `auditctl -l` and `auditctl -s` output with
