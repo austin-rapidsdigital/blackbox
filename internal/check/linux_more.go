@@ -161,7 +161,7 @@ func EvaluateSudo(version string) Result {
 		r.Status, r.Have = Info, "sudo not found"
 	case strings.Contains(strings.ToLower(version), "sudo-rs"):
 		r.Status, r.Have = Warn, "sudo-rs"
-		r.Fix = "Blackbox reads sudo-rs's journal lines and the root_commands audit rule instead; for full audit records, install sudo (apt install sudo-ws) and make it the default with update-alternatives"
+		r.Fix = "Blackbox reads sudo-rs's journal lines and the root_commands audit rule instead, but a refused sudo-rs (someone not in sudoers) is logged nowhere; for full audit records, install sudo (apt install sudo-ws) and make it the default with update-alternatives"
 	default:
 		r.Status, r.Have = Pass, firstLineOf(version)
 	}

@@ -164,7 +164,7 @@
 </div>{{end}}</div></div></div>{{end}}{{end}}
 
 {{define "popovers"}}<div class="pop" data-pop="export" hidden>
-<a href="#" data-act="print">{{icon "printer" 18}}<div><b>Print or save as PDF</b><span>A clean printable summary with blank ISSO and ISSM lines</span></div></a>
+<a href="#" data-act="print">{{icon "printer" 18}}<div><b>Print or save as PDF</b><span>A clean printable summary: totals, detections and the audit trail</span></div></a>
 <a href="#" data-act="detcsv">{{icon "list-filter" 18}}<div><b>Detections as CSV</b><span>{{plural (len .Findings) "row"}} · for a POA&amp;M or ticket</span></div></a>
 <a href="events.zip" download>{{icon "layers" 18}}<div><b>All events as CSV</b><span>{{commas (len .Events)}} rows in events.zip · for Excel</span></div></a>
 <a href="#" data-act="healthcsv">{{icon "shield-check" 18}}<div><b>Audit health as CSV</b><span>Every system × every STIG check</span></div></a>
@@ -179,7 +179,6 @@
 <div class="pt-tot">{{range .Totals}}<div>{{.Label}}<b>{{.Value}}</b></div>{{end}}</div>
 <h2>Detections</h2>{{if .Detections}}<table><thead><tr><th>Severity</th><th>Detection</th><th>System</th><th>When</th></tr></thead><tbody>{{range .Detections}}<tr><td>{{if eq .Severity "high"}}High{{else}}Medium{{end}}</td><td>{{.Title}}</td><td>{{.Host}}</td><td>{{.Day}} {{.Time}}</td></tr>{{end}}</tbody></table>{{else}}<p>Nothing unusual this period.</p>{{end}}
 <h2>Audit trail</h2><table><tbody>{{range .Trail}}<tr><td>{{.Label}}</td><td>{{.Value}}</td></tr>{{end}}</tbody></table>
-<div class="pt-lines"><div>ISSO</div><div>Date</div><div>ISSM</div></div>
 <p class="pt-foot">Full detail is in report.html in the same folder.</p></section>{{end}}
 
 {{define "fact"}}{{if .Href}}<a href="{{.Href}}">{{.Label}}<b{{if .Bad}} class="bad"{{end}}>{{.Value}}</b></a>{{else if .Scroll}}<a href="#" data-scroll="{{.Scroll}}">{{.Label}}<b{{if .Bad}} class="bad"{{end}}>{{.Value}}</b></a>{{else}}<div>{{.Label}}<b{{if .Bad}} class="bad"{{end}}>{{.Value}}</b></div>{{end}}{{end}}

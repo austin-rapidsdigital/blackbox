@@ -493,7 +493,6 @@ button.btn{font:inherit;font-size:13px;font-weight:550;cursor:pointer}
   .printout h2{font-size:11.5pt;border-bottom:1px solid #000;padding-bottom:4px;margin:16px 0 0}
   .printout table{width:100%;border-collapse:collapse;font-size:9.5pt}.printout th{text-align:left;font-size:8pt;letter-spacing:.06em;text-transform:uppercase;padding:6px}
   .printout td{padding:6px;border-bottom:1px solid #bbb}.printout tr{break-inside:avoid}
-  .pt-lines{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:40px;font-size:9pt}.pt-lines div{border-top:1px solid #000;padding-top:4px}
   .pt-foot{font-size:8pt;color:#444;margin-top:18px}
 }
 a.btn{text-decoration:none;color:inherit}a.btn:hover{border-color:#0B5FFF}

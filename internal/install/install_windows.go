@@ -37,6 +37,7 @@ func Install(opt Options) error {
 	if !isAdmin() {
 		return errors.New("install must be run from an elevated (Run as administrator) prompt")
 	}
+	was := readBefore(config.DefaultPath(), config.DefaultDataDir())
 
 	// 1. Program files.
 	self, err := os.Executable()
@@ -111,6 +112,7 @@ func Install(opt Options) error {
 	} else {
 		logf("Programs list:       \"%s\" added to Settings > Apps and Programs and Features", brand.Name)
 	}
+	recordSetup(cfgPath, data, was, opt.Version, logf)
 	return nil
 }
 
@@ -164,6 +166,7 @@ func Uninstall(logf func(string, ...any)) error {
 	if !isAdmin() {
 		return errors.New("uninstall must be run from an elevated (Run as administrator) prompt")
 	}
+	recordRemoval(logf)
 	hidden.Command("schtasks.exe", "/End", "/TN", TaskName).Run() // stop a run in progress
 	if out, err := hidden.Command("schtasks.exe", "/Delete", "/TN", TaskName, "/F").CombinedOutput(); err != nil {
 		logf("Scheduled task: %s", strings.TrimSpace(string(out)))

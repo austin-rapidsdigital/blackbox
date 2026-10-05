@@ -5,13 +5,20 @@
 //  1. exclude: exclude_users / exclude_processes leave out routine events only
 //     (routine, excludedBy), and Windows' own PowerShell modules are dropped
 //     (dropWindowsModules).
-//  2. unknownNames: a Linux "wrong password" for a name sshd then calls unknown
-//     says "the user name does not exist" (U6).
+//  2. sshAttempts: sshd's password check (USER_AUTH) and its failed logon
+//     (USER_LOGIN) for one try are one row, matched by process ID in either
+//     order; the name tried comes from the check (U5).
+//     unknownNames: a Linux "wrong password" for a name sshd then calls
+//     unknown says "the user name does not exist" (U6).
 //  3. mergeAdminLogons: an administrator's 4624 and 4672 (one logon ID) are one
 //     logon row with the privileges (U3).
 //  4. dedupe: records with the same DedupeKey on one computer within
 //     dedupeWindow are one row, keeping the highest Priority; two failed
 //     logons of the same kind (recordKind) are two attempts, never merged.
+//  4b. selfChanges: a "blackbox config set" command line is joined to
+//     Blackbox's own record of the change it made (A15); with no record,
+//     on a computer whose Blackbox records its changes, the command
+//     changed nothing and says so ("not applied").
 //  5. attributeDevices: a USB device is attributed to whoever mounted it, or
 //     to the person at the console.
 //  6. shutdownStops: auditd stopping in a reboot or shutdown is routine.
@@ -28,11 +35,13 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/casea1/blackbox/internal/event"
+	"github.com/casea1/blackbox/internal/store"
 	"github.com/casea1/blackbox/internal/winevt"
 )
 
@@ -180,6 +189,226 @@ func (r *Report) dedupe(in []*event.Event) []*event.Event {
 		}
 		last[k] = &slot{idx: len(out), time: e.Time, kinds: map[string]bool{kind: true}}
 		out = append(out, e)
+	}
+	return out
+}
+
+// sshAttempts makes one row of each failed SSH try (U5). sshd records a
+// try more than once with the same process ID: PAM's password check
+// (USER_AUTH, which names the account but can't tell a wrong password from
+// a name that doesn't exist) and sshd's failed logon (USER_LOGIN, which
+// says "(invalid user)" for a name that doesn't exist but not which name).
+// OpenSSH 10 writes the check, then the logon record about two seconds
+// later; for an unknown name it also writes two logon records when the
+// connection opens, before the check. Each logon record belongs to the
+// latest check by the same process up to 5 seconds before it, or failing
+// that the first one up to 5 seconds after it; a check and its logon
+// records are one row: the last logon record, with the name from the
+// check. Records of different processes are never joined.
+func sshAttempts(events []*event.Event) []*event.Event {
+	const near = 5 * time.Second
+	isSSHD := func(e *event.Event) bool {
+		return e.OS == "linux" && e.Action == "logon_failed" && e.Fields["pid"] != "" &&
+			strings.HasPrefix(filepath.Base(strings.ReplaceAll(e.Fields["exe"], "\\", "/")), "sshd")
+	}
+	type try struct {
+		check  *event.Event
+		logons []*event.Event
+	}
+	tries := map[*event.Event]*try{}
+	var order []*try
+	for i, l := range events {
+		if l.RecordType != "USER_LOGIN" || !isSSHD(l) {
+			continue
+		}
+		same := func(a *event.Event) bool {
+			return a.RecordType == "USER_AUTH" && isSSHD(a) && a.Host == l.Host && a.Fields["pid"] == l.Fields["pid"]
+		}
+		var check *event.Event
+		for j := i - 1; j >= 0 && l.Time.Sub(events[j].Time) <= near; j-- {
+			if same(events[j]) {
+				check = events[j]
+				break
+			}
+		}
+		if check == nil {
+			for j := i + 1; j < len(events) && events[j].Time.Sub(l.Time) <= near; j++ {
+				if same(events[j]) {
+					check = events[j]
+					break
+				}
+			}
+		}
+		if check == nil {
+			continue
+		}
+		tr := tries[check]
+		if tr == nil {
+			tr = &try{check: check}
+			tries[check] = tr
+			order = append(order, tr)
+		}
+		tr.logons = append(tr.logons, l)
+	}
+	if len(order) == 0 {
+		return events
+	}
+	drop := map[*event.Event]bool{}
+	for _, tr := range order {
+		keep := tr.logons[0]
+		for _, l := range tr.logons {
+			if l.Time.After(keep.Time) {
+				keep = l
+			}
+		}
+		unknown := false
+		for _, l := range tr.logons {
+			unknown = unknown || strings.Contains(l.Summary, "the user name does not exist")
+			if l != keep {
+				drop[l] = true
+			}
+		}
+		drop[tr.check] = true
+		if name := tr.check.User; name != "" && !strings.HasPrefix(name, "(") && name != keep.User {
+			if !unknown {
+				// The logon record names a real account: keep it.
+				name = keep.User
+			}
+			keep.Summary = strings.Replace(keep.Summary, keep.User, name, 1)
+			keep.User, keep.Target = name, name
+		}
+		if unknown && !strings.Contains(keep.Summary, "the user name does not exist") {
+			keep.Summary = keep.Summary[:strings.LastIndex(keep.Summary, "— ")] + "— the user name does not exist."
+		}
+		// One try: never merged with another try by dedupe.
+		keep.DedupeKey = ""
+		keep.AddDetail("Process ID", keep.Fields["pid"])
+	}
+	out := events[:0]
+	for _, e := range events {
+		if !drop[e] {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// selfRecording is the first version that records its own changes (A15).
+var selfRecording = [3]int{0, 11, 0}
+
+// parseVersion reads "0.11.0" (or "v0.11.0-rc1"); ok is false for "dev".
+func parseVersion(v string) (out [3]int, ok bool) {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	v, _, _ = strings.Cut(v, "-")
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return out, false
+	}
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return out, false
+		}
+		out[i] = n
+	}
+	return out, true
+}
+
+func versionAtLeast(v string, min [3]int) bool {
+	p, ok := parseVersion(v)
+	if !ok {
+		return false
+	}
+	for i := range p {
+		if p[i] != min[i] {
+			return p[i] > min[i]
+		}
+	}
+	return true
+}
+
+// selfChanges joins each "blackbox config set" command line to the record
+// Blackbox made of the change (A15): the record says who, which setting,
+// and the value before and after, so the command row is dropped and its
+// command line kept on the record. A command with no record changed
+// nothing (refused, answered "no", failed, or the value was already set),
+// but only on a computer whose Blackbox, when the command ran, records
+// its changes; older versions keep the command row as it is.
+func selfChanges(events []*event.Event, runs []*store.Run) []*event.Event {
+	// The Blackbox version on each computer over time.
+	type ver struct {
+		t time.Time
+		v string
+	}
+	versions := map[string][]ver{}
+	for _, r := range runs {
+		k := strings.ToUpper(r.Host)
+		versions[k] = append(versions[k], ver{r.Time, r.Version})
+	}
+	for _, vs := range versions {
+		sort.Slice(vs, func(i, j int) bool { return vs[i].t.Before(vs[j].t) })
+	}
+	records := func(host string, at time.Time) bool {
+		v := ""
+		for _, x := range versions[strings.ToUpper(host)] {
+			if x.t.After(at) {
+				break
+			}
+			v = x.v
+		}
+		return versionAtLeast(v, selfRecording)
+	}
+	drop := map[*event.Event]bool{}
+	for _, c := range events {
+		if c.Action != "blackbox_config_changed" || c.Fields[event.SelfFlag] != "" {
+			continue
+		}
+		cmd := c.Command
+		if cmd == "" {
+			cmd = detail(c, "Command")
+		}
+		key := event.ConfigSetKey(cmd)
+		if key == "" {
+			continue
+		}
+		var rec *event.Event
+		for _, s := range events {
+			if s.Fields[event.SelfFlag] == "setting" && s.Fields["setting"] == key && strings.EqualFold(s.Host, c.Host) &&
+				!s.Time.Before(c.Time.Add(-time.Minute)) && !s.Time.After(c.Time.Add(20*time.Minute)) {
+				rec = s
+				break
+			}
+		}
+		switch {
+		case rec != nil:
+			rec.AddDetail("Command", cmd)
+			if rec.User == "" {
+				rec.User = c.User
+			}
+			drop[c] = true
+		case records(c.Host, c.Time):
+			who := c.User
+			if who == "" {
+				who = "Someone"
+			}
+			c.Action = "blackbox_config_not_applied"
+			if c.Severity == event.SevHigh {
+				c.Severity = event.SevMedium
+			} else {
+				c.Severity = event.SevLow
+			}
+			c.Summary = fmt.Sprintf("%s tried to change Blackbox's %s setting (not applied): %s", who, key, cmd)
+			c.AddDetail("Why not applied", "Blackbox records every setting it changes; there is no record of this one, so the command was refused, cancelled, failed, or set the value it already had.")
+		}
+	}
+	if len(drop) == 0 {
+		return events
+	}
+	out := events[:0]
+	for _, e := range events {
+		if !drop[e] {
+			out = append(out, e)
+		}
 	}
 	return out
 }

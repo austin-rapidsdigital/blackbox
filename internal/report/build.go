@@ -260,9 +260,11 @@ func Build(events []*event.Event, runs []*store.Run, opt Options) *Report {
 
 	sort.SliceStable(events, func(i, j int) bool { return events[i].Time.Before(events[j].Time) })
 	events = r.exclude(events)
+	events = sshAttempts(events)
 	unknownNames(events)
 	events = mergeAdminLogons(events)
 	events = r.dedupe(events)
+	events = selfChanges(events, runs)
 	attributeDevices(events)
 	shutdownStops(events)
 
@@ -633,8 +635,13 @@ func roughDuration(d time.Duration) string {
 		return fmt.Sprintf("%.0f hours", d.Hours())
 	case d >= time.Hour:
 		return "1 hour"
+	case d < time.Minute:
+		return "less than a minute" // not "0 minutes" (U15)
 	}
-	return fmt.Sprintf("%.0f minutes", d.Minutes())
+	if m := int(d.Round(time.Minute) / time.Minute); m > 1 {
+		return fmt.Sprintf("%d minutes", m)
+	}
+	return "1 minute"
 }
 
 func commas[T ~int | ~uint64](n T) string {

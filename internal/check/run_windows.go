@@ -45,6 +45,8 @@ func Run() []Result {
 		typ, _ = ParseRegSZ(string(b), "Type")
 	}
 	out = append(out, EvaluateW32Time(string(sc), typ))
+	sacl, err := hidden.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", OwnFolderAuditQuery).Output()
+	out = append(out, EvaluateOwnFolderAudit(string(sacl), err))
 	return out
 }
 

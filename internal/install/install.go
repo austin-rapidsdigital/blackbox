@@ -8,7 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/casea1/blackbox/internal/collect"
 	"github.com/casea1/blackbox/internal/config"
+	"github.com/casea1/blackbox/internal/event"
+	"github.com/casea1/blackbox/internal/selfaudit"
+	"github.com/casea1/blackbox/internal/store"
 )
 
 // Options for install: the chosen settings, plus the version installed.
@@ -387,4 +391,55 @@ func trayTaskXML(exe string) string {
 func Installed() bool {
 	_, err := os.Stat(ProgramPath())
 	return err == nil
+}
+
+// before is what setup found before it wrote anything, for recording
+// what it changed (A15).
+type before struct {
+	existed  bool              // a settings file was there (a re-install or upgrade)
+	settings map[string]string // its values
+	version  string            // the version that last ran here, if known
+}
+
+func readBefore(cfgPath, dataDir string) before {
+	b := before{settings: config.RawValues(cfgPath)}
+	_, err := os.Stat(cfgPath)
+	b.existed = err == nil
+	if v := InstalledVersion(); v != "" {
+		b.version = v
+	} else if st, err := store.Open(dataDir); err == nil {
+		if sys := st.State.Systems[store.SystemKey(collect.LocalHost())]; sys != nil {
+			b.version = sys.Version
+		}
+	}
+	return b
+}
+
+// recordSetup has Blackbox record the install or upgrade, and each
+// setting setup changed, in its spool and the system log (A15).
+func recordSetup(cfgPath, dataDir string, b before, version string, logf func(string, ...any)) {
+	var changes []event.SelfChange
+	switch {
+	case !b.existed:
+		changes = append(changes, event.SelfChange{Kind: "installed", Version: version, Program: "setup"})
+	case version != "" && b.version != version:
+		changes = append(changes, event.SelfChange{Kind: "upgraded", Old: b.version, Version: version, Program: "setup"})
+	}
+	if b.existed {
+		changes = append(changes, selfaudit.Changes(b.settings, config.RawValues(cfgPath), "setup")...)
+	}
+	for _, c := range changes {
+		if err := selfaudit.Record(dataDir, c, time.Now()); err != nil {
+			logf("Note: recording this change in the system log failed: %v", err)
+		}
+	}
+}
+
+// recordRemoval has Blackbox record that it is being removed, before
+// anything is removed (A15). The copy in the system log outlives it.
+func recordRemoval(logf func(string, ...any)) {
+	c := event.SelfChange{Kind: "removed", Program: "blackbox uninstall"}
+	if err := selfaudit.Record(config.DefaultDataDir(), c, time.Now()); err != nil {
+		logf("Note: recording the removal in the system log failed: %v", err)
+	}
 }

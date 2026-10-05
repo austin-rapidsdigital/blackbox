@@ -21,6 +21,7 @@ import (
 	"github.com/casea1/blackbox/internal/gui"
 	"github.com/casea1/blackbox/internal/install"
 	"github.com/casea1/blackbox/internal/report"
+	"github.com/casea1/blackbox/internal/selfaudit"
 	"github.com/casea1/blackbox/internal/setup"
 	"github.com/casea1/blackbox/internal/store"
 )
@@ -376,6 +377,7 @@ func cmdConfig(args []string) error {
 			defer unlock()
 		}
 	}
+	before := config.RawValues(path)
 	if key == "report_dir" {
 		if value == "default" || value == filepath.Join(config.DefaultDataDir(), "reports") {
 			value = ""
@@ -384,6 +386,7 @@ func cmdConfig(args []string) error {
 			return err
 		}
 		cfg, _ := config.Load(path)
+		recordChanges(path, before, "blackbox config set")
 		fmt.Printf("Reports will now be saved in %s (existing reports were not moved).\n", cfg.ReportsDir())
 		return nil
 	}
@@ -395,6 +398,7 @@ func cmdConfig(args []string) error {
 	if err := config.SetValue(path, key, value); err != nil {
 		return err
 	}
+	recordChanges(path, before, "blackbox config set")
 	if key == "send_to" || key == "inbox" || key == "share_user" {
 		if err := install.ApplyLAN(path, printf); err != nil {
 			return err
@@ -402,6 +406,21 @@ func cmdConfig(args []string) error {
 	}
 	fmt.Println(savedText(key, value))
 	return nil
+}
+
+// recordChanges has Blackbox record the settings it just changed, in its
+// spool and in the system log (A15). A setting that was refused or left
+// as it was is not recorded.
+func recordChanges(path string, before map[string]string, program string) {
+	cfg, err := config.Load(path)
+	if err != nil {
+		return
+	}
+	for _, c := range selfaudit.Changes(before, config.RawValues(path), program) {
+		if err := selfaudit.Record(cfg.DataDir, c, time.Now()); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: the change to %s was saved, but recording it failed: %v\n", c.Setting, err)
+		}
+	}
 }
 
 // savedText confirms a setting change. Settings are read at the start of

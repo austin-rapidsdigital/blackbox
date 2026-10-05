@@ -64,6 +64,12 @@ func (t *Translator) Syslog(l Line, source string) *event.Event {
 		e = t.kernel(l)
 	case l.Prog == "udisksd" || l.Prog == "udisks2":
 		e = t.udisks(l)
+	case l.Prog == "blackbox":
+		// Blackbox's own record of a change to itself, also in its spool
+		// (A15); the two merge.
+		if c, ok := event.ParseSelfChange(l.Msg); ok {
+			e = c.Event()
+		}
 	case t.AuthFromSyslog:
 		e = t.auth(l)
 	case t.SudoFromSyslog && (l.Prog == "sudo" || l.Prog == "sudo-rs"):
@@ -241,7 +247,7 @@ var (
 	sessCloseRE   = regexp.MustCompile(`^pam_unix\((sshd|login|gdm-password|lightdm|sddm):session\): session closed for user (\S+)`)
 	sessOpenRE    = regexp.MustCompile(`^pam_unix\((login|gdm-password|lightdm|sddm):session\): session opened for user ([^\s(]+)`)
 	consoleFailRE = regexp.MustCompile(`^pam_unix\((login|gdm-password|lightdm|sddm):auth\): authentication failure;.*\buser=(\S+)`)
-	sudoRE        = regexp.MustCompile(`^\s*(\S+) : (.*?)\s*;?\s*TTY=(\S+) ; PWD=(.*?) ; USER=(\S+) ;(?: COMMAND=(.*))?$`)
+	sudoRE        = regexp.MustCompile(`^\s*(\S+) : (.*?)\s*;?\s*(?:TTY=(\S+) ; )?PWD=(.*?) ; USER=(\S+) ;(?: COMMAND=(.*))?$`)
 	suOpenRE      = regexp.MustCompile(`^pam_unix\(su(?:-l)?:session\): session opened for user ([^\s(]+)(?:\(uid=\d+\))? by ([^\s(]*)`)
 	suFailRE      = regexp.MustCompile(`^pam_unix\(su(?:-l)?:auth\): authentication failure;.*\bruser=(\S*).*\buser=(\S+)`)
 	suFailAlmaRE  = regexp.MustCompile(`^FAILED SU \(to (\S+)\) (\S+) on`)

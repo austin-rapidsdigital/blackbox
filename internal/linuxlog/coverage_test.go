@@ -2,8 +2,11 @@ package linuxlog
 
 import (
 	"fmt"
+	"os"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/casea1/blackbox/internal/event"
 )
@@ -115,5 +118,38 @@ func TestSudoRsFromJournal(t *testing.T) {
 	}
 	if e := tr.Syslog(Line{Prog: "sshd", Host: "ws12", Msg: "Accepted password for jsmith from 10.1.1.5 port 5000 ssh2"}, "journal"); e != nil {
 		t.Errorf("auditd records logons; the journal's must not repeat them: %s", e.Summary)
+	}
+}
+
+// O1: sudo-rs on Ubuntu 26.04 writes no TTY= field when there is no
+// terminal (testdata/v0.10.4, recorded live): every command is still a row.
+func TestSudoRsJournalNoTTY(t *testing.T) {
+	b, err := os.ReadFile("../../testdata/v0.10.4/o1-sudo-rs-journal.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := NewTranslator("ubuntu-server", nil)
+	tr.SudoFromSyslog = true
+	p := LineParser{Loc: time.UTC}
+	var rows, cmds []string
+	for _, s := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		l, ok := p.Parse(s)
+		if !ok {
+			t.Fatalf("not parsed: %s", s)
+		}
+		if strings.Contains(l.Msg, "COMMAND=") {
+			cmds = append(cmds, l.Msg)
+		}
+		if e := tr.Syslog(l, "journal"); e != nil {
+			rows = append(rows, e.Summary)
+		}
+	}
+	if len(rows) != len(cmds) || len(rows) == 0 {
+		t.Fatalf("%d rows for %d commands: %q", len(rows), len(cmds), rows)
+	}
+	for _, want := range []string{"claude ran with sudo: /usr/bin/grep -c . /dev/null", "claude ran as bbuser with sudo: /usr/bin/true"} {
+		if !slices.Contains(rows, want) {
+			t.Errorf("no row %q in %q", want, rows)
+		}
 	}
 }

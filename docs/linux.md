@@ -7,7 +7,8 @@ changes there: OpenSSH 10's `sshd-session` and `sshd-auth`, the GNU
 tools renamed `gnurm`, `gnucp` and so on (shown by their usual names),
 and sudo-rs, which writes no audit record of the commands it runs
 (`blackbox check` flags it, and Blackbox reads sudo's journal lines
-instead). It is not yet tested on 26.04 in CI, so use it there at your
+instead, with or without a terminal). A sudo-rs command refused because
+the person is not in sudoers is logged nowhere. It is not yet tested on 26.04 in CI, so use it there at your
 own risk until it is listed here.
 
 No other software is needed. Blackbox is a single self-contained program:
@@ -129,6 +130,17 @@ commands that change Blackbox are reported High whoever runs them:
 Medium), `systemctl stop`, `disable` or `mask` of `blackbox.timer`,
 `blackbox uninstall`, and deleting Blackbox's files.
 
+Blackbox also **records its own changes** (A15): when `blackbox config
+set`, setup or an upgrade actually writes a setting, it adds a row of its
+own saying who (the user who ran sudo, or the login user), which setting, and the value before and after,
+High for `exclude_users`, `exclude_processes`, `retention_days`,
+`report_dir`, `send_to`, `inbox` and `scap_results` (others Medium). It
+writes the same record to syslog/the journal with the ident `blackbox` (`journalctl -t blackbox`), so a copy exists outside its own folder.
+Installing, upgrading and removing Blackbox are recorded the same way. A
+`config set` command line with no matching record (refused, answered
+"no", failed, or the value was already set) is shown as "tried to change
+… (not applied)".
+
 **On a STIG-hardened system** (for example, one built with Ubuntu's USG
 or an Ansible STIG role), most of these rules are already loaded under
 other key names. Install only the ones that are missing, so nothing is
@@ -168,7 +180,8 @@ reboot, and `blackbox check` says so.
   `action_mail_acct` set
 - the audit log readable only by root (log 0600 or 0640, folder 0750)
 - time synchronisation: chrony or systemd-timesyncd running (AU-8)
-- sudo-rs, which records no audit events of sudo commands
+- sudo-rs, which records no audit events of sudo commands, and does not
+  log a refused command anywhere
 - ClamAV, when installed: definitions built within the last 30 days, and
   its scanner service running (as Defender is checked on Windows)
 - a system log that survives reboots

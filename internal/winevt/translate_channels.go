@@ -26,6 +26,9 @@ var msiProductRE = regexp.MustCompile(`^Product: (.+?) -- `)
 // removed (CM-11): 1033/1034 carry the product, version and result;
 // 11707/11724 say the same in a sentence, and are merged with them.
 func (t *Translator) application(r *Raw) *event.Event {
+	if strings.EqualFold(r.Provider, "Blackbox") {
+		return blackboxSelf(r)
+	}
 	if !strings.EqualFold(r.Provider, "MsiInstaller") {
 		return nil
 	}
@@ -75,6 +78,17 @@ func (t *Translator) application(r *Raw) *event.Event {
 	e.AddDetail("Version", version)
 	e.AddDetail("Manufacturer", r.Get("Data4"))
 	return e
+}
+
+// blackboxSelf is Blackbox's own record of a change to itself, which it
+// writes to the Application log as well as its spool (A15). It merges with
+// the spool's copy.
+func blackboxSelf(r *Raw) *event.Event {
+	c, ok := event.ParseSelfChange(firstNonBlank(r.Get("Data0"), r.Get("Data")))
+	if !ok {
+		return nil
+	}
+	return c.Event()
 }
 
 // firewallLog reads the firewall's own log, which says who and which

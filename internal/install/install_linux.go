@@ -33,6 +33,7 @@ func Install(opt Options) error {
 	if os.Geteuid() != 0 {
 		return errors.New("install must be run as root (sudo ./blackbox install)")
 	}
+	was := readBefore(config.DefaultPath(), config.DefaultDataDir())
 	timer, err := systemdTimer(opt.CollectEvery)
 	if err != nil {
 		return err
@@ -90,6 +91,7 @@ func Install(opt Options) error {
 		}
 	}
 	logf("Scheduled:           blackbox.timer — collects %s as root; %s", EveryText(opt.CollectEvery), scheduleWhat(opt))
+	recordSetup(cfgPath, data, was, opt.Version, logf)
 	return nil
 }
 
@@ -99,6 +101,7 @@ func Uninstall(logf func(string, ...any)) error {
 	if os.Geteuid() != 0 {
 		return errors.New("uninstall must be run as root")
 	}
+	recordRemoval(logf)
 	exec.Command("systemctl", "disable", "--now", "blackbox.timer").Run()
 	exec.Command("systemctl", "disable", "blackbox-shutdown.service").Run()
 	for _, f := range []string{timerFile, serviceFile, shutdownFile} {

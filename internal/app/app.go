@@ -479,7 +479,7 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		WorkingHours: a.Cfg.WorkingHours,
 		Archives:     logs, ArchivesKept: advance,
 		Systems: systemsFor(st, prevEnd), Collector: a.Cfg.Inbox != "",
-		LANWarnings:   lanWarnings(st, prevGen, generated, a.loc()),
+		LANWarnings:   append(lanWarnings(st, prevGen, generated, a.loc()), a.inboxWarnings()...),
 		RetentionDays: a.Cfg.RetentionDays,
 	})
 	if advance {
@@ -573,6 +573,17 @@ func systemsFor(st *store.Store, start time.Time) []report.SystemInfo {
 
 // lanWarnings describes problems noticed receiving from other computers
 // since the previous report.
+// inboxWarnings says which files in the inbox can't be read (L9).
+func (a *App) inboxWarnings() []string {
+	if a.Cfg.Inbox == "" {
+		return nil
+	}
+	if bad := lan.Unreadable(a.Cfg.Inbox); len(bad) > 0 {
+		return []string{unreadableText(bad) + ". Their events are not in this report; fix the file permissions so the next run imports them."}
+	}
+	return nil
+}
+
 func lanWarnings(st *store.Store, since, until time.Time, loc *time.Location) []string {
 	var out []string
 	ids := make([]string, 0, len(st.State.Senders))

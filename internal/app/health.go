@@ -11,6 +11,7 @@ import (
 
 	"github.com/casea1/blackbox/internal/check"
 	"github.com/casea1/blackbox/internal/collect"
+	"github.com/casea1/blackbox/internal/lan"
 	"github.com/casea1/blackbox/internal/report"
 	"github.com/casea1/blackbox/internal/store"
 )
@@ -34,6 +35,8 @@ type Health struct {
 	AVOld     []string       // hosts whose antivirus (Defender or ClamAV) definitions are out of date
 	Quiet     map[string]time.Time
 	Rejected  int // files set aside in the inbox
+	// Unreadable are the files in the inbox that can't be read (L9).
+	Unreadable []string
 
 	// AuditOff lists the systems whose last collection found auditing not
 	// running, and why (host → reason).
@@ -201,6 +204,7 @@ func (a *App) Health() (Health, error) {
 		if rej, _ := filepath.Glob(filepath.Join(a.Cfg.Inbox, "rejected", "*")); len(rej) > 0 {
 			h.Rejected = len(rej)
 		}
+		h.Unreadable = lan.Unreadable(a.Cfg.Inbox)
 	}
 	return h, nil
 }

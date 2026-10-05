@@ -137,6 +137,12 @@ func (t *Translator) auditdStopped(r *Record, prio int) *event.Event {
 	cmd := ""
 	if actor == "" {
 		actor, cmd = t.stoppedBy(r.Time, t.hostOf(r))
+	} else if r.Get("pid") == "1" {
+		// systemd (pid 1) sent the signal, so the record says root even
+		// when a person asked for it (U8): name them when known.
+		if who, c := t.stoppedBy(r.Time, t.hostOf(r)); who != "" {
+			actor, cmd = who, c
+		}
 	}
 	e := &event.Event{Category: event.CatIntegrity, Action: "audit_stopped", User: actor,
 		DedupeKey: "auditd-stop", Priority: prio, Command: cmd}
