@@ -144,6 +144,17 @@ and a dead CIFS hard mount on the SMB route, SMB delivery between two
 machines, a Windows sender, and 4826 from a real boot-configuration change.
 
 
+## v0.11.0 verification (5 Oct 2026, in progress)
+
+Release: SHA256SUMS matches all four files, SPDX SBOM present, Setup exe still unsigned (A10, waiting on the signing secrets). Offline checks with the 0.11.0 Linux binary on the recorded logs (the Ubuntu VM is on hold): **U5 fixed** (one row per try, correct reasons, spray detection "5 accounts, 7 failed logons") and **O1 parsing fixed** ("claude ran with sudo: …", High for `auditctl -e 0`). The Server 2025 collector's real event logs, exported as XML and run through 0.10.4 and 0.11.0: **W2, W3, W4 fixed** (sshd virtual-account admin rows 47 → 0, PowerShell "suspicious" 59 → 0, same-name renames 28 → 0, "group None" 3 → 0).
+
+| # | Finding | Status |
+|---|---|---|
+| A13b | **App-package firewall rules deleted with no rule name aren't collapsed.** 24 Medium "A Windows Firewall rule was deleted: ." remain: 2052 events by SYSTEM with an empty `RuleName` and a `RuleId` such as `Microsoft.WindowsTerminal_8wekyb3d8bbwe_S-1-5-21-…_In_emptyRemoteName_Cellular`. `appPackageRule` only matches a target starting with `@{`. Treat a `RuleId` that starts with a package family name (`<Name>_<publisherId>_…`) as an app-package rule too, and when `RuleName` is empty say the rule ID instead of "deleted: .". | Confirmed (from the server's own log, so it applies live too) |
+| A13c | In exported logs (`--xml`, and likely `--evtx` from another computer) the firewall service appears as its SID `S-1-5-80-3088073201-1464728630-1879813800-1107566885-823218052` (= `NT SERVICE\MpsSvc`), so its 40 app-package rule changes stay as rows. Match that well-known service SID as well as the name. | Confirmed (minor) |
+
+Still to check live: W1 (the file report still shows `WIN-R5L5B9EF403`; the fix uses the list of collecting systems, so it needs a live collector), A13 on a fresh install, A5/A15 self-recorded changes on Windows, L8/L10 delivery, and SC1 in a report. SC3 (open rules viewable) is for the next work list.
+
 ## ISSO / ISSM review: audit coverage (AU-2, AU-6, AU-12)
 
 Looked at as an ISSO doing the weekly audit review, and as an assessor checking that what the STIG makes you audit is actually reviewed. Owner decisions respected and not re-raised: no review/sign-off section (reviews are recorded on a separate platform) and no classification banner (`design.md` §13).
