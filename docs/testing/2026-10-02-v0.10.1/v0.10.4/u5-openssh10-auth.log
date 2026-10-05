@@ -1,0 +1,28 @@
+2026-10-04T23:57:00.520041+00:00 ubuntu-server unix_chkpwd[11743]: password check failed for user (bbuser)
+2026-10-04T23:57:00.522332+00:00 ubuntu-server sshd-session[11741]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=127.0.0.1  user=bbuser
+2026-10-04T23:57:02.008230+00:00 ubuntu-server sshd-session[11741]: Failed password for bbuser from 127.0.0.1 port 52322 ssh2
+2026-10-04T23:57:02.544614+00:00 ubuntu-server sshd-session[11741]: Connection closed by authenticating user bbuser 127.0.0.1 port 52322 [preauth]
+2026-10-04T23:57:02.762313+00:00 ubuntu-server unix_chkpwd[11752]: password check failed for user (bbuser)
+2026-10-04T23:57:02.763234+00:00 ubuntu-server sshd-session[11750]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=127.0.0.1  user=bbuser
+2026-10-04T23:57:04.940347+00:00 ubuntu-server sshd-session[11750]: Failed password for bbuser from 127.0.0.1 port 52324 ssh2
+2026-10-04T23:57:06.848393+00:00 ubuntu-server sshd-session[11750]: Connection closed by authenticating user bbuser 127.0.0.1 port 52324 [preauth]
+2026-10-04T23:57:07.087651+00:00 ubuntu-server unix_chkpwd[11757]: password check failed for user (bbuser)
+2026-10-04T23:57:07.096806+00:00 ubuntu-server sshd-session[11755]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=127.0.0.1  user=bbuser
+2026-10-04T23:57:09.021983+00:00 ubuntu-server sshd-session[11755]: Failed password for bbuser from 127.0.0.1 port 52332 ssh2
+2026-10-04T23:57:09.080543+00:00 ubuntu-server sshd-session[11755]: Connection closed by authenticating user bbuser 127.0.0.1 port 52332 [preauth]
+2026-10-04T23:57:09.239828+00:00 ubuntu-server sshd-session[11761]: Invalid user admin from 127.0.0.1 port 52338
+2026-10-04T23:57:09.246691+00:00 ubuntu-server sshd-session[11761]: pam_unix(sshd:auth): check pass; user unknown
+2026-10-04T23:57:09.246893+00:00 ubuntu-server sshd-session[11761]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=127.0.0.1 
+2026-10-04T23:57:11.439258+00:00 ubuntu-server sshd-session[11761]: Failed password for invalid user admin from 127.0.0.1 port 52338 ssh2
+2026-10-04T23:57:12.834228+00:00 ubuntu-server sshd-session[11761]: Connection closed by invalid user admin 127.0.0.1 port 52338 [preauth]
+2026-10-04T23:57:12.952283+00:00 ubuntu-server sshd-session[11765]: Invalid user oracle from 127.0.0.1 port 33610
+2026-10-04T23:57:12.958639+00:00 ubuntu-server sshd-session[11765]: pam_unix(sshd:auth): check pass; user unknown
+2026-10-04T23:57:12.958765+00:00 ubuntu-server sshd-session[11765]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=127.0.0.1 
+2026-10-04T23:57:15.172387+00:00 ubuntu-server sshd-session[11765]: Failed password for invalid user oracle from 127.0.0.1 port 33610 ssh2
+2026-10-04T23:57:15.579511+00:00 ubuntu-server sshd-session[11765]: Connection closed by invalid user oracle 127.0.0.1 port 33610 [preauth]
+2026-10-04T23:57:15.710718+00:00 ubuntu-server sshd-session[11769]: Invalid user postgres from 127.0.0.1 port 33624
+2026-10-04T23:57:15.720585+00:00 ubuntu-server sshd-session[11769]: pam_unix(sshd:auth): check pass; user unknown
+2026-10-04T23:57:15.721231+00:00 ubuntu-server sshd-session[11769]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=127.0.0.1 
+2026-10-04T23:57:17.337114+00:00 ubuntu-server sshd-session[11769]: Failed password for invalid user postgres from 127.0.0.1 port 33624 ssh2
+2026-10-04T23:57:18.058726+00:00 ubuntu-server sshd-session[11769]: Connection closed by invalid user postgres 127.0.0.1 port 33624 [preauth]
+2026-10-04T23:57:18.214736+00:00 ubuntu-server sshd-session[11775]: Connection closed by authenticating user claude 127.0.0.1 port 33634 [preauth]
