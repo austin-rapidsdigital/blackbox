@@ -1,0 +1,68 @@
+2026-10-04 23:57:00 low | claude ran as root: date -d now - 72473 seconds +%s
+2026-10-04 23:57:00 low | claude ran as root: grep -c . /dev/null
+2026-10-04 23:57:00 low | Failed logon for bbuser via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:02 low | Failed logon for bbuser via SSH from localhost — wrong password or key.
+2026-10-04 23:57:02 low | Failed logon for bbuser via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:04 low | Failed logon for bbuser via SSH from localhost — wrong password or key.
+2026-10-04 23:57:07 low | Failed logon for bbuser via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:09 low | Failed logon for bbuser via SSH from localhost — wrong password or key.
+2026-10-04 23:57:09 low | Failed logon for bbuser via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:09 low | Failed logon for bbuser via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:09 low | Failed logon for admin via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:11 low | Failed logon for admin via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:12 low | Failed logon for (unknown user name) via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:12 low | Failed logon for (unknown user name) via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:12 low | Failed logon for oracle via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:15 low | Failed logon for oracle via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:15 low | Failed logon for oracle via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:15 low | Failed logon for oracle via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:15 low | Failed logon for postgres via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:17 low | Failed logon for postgres via SSH from localhost — the user name does not exist.
+2026-10-04 23:57:18 low | claude ran as root: ssh -i /root/.ssh/blackbox -o BatchMode=yes -o StrictHostKeyChecking=no claude@localhost true
+2026-10-04 23:57:18 low | Failed logon for claude via SSH from localhost — wrong password or key.
+2026-10-04 23:57:18 high | claude ran a command that can stop or weaken auditing: auditctl -e 0
+2026-10-04 23:57:18 high | claude tried to turn off auditing; refused because the audit rules are locked until the next reboot. Auditing stayed on.
+2026-10-04 23:57:18 low | claude ran as root: mount -t tmpfs none /mnt/tmpt
+2026-10-04 23:57:18 low | claude ran as root: mkdir -p /mnt/tmpt
+2026-10-04 23:57:18 low | claude mounted a filesystem: mount -t tmpfs none /mnt/tmpt
+2026-10-04 23:57:18 low | claude ran as root: umount /mnt/tmpt
+2026-10-04 23:57:18 info | claude: the audit rule "privileged-mount" recorded umount2 on /mnt/tmpt (using umount).
+2026-10-04 23:57:18 low | claude ran as root: tee /var/log/bbt2.log
+2026-10-04 23:57:18 high | claude ran a command that can stop or weaken auditing: rm /var/log/bbt2.log
+2026-10-04 23:57:18 high | claude deleted, renamed or emptied the log file /var/log/bbt2.log (using rm).
+2026-10-04 23:57:18 high | claude ran a command that can stop or weaken auditing: sh -c rm -rf /tmp/rl9; ls /var/log/audit >/dev/null
+2026-10-04 23:57:18 low | claude ran as root: rm -rf /tmp/rl9
+2026-10-04 23:57:18 low | claude ran as root: ls /var/log/audit
+2026-10-04 23:57:18 low | claude ran as root: groupadd bbgrp2
+2026-10-04 23:57:18 info | claude: the audit rule "identity" recorded openat on /etc/group (using groupadd).
+2026-10-04 23:57:18 info | claude: the audit rule "identity" recorded openat on /etc/gshadow (using groupadd).
+2026-10-04 23:57:18 low | claude changed the owner of a file (using groupadd).
+2026-10-04 23:57:18 low | claude changed the permissions of a file (using groupadd) to 0644.
+2026-10-04 23:57:18 low | claude created the group bbgrp2.
+2026-10-04 23:57:18 medium | claude deleted or renamed /etc/group+, /etc/group, /etc/group (using groupadd).
+2026-10-04 23:57:18 medium | claude added bbgrp2 to a group (the log does not say which).
+2026-10-04 23:57:18 low | claude ran as root: groupdel bbgrp2
+2026-10-04 23:57:18 medium | claude deleted the group bbgrp2.
+2026-10-04 23:57:18 medium | claude removed bbgrp2 from a group (the log does not say which).
+2026-10-04 23:57:18 high | claude changed Blackbox's exclude_users setting (what it reports or keeps): blackbox config set exclude_users none
+2026-10-04 23:57:18 low | claude ran as root: blackbox config
+2026-10-04 23:57:19 high | claude changed Blackbox's retention_days setting (what it reports or keeps): blackbox config set retention_days 30
+2026-10-04 23:57:19 high | claude ran a command that can stop or weaken auditing: systemctl stop auditd
+2026-10-04 23:57:19 high | The audit service (auditd) was stopped by root — events are not recorded while it is stopped.
+2026-10-04 23:57:19 low | claude ran as root: blackbox run
+2026-10-04 23:57:19 low | claude changed the permissions of /var/lib/blackbox/.state.json.tmp-440942403 (using blackbox) to 0640.
+2026-10-04 23:57:19 low | claude changed the permissions of /var/lib/blackbox/.state.json.tmp-2988932732 (using blackbox) to 0640.
+2026-10-04 23:57:19 low | claude changed the permissions of /var/lib/blackbox/.state.json.tmp-3737016965 (using blackbox) to 0640.
+2026-10-04 23:57:19 low | claude changed the permissions of /var/lib/blackbox/.state.json.tmp-184124731 (using blackbox) to 0640.
+2026-10-04 23:57:19 low | claude changed the permissions of /var/lib/blackbox/.state.json.tmp-2894454754 (using blackbox) to 0640.
+2026-10-04 23:57:19 low | claude changed the permissions of /var/lib/blackbox/outbox/.0000000215.bbx.tmp-857026547 (using blackbox) to 0640.
+2026-10-04 23:57:19 low | claude changed the permissions of /var/lib/blackbox/.state.json.tmp-2455984787 (using blackbox) to 0640.
+2026-10-04 23:57:19 low | claude changed the permissions of /var/lib/blackbox/.state.json.tmp-3390102097 (using blackbox) to 0640.
+2026-10-04 23:57:19 low | claude changed the permissions of /var/lib/blackbox/.last-run.json.tmp-2006881055 (using blackbox) to 0640.
+2026-10-04 23:57:19 low | claude ran as root: blackbox status
+2026-10-04 23:57:20 low | claude ran as root: systemctl start auditd
+2026-10-04 23:57:20 info | The audit service (auditd) started.
+2026-10-04 23:57:33 low | claude ran as root: date -d now - 72507 seconds +%s
+2026-10-04 23:57:33 high | claude ran a command that can stop or weaken auditing: sh -c rm -rf /tmp/r104; blackbox report --config none --audit /var/log/audit/audit.log --syslog /var/log/syslog --syslog /var/lo
+2026-10-04 23:57:33 low | claude ran as root: rm -rf /tmp/r104
+2026-10-04 23:57:33 low | claude ran as root: blackbox report --config none --audit /var/log/audit/audit.log --syslog /var/log/syslog --syslog /var/log/auth.log --from 2026-1

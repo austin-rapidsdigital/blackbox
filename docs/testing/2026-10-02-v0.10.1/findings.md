@@ -82,6 +82,34 @@ Working correctly on the SFTP route: the lan.md fstab line mounts; scheduled, sa
 
 Working correctly on the collector: setup window flow and summary; data folder Administrators/SYSTEM only; Blackbox Senders group, share (Senders: Change only) and NTFS ACLs exactly as security.md says; STIG check (12 pass / 24 need attention, Defender intelligence 1,033 days old flagged with the GPO path); A10 confirmed (exe NotSigned; SHA256 matches); **catch-up: 114 batches + 2 original-log archives queued over ~27 h delivered in 47 s and imported with 0 rejected**; Systems shows both computers with last collection/received; Linux detections arrive unchanged; account create / group create / add to Blackbox Senders / add to Administrators (High) correct.
 
+## v0.10.4 verification (5 Oct 2026)
+
+v0.10.2 listed a fix for every ID in the first work list (`worker-prompt.md`); v0.10.3 added ClamAV checks and v0.10.4 tidied up. Both VMs were upgraded in place: Ubuntu with `install.sh --yes` (settings kept), Windows with the setup window ("Blackbox 0.10.1 is installed. This will upgrade it to 0.10.4. Your current settings are kept", "Ready to apply", no report produced, schedule unchanged, toast "Blackbox updated to 0.10.4"). Evidence is in `v0.10.4/` and test-activity.log.
+
+**Confirmed fixed:** A1 (19 of 21 events now rows; 4673 counted and 5145 successes left out by design; the rest are at least "Other security events" rows), A3, U1, U3 (offline); U6, U7, U11, U12, A5/U9 on Linux ("changed Blackbox's exclude_users setting", High), L3 ("AUDITING OFF" in status), L4, L5, A9 (refused without `--yes`), A6, O1 (`check` flags sudo-rs), A4/A12 (`check` lists the new rules), N1 (share EncryptData True, unencrypted access rejected), L1 (an unreadable inbox file no longer blocks the others: 4 batches imported), A7 sources read (firewall log, Remote Desktop, Defender 5007, print logging check), C5 collector side ("checked 4 Oct 23:56"), V1/V2, setup S3 ("Apply" on an installed system), upgrade on both OSes.
+
+**Not fixed, or only partly:**
+
+| # | Result in v0.10.4 | Status |
+|---|---|---|
+| U5 | **Worse.** 3 wrong passwords for the existing user `bbuser` gave 8 rows, 5 of them "the user name does not exist" (it does). The guessing detection counts 8. The spray of admin/oracle/postgres still gives 2-4 rows per name and two "(unknown user name)" rows. | Confirmed |
+| U8 | Still "The audit service (auditd) was stopped by root" right after "claude ran a command that can stop or weaken auditing: systemctl stop auditd". | Confirmed |
+| O1 | `check` flags sudo-rs, but no "used sudo" rows come from the journal: `sudo -u bbuser true` and the other sudo-rs commands at 23:57 produced nothing in the collector's report from the live collection. | Confirmed |
+| A5 (Windows) | `blackbox config set exclude_users bbtest` (and back) on the Windows collector left no row in its report, and Audit health has no Windows line saying whether Blackbox's own folder and settings are audited (Linux has "Blackbox's own files watched"). On a default Windows install, changes to Blackbox are invisible and nothing says so. | Confirmed |
+| L9 | (from L1) An unreadable inbox file is logged as "set aside in `C:\BlackboxInbox\rejected`" but stays in the inbox (`rejected\` is empty; `reject()` ignores the `os.Rename` error). Status says "Inbox: OK; 1 batch waiting" and it is retried every run. Only say "set aside" if the move worked; otherwise say "1 file can't be read (access denied)" in status and the report. | Confirmed (minor) |
+| A10 | Release still NotSigned and no `SHA256SUMS.asc` (signing secrets not set). SPDX SBOM attached and listed in SHA256SUMS. | Confirmed |
+
+**New in v0.10.4:**
+
+| # | Finding | Status |
+|---|---|---|
+| A13 | **The firewall log (A7) adds a lot of noise and grows the phantom system.** A fresh server gave 74 Low "A Windows Firewall rule was added by NT SERVICE\mpssvc: @{Microsoft.AAD.BrokerPlugin…}" (rules Windows registers for built-in app packages), 32 Medium "rule deleted" (2052) and 17 "changed" (2099). A person's change (enabling SMB-In) is lost among them. Collapse or leave out rule changes made by `NT SERVICE\mpssvc` for app packages (`@{…}` names) and keep changes made by people. These events also carry the pre-OOBE computer name, so the phantom system (W1) now has 74 rows and the report is named "3-systems". | Confirmed |
+| A14 | **The A3 rules report routine admin tools as file changes.** `groupadd` now also gives Medium "deleted or renamed /etc/group+, /etc/group, /etc/group" (shadow-utils writes a temp file and renames it over) and two Low "changed the owner/permissions of a file (using groupadd)". A hand-run `blackbox run` gives 9 Low "changed the permissions of /var/lib/blackbox/.state.json.tmp-…" rows (Blackbox's own atomic writes). Fold shadow-utils' temp-file rename into the account/group change, and leave out Blackbox's own writes under its data folder when the program is Blackbox itself. | Confirmed |
+| A15 | **A refused setting change is reported as made.** `blackbox config set retention_days 30`, answered "n" (A9 refused it), still gives High "claude changed Blackbox's retention_days setting". The row comes from the command line, not the change. Say "tried to change" unless the settings file was written, or have Blackbox record its own accepted changes. | Confirmed |
+| U15 | "The audit service on ubuntu-server was off for 0 minutes (23:57:19 to 23:57:20)": say "less than a minute". | Confirmed (minor) |
+
+U13 is unchanged and shows twice more (`sh -c "rm -rf /tmp/rl9; ls /var/log/audit"` and the tester's report command are High "can stop or weaken auditing"). Still open from before and not in the first work list: N2, L6, L7, **L8** (the sandbox `ReadWritePaths` is unchanged), W1-W4, S11-S13, N3, U13, U14, R9.
+
 ## ISSO / ISSM review: audit coverage (AU-2, AU-6, AU-12)
 
 Looked at as an ISSO doing the weekly audit review, and as an assessor checking that what the STIG makes you audit is actually reviewed. Owner decisions respected and not re-raised: no review/sign-off section (reviews are recorded on a separate platform) and no classification banner (`design.md` §13).
