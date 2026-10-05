@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -136,16 +137,27 @@ func modeArg(sc string, r *Record) (uint64, bool) {
 // mode set. The tool's own account record is the row (A14).
 var accountFile = regexp.MustCompile(`^/etc/(passwd|shadow|group|gshadow|subuid|subgid)([+-]|\.lock|\.\d+|\.edit)?$|^/etc/n(shadow|gshadow|passwd|group)$`)
 
+// ownLogs are the logs a program writes on every use, which the STIG's
+// audit rules watch: sudo's own log, and the logon records (I7). The sudo
+// command or the logon is the row.
+var ownLogs = map[string][]string{
+	"sudo": {"/var/log/sudo.log"}, "sudo-rs": {"/var/log/sudo.log"},
+	"sshd": {"/var/log/wtmp", "/var/log/btmp", "/var/log/lastlog"}, "sshd-session": {"/var/log/wtmp", "/var/log/btmp", "/var/log/lastlog"},
+	"login": {"/var/log/wtmp", "/var/log/btmp", "/var/log/lastlog"}, "gdm-session-wor": {"/var/log/wtmp", "/var/log/btmp", "/var/log/lastlog"},
+}
+
 // routineFileWrite is a write that is part of a change recorded better
-// elsewhere: an account tool's temporary copies of the account files, and
+// elsewhere: an account tool's temporary copies of the account files,
 // Blackbox's own writes under its data folder (its state saved through a
-// temporary file). Writes there by anything else are still reported (A5).
+// temporary file), and a program writing its own log. Writes there by
+// anything else are still reported (A5).
 func routineFileWrite(prog string, paths []string) bool {
 	if len(paths) == 0 {
 		return false
 	}
 	for _, p := range paths {
 		switch {
+		case slices.Contains(ownLogs[prog], p):
 		case accountTools[prog] && accountFile.MatchString(p):
 		case prog == "blackbox" && strings.HasPrefix(p, "/var/lib/blackbox/"):
 		default:

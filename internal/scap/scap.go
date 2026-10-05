@@ -22,6 +22,28 @@ import (
 	"time"
 )
 
+// refXML is a rule's <reference> or <ident>.
+type refXML struct {
+	Href   string `xml:"href,attr"`
+	System string `xml:"system,attr"`
+	Text   string `xml:",chardata"`
+}
+
+// disa reports whether the reference points at a DISA STIG (cyber.mil,
+// formerly iase.disa.mil).
+func (r refXML) disa() bool {
+	src := strings.ToLower(r.Href + " " + r.System)
+	return strings.Contains(src, "cyber.mil") || strings.Contains(src, "disa.mil")
+}
+
+var (
+	// stigIDRE is a STIG ID: UBTU-24-300028, WN11-CC-000005, RHEL-08-010010,
+	// APSC-DV-000010 (not an SRG ID, SRG-OS-000004-GPOS-00004).
+	stigIDRE = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[A-Z0-9]{2,3}-\d{6}$`)
+	// vulnOnlyRE is a vulnerability ID on its own: V-253254.
+	vulnOnlyRE = regexp.MustCompile(`^V-\d+$`)
+)
+
 // Rule is one rule of the benchmark.
 type Rule struct {
 	ID       string // e.g. xccdf_mil.disa.stig_rule_SV-253254r991589_rule
@@ -163,13 +185,30 @@ func Parse(r io.Reader) ([]*Result, error) {
 				groups = append(groups, attr("id"))
 			case "Rule":
 				var x struct {
-					Title   text `xml:"title"`
-					Version text `xml:"version"`
+					Title   text     `xml:"title"`
+					Version text     `xml:"version"`
+					Refs    []refXML `xml:"reference"`
+					Idents  []refXML `xml:"ident"`
 				}
 				id, sev := attr("id"), attr("severity")
 				dec.DecodeElement(&x, &t)
 				depth--
 				rule := Rule{ID: id, Severity: sev, Title: strings.TrimSpace(x.Title.Text), STIGID: strings.TrimSpace(x.Version.Text)}
+				// SCC puts the STIG ID in the rule's version; SCAP Security
+				// Guide content (OpenSCAP) names it in a reference to the DISA
+				// STIG instead, next to the SRG ID (SC1).
+				if !stigIDRE.MatchString(rule.STIGID) {
+					rule.STIGID = ""
+				}
+				for _, r := range append(x.Refs, x.Idents...) {
+					v := strings.TrimSpace(r.Text)
+					switch {
+					case rule.STIGID == "" && stigIDRE.MatchString(v) && r.disa():
+						rule.STIGID = v
+					case rule.VulnID == "" && vulnOnlyRE.MatchString(v):
+						rule.VulnID = v
+					}
+				}
 				for i := len(groups) - 1; i >= 0 && rule.VulnID == ""; i-- {
 					rule.VulnID = vulnRE.FindString(groups[i])
 				}

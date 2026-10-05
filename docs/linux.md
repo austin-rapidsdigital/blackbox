@@ -92,7 +92,7 @@ Blackbox includes a rules file that covers everything the report needs:
 
 ```sh
 sudo apt install auditd                 # Ubuntu (AlmaLinux: sudo dnf install audit)
-sudo blackbox check --audit-rules | sudo tee /etc/audit/rules.d/99-blackbox.rules
+sudo blackbox check --audit-rules | sudo tee /etc/audit/rules.d/zz-blackbox.rules
 sudo augenrules --load
 sudo blackbox check                     # lists anything still missing
 ```
@@ -141,13 +141,22 @@ Installing, upgrading and removing Blackbox are recorded the same way. A
 "no", failed, or the value was already set) is shown as "tried to change
 … (not applied)".
 
+**Changes with no one logged on.** Configuration management (Ansible or
+Salt run through `systemd-run`) has no login session, so its changes name
+no one. Changes to PAM, `/etc/security`, the SSH server settings,
+`/etc/audit` and systemd units made that way are shown at Low ("… were
+changed with no one logged on"). The tool's own log says who started it.
+Software updates are left out: their sudo command is the record. A
+program writing its own log that the STIG watches (sudo's
+`/var/log/sudo.log`, the logon records) is not a row of its own.
+
 **On a STIG-hardened system** (for example, one built with Ubuntu's USG
 or an Ansible STIG role), most of these rules are already loaded under
 other key names. Install only the ones that are missing, so nothing is
 recorded twice:
 
 ```sh
-sudo blackbox check --audit-rules --missing | sudo install -m 0600 /dev/stdin /etc/audit/rules.d/99-blackbox.rules
+sudo blackbox check --audit-rules --missing | sudo install -m 0600 /dev/stdin /etc/audit/rules.d/zz-blackbox.rules
 sudo augenrules --load
 ```
 
@@ -156,15 +165,24 @@ ignores key names, and leaves out watches on files that do not exist. If
 the loaded rules are locked (`-e 2`), the new ones take effect at the next
 reboot, and `blackbox check` says so.
 
-> **Ubuntu USG (`usg fix`) writes `/etc/audit/audit.rules` directly.**
-> `augenrules` rebuilds that file from `rules.d`, so adding any file to
-> `rules.d` would drop the STIG rules at the next `augenrules --load` or
-> reboot. `--missing` warns when this applies. Keep the existing rules
-> first:
->
-> ```sh
-> sudo install -m 0600 /etc/audit/audit.rules /etc/audit/rules.d/50-existing.rules
-> ```
+The file is named `zz-blackbox.rules` so it sorts after a STIG baseline's
+own files (`augenrules` reads `rules.d` in `ls -v` order). Where a rule is
+in both, the STIG's key is the one recorded, which `ausearch -k` and other
+tools expect. Earlier versions used `99-blackbox.rules`: `--missing` reads
+it as Blackbox's own and tells you to remove it when you save the new
+file, since `auditctl` stops loading at a duplicate rule. On a merged-/usr
+system, `/sbin/modprobe` and `/usr/sbin/modprobe` are one file, and
+`--missing` treats rules on either as the same.
+
+> **Rules only in `/etc/audit/audit.rules`.** `augenrules` rebuilds
+> `audit.rules` from `rules.d`. Rules that a tool wrote to `audit.rules`
+> without a matching `rules.d` file would be dropped at the next
+> `augenrules --load` or reboot. (Upstream SCAP Security Guide writes both
+> files, so this is rare.) `--missing` lists exactly those rules, if any;
+> save just those as `/etc/audit/rules.d/50-existing.rules` (mode 0600)
+> before adding Blackbox's file. Don't copy all of `audit.rules`: the rules
+> already in `rules.d` would then be loaded twice, and `auditctl` stops at
+> the first duplicate.
 
 `blackbox check` also looks for:
 
@@ -183,7 +201,11 @@ reboot, and `blackbox check` says so.
 - sudo-rs, which records no audit events of sudo commands, and does not
   log a refused command anywhere
 - ClamAV, when installed: definitions built within the last 30 days, and
-  its scanner service running (as Defender is checked on Windows)
+  its scanner service running (as Defender is checked on Windows). A
+  scanner running in a container counts as running; a masked `clamd`
+  unit (turned off on purpose) is shown for information, without
+  advice to enable it. On a FIPS host, a note says ClamAV's engine is not
+  FIPS 140 validated
 - a system log that survives reboots
 
 ## Where things are

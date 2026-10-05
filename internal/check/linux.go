@@ -13,8 +13,16 @@ import (
 //go:embed blackbox-audit.rules
 var AuditRules string
 
-// RulesFile is where the recommended rules are meant to be saved.
-const RulesFile = "/etc/audit/rules.d/99-blackbox.rules"
+// RulesFile is where the recommended rules are meant to be saved. It sorts
+// after a STIG baseline's own files (augenrules reads rules.d in
+// "ls -v" order: actions.rules, privileged.rules …), so where a rule is in
+// both, the STIG's key is the one recorded (I1).
+const RulesFile = "/etc/audit/rules.d/zz-blackbox.rules"
+
+// OldRulesFiles are where earlier versions saved the rules. They are read
+// as Blackbox's own, and the file should be removed when RulesFile is
+// saved: auditctl stops loading at a duplicate rule.
+var OldRulesFiles = []string{"/etc/audit/rules.d/99-blackbox.rules"}
 
 // rulesFix lists only the rules that are not already loaded (see
 // MissingRules), so a STIG baseline's own rules are never duplicated.

@@ -49,6 +49,10 @@ listed as Interim, and does not change the schedule. On a collector it
 covers every system's collected events; only the collector's own logs can
 be read further back.
 
+With exported log files (`--xml`, `--evtx`, `--audit`, `--syslog`), the
+same options keep only the events in that period:
+`blackbox report --audit audit.log --from 2026-09-01 --to 2026-09-15`.
+
 If you change `report_at`, the next report ends at the new time and
 covers the time since the last report (so it may be shorter or longer
 than usual once).

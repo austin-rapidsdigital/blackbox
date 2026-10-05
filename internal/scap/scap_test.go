@@ -58,3 +58,38 @@ func TestParseRejectsOtherXML(t *testing.T) {
 		t.Error("not SCAP, no error")
 	}
 }
+
+// SC1: OpenSCAP with SCAP Security Guide content gives no STIG ID in the
+// rule result; the benchmark in the results file names it in a reference
+// to the DISA STIG, next to the SRG ID.
+func TestSSGStigIDFromReference(t *testing.T) {
+	const x = `<?xml version="1.0"?>
+<xccdf-1.2:Benchmark xmlns:xccdf-1.2="http://checklists.nist.gov/xccdf/1.2" id="xccdf_org.ssgproject.content_benchmark_UBUNTU2404">
+  <xccdf-1.2:title>Guide to the Secure Configuration of Ubuntu 24.04</xccdf-1.2:title>
+  <xccdf-1.2:version>0.1.81</xccdf-1.2:version>
+  <xccdf-1.2:Group id="xccdf_org.ssgproject.content_group_fips">
+    <xccdf-1.2:Rule id="xccdf_org.ssgproject.content_rule_is_fips_mode_enabled" severity="high">
+      <xccdf-1.2:title>Verify '/proc/sys/crypto/fips_enabled' exists</xccdf-1.2:title>
+      <xccdf-1.2:reference href="https://www.cyber.mil/stigs/srg-stig-tools">SRG-OS-000478-GPOS-00223</xccdf-1.2:reference>
+      <xccdf-1.2:reference href="https://www.cyber.mil/stigs/downloads/?_dl_facet_stigs=operating-systems%2Cunix-linux">UBTU-24-300028</xccdf-1.2:reference>
+      <xccdf-1.2:reference href="https://www.cisecurity.org/benchmark/ubuntu_linux/">1.6.2</xccdf-1.2:reference>
+    </xccdf-1.2:Rule>
+  </xccdf-1.2:Group>
+  <xccdf-1.2:TestResult id="xccdf_org.open-scap_testresult_stig" start-time="2026-10-05T00:17:00" end-time="2026-10-05T00:17:53">
+    <xccdf-1.2:benchmark href="#xccdf_org.ssgproject.content_benchmark_UBUNTU2404"/>
+    <xccdf-1.2:target>ubuntu-server</xccdf-1.2:target>
+    <xccdf-1.2:rule-result idref="xccdf_org.ssgproject.content_rule_is_fips_mode_enabled" severity="high"><xccdf-1.2:result>fail</xccdf-1.2:result></xccdf-1.2:rule-result>
+    <xccdf-1.2:score system="urn:xccdf:scoring:default" maximum="100">50</xccdf-1.2:score>
+  </xccdf-1.2:TestResult>
+</xccdf-1.2:Benchmark>`
+	res, err := Parse(strings.NewReader(x))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || len(res[0].Open) != 1 {
+		t.Fatalf("results: %+v", res)
+	}
+	if o := res[0].Open[0]; o.STIGID != "UBTU-24-300028" || o.Cat() != 1 {
+		t.Errorf("open rule: %+v", o)
+	}
+}

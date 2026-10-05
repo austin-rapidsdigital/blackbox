@@ -120,7 +120,7 @@ func parseAuditRule(line string) (auditRule, bool) {
 // covers reports whether rule x records everything rule r records (for the
 // same kind of rule): the same target and conditions, and every syscall.
 func (x auditRule) covers(r auditRule) bool {
-	if x.watch != r.watch || x.list != r.list || x.arch != r.arch {
+	if canonPath(x.watch) != canonPath(r.watch) || x.list != r.list || x.arch != r.arch {
 		return false
 	}
 	if !containsAll(x.perm, r.perm) {
@@ -257,13 +257,34 @@ func ruleKey(r auditRule) string {
 		sc = append(sc, s)
 	}
 	sort.Strings(sc)
-	return strings.Join([]string{r.watch, r.perm, r.list, r.arch, strings.Join(sc, ","), strings.Join(r.filters, " ")}, "|")
+	return strings.Join([]string{canonPath(r.watch), r.perm, r.list, r.arch, strings.Join(sc, ","), strings.Join(r.filters, " ")}, "|")
 }
 
-// NotInRulesD counts the rules in /etc/audit/audit.rules that no file in
+// MergedUsr is set on a system where /bin, /sbin and /lib are links into
+// /usr (every supported Linux): there /sbin/modprobe and
+// /usr/sbin/modprobe are one file, and a rule on either records it (I5).
+var MergedUsr bool
+
+// canonPath is a path as compared between rules: on a merged-/usr system,
+// /bin, /sbin, /lib and /lib64 are written as their /usr form.
+func canonPath(p string) string {
+	if !MergedUsr {
+		return p
+	}
+	for _, d := range []string{"/bin", "/sbin", "/lib", "/lib64"} {
+		if p == d || strings.HasPrefix(p, d+"/") {
+			return "/usr" + p
+		}
+	}
+	return p
+}
+
+// NotInRulesD returns the rules in /etc/audit/audit.rules that no file in
 // /etc/audit/rules.d holds. augenrules rebuilds audit.rules from rules.d,
-// so it would drop them: Ubuntu's `usg fix` writes audit.rules directly.
-func NotInRulesD(auditRules string, rulesD []string) int {
+// so it would drop them. A hardening tool that writes audit.rules itself,
+// without the matching rules.d file, leaves such rules (upstream SCAP
+// Security Guide writes both; I2).
+func NotInRulesD(auditRules string, rulesD []string) []string {
 	have := map[string]bool{}
 	for _, f := range rulesD {
 		for _, l := range strings.Split(f, "\n") {
@@ -272,11 +293,12 @@ func NotInRulesD(auditRules string, rulesD []string) int {
 			}
 		}
 	}
-	n := 0
+	var out []string
 	for _, l := range strings.Split(auditRules, "\n") {
 		if r, ok := parseAuditRule(l); ok && !have[ruleKey(r)] {
-			n++
+			out = append(out, strings.TrimSpace(l))
+			have[ruleKey(r)] = true // once, if audit.rules repeats it
 		}
 	}
-	return n
+	return out
 }

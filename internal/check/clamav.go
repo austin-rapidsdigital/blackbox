@@ -60,6 +60,12 @@ func EvaluateClamAV(version string, installed bool, service string, now time.Tim
 	return []Result{defs, clamService(service)}
 }
 
+// Scanner service states besides systemctl's own (I3).
+const (
+	ClamInContainer = "container" // clamd runs in a container (Docker, Podman, Kubernetes)
+	ClamMasked      = "masked"    // the host's clamd unit is masked: turned off on purpose
+)
+
 // clamService is whether the scanner service (clamd) is running. Without
 // it ClamAV only scans when asked, so it is a warning, not a gap.
 func clamService(state string) Result {
@@ -67,6 +73,12 @@ func clamService(state string) Result {
 	switch state {
 	case "active":
 		r.Status, r.Have = Pass, "Running"
+	case ClamInContainer:
+		r.Status, r.Have = Pass, "Running in a container"
+	case ClamMasked:
+		// Masked on purpose, usually because a scanner runs in a container
+		// or another product is used: enabling it is not the fix (I3).
+		r.Status, r.Have = Info, "The host's clamd service is masked (turned off on purpose); no clamd seen running"
 	case "":
 		r.Status, r.Have = Info, "No clamd service installed (scans only when run)"
 	default:
@@ -74,4 +86,27 @@ func clamService(state string) Result {
 		r.Fix = "systemctl enable --now clamav-daemon (Alma: clamd@scan)"
 	}
 	return r
+}
+
+// EvaluateClamAVFIPS notes ClamAV's limits on a FIPS host (I3): its
+// engine is not FIPS 140 validated, and some of its signatures are MD5 and
+// SHA-1 hashes. It is information for the ISSM, not a gap.
+func EvaluateClamAVFIPS(fips bool) []Result {
+	if !fips {
+		return nil
+	}
+	return []Result{{Area: "Antivirus", Item: "ClamAV on a FIPS host", Status: Info, Want: "Known to the ISSM",
+		Have: "FIPS mode is on. ClamAV's engine is not FIPS 140 validated, and some signatures are MD5 or SHA-1 hashes; " +
+			"check that this is acceptable on this system, or that a validated product covers it"}}
+}
+
+// inContainerCgroup reports whether a /proc/PID/cgroup belongs to a
+// container runtime.
+func inContainerCgroup(cg string) bool {
+	for _, w := range []string{"docker", "libpod", "containerd", "kubepods", "crio-", "machine.slice"} {
+		if strings.Contains(cg, w) {
+			return true
+		}
+	}
+	return false
 }
