@@ -202,7 +202,8 @@ deleting the **Blackbox Audit Collection** task (4699/4701), and edits to
 updating its task (an install or upgrade) is Medium. Edits to the folder
 are only recorded if it has an auditing entry, which Blackbox does not
 set itself (it never changes audit settings). To add one, as an
-administrator:
+administrator (`blackbox.exe check` shows whether it is there, and Audit
+health lists it as "Blackbox's own folder audited"):
 
 ```powershell
 $acl = Get-Acl C:\ProgramData\Blackbox -Audit
@@ -214,6 +215,20 @@ Set-Acl C:\ProgramData\Blackbox $acl
 
 This needs File System auditing (success and failure), which the STIG
 already requires.
+
+Blackbox also **records its own changes** (A15): when `blackbox config
+set`, setup or an upgrade actually writes a setting, it adds a row of its
+own saying who (the account that ran it), which setting, and the value before and after,
+High for `exclude_users`, `exclude_processes`, `retention_days`,
+`report_dir`, `send_to`, `inbox` and `scap_results` (others Medium). It
+writes the same record to the Application log, source **Blackbox**, event ID 100, so a copy exists outside its own folder.
+Installing, upgrading and removing Blackbox are recorded the same way. A
+`config set` command line with no matching record (refused, answered
+"no", failed, or the value was already set) is shown as "tried to change
+… (not applied)".
+This is how a `config set` is reported on Windows: the command line
+alone needs Process Creation auditing with command lines, which a fresh
+server does not have.
 
 Script Block Logging must be turned on by Group Policy: Administrative
 Templates > Windows Components > Windows PowerShell > Turn on PowerShell

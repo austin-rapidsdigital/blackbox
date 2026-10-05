@@ -139,6 +139,9 @@ func classify(h app.Health, err error, now time.Time) trayView {
 	for _, l := range h.Lost {
 		v.Items = append(v.Items, fmt.Sprintf("%s log on %s: %s events lost to rollover since %s", l.Channel, l.Host, commaNum(l.Count), when(l.Since, now)))
 	}
+	if n := len(h.Unreadable); n > 0 {
+		v.Items = append(v.Items, fmt.Sprintf("%s in the inbox can't be read", plural(n, "file")))
+	}
 	if h.Rejected > 0 {
 		v.Items = append(v.Items, fmt.Sprintf("%s set aside in the inbox", plural(h.Rejected, "file")))
 	}

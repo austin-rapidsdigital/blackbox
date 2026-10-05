@@ -427,3 +427,20 @@ func TestRulesForThisSystem(t *testing.T) {
 		t.Error("nil exists changed the rules")
 	}
 }
+
+// A5 on Windows: Blackbox's own folder has the auditing entry windows.md
+// describes.
+func TestOwnFolderAudit(t *testing.T) {
+	if r := EvaluateOwnFolderAudit("Everyone|Write, Delete, ChangePermissions, TakeOwnership, Synchronize|Success, Failure\r\n", nil); r.Status != Pass {
+		t.Errorf("with entry: %+v", r)
+	}
+	if r := EvaluateOwnFolderAudit("", nil); r.Status != Warn || r.Fix == "" {
+		t.Errorf("no entry: %+v", r)
+	}
+	if r := EvaluateOwnFolderAudit("Everyone|ReadData|Success\n", nil); r.Status != Warn {
+		t.Errorf("reads only: %+v", r)
+	}
+	if r := EvaluateOwnFolderAudit("", errors.New("exit status 1")); r.Status != Error {
+		t.Errorf("error: %+v", r)
+	}
+}

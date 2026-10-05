@@ -5,6 +5,7 @@ package linuxlog
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -112,6 +113,15 @@ var privilegedGroups = map[string]bool{
 	"disk": true, "shadow": true, "systemd-journal": true, "libvirt": true, "kvm": true,
 }
 
+// groupFileWriter are the programs that create or delete a group (userdel
+// deletes the user's own group). useradd is not one: its "added to group"
+// records name real memberships (useradd -G).
+var groupFileWriter = map[string]bool{"groupadd": true, "groupdel": true, "userdel": true}
+
+// groupItselfOp is an operation on a group, not on a member of one:
+// "adding group to /etc/gshadow", "delete-group", "removing group".
+var groupItselfOp = regexp.MustCompile(`\b(add|adding|remov\w*|delet\w*)[- ](shadow )?group\b`)
+
 func (t *Translator) accountMgmt(r *Record) *event.Event {
 	actor := t.actor(r)
 	acct := t.acct(r)
@@ -156,8 +166,15 @@ func (t *Translator) accountMgmt(r *Record) *event.Event {
 		e.Summary = fmt.Sprintf("%s created the group %s.", by, g)
 	case r.Type == "DEL_GROUP":
 		g := firstNonEmpty(grp, acct)
+		t.groupPID[pidKey] = g
 		e.Action, e.Severity, e.Target = "group_deleted", event.SevMedium, g
 		e.Summary = fmt.Sprintf("%s deleted the group %s.", by, g)
+	case groupItselfOp.MatchString(op) || (acct != "" && t.groupPID[pidKey] == acct && groupFileWriter[program(r.Get("exe"))]):
+		// groupadd and groupdel (and userdel removing a user's own group)
+		// record the group file being written as well: the group was
+		// created or deleted, which has its own row; no one joined or
+		// left a group (U14).
+		return nil
 	case grp == "" && strings.Contains(op, "group") && (strings.Contains(op, "add") || strings.Contains(op, "remov") || strings.Contains(op, "delet")):
 		// Ubuntu 24.04: "adding user to group", with the group left out.
 		groups := t.groupsFor(r.Time, t.hostOf(r), acct)

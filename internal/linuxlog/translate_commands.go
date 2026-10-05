@@ -6,6 +6,7 @@ package linuxlog
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -99,32 +100,129 @@ func (t *Translator) remember(tm time.Time, host, cmd, who string) {
 	}
 }
 
-// auditTamper are command fragments that stop, weaken or erase auditing
-// and logging on Linux.
-var auditTamper = []string{
-	"systemctl stop auditd", "systemctl disable auditd", "systemctl mask auditd", "service auditd stop",
-	"auditctl -d", "auditctl -e 0", "auditctl -e0",
-	"systemctl stop rsyslog", "systemctl disable rsyslog", "systemctl stop systemd-journald",
-	"systemctl stop apparmor", "systemctl disable apparmor", "aa-teardown", "aa-disable", "aa-complain",
-	"setenforce 0", "setenforce permissive", "journalctl --vacuum", "journalctl --rotate",
-	"history -c", "unset histfile",
-}
-
+// tampers reports whether a command line can stop, weaken or erase
+// auditing or logging. Each command in it (split at ;, &&, || and |) is
+// judged by its own program and arguments, so a command that only names
+// /var/log/audit (ls, or a Blackbox report reading the log) is not
+// tampering (U13). "sh -c ..." and sudo are looked through.
 func tampers(cmd string) bool {
-	lc := strings.Join(strings.Fields(strings.ToLower(cmd)), " ")
-	for _, f := range auditTamper {
-		if strings.Contains(lc, f) {
+	for _, part := range splitCommands(cmd) {
+		if tampersOne(strings.Fields(part)) {
 			return true
 		}
 	}
-	if strings.Contains(lc, "/var/log") {
-		for _, v := range []string{"rm ", "shred", "truncate", "> /var/log", ">/var/log", "mv ", "unlink"} {
-			if strings.Contains(lc, v) {
+	return false
+}
+
+var cmdSeparators = regexp.MustCompile(`;|&&|\|\||\||\n`)
+
+func splitCommands(cmd string) []string {
+	return cmdSeparators.Split(cmd, -1)
+}
+
+// loggingUnits are the services whose stopping stops auditing or logging.
+var loggingUnits = map[string]bool{"auditd": true, "rsyslog": true, "syslog": true, "systemd-journald": true, "apparmor": true}
+
+func tampersOne(f []string) bool {
+	for i := range f {
+		f[i] = strings.Trim(f[i], `"'`)
+	}
+	// Look through wrappers: sudo, env and VAR=value assignments.
+	for len(f) > 0 {
+		p := base(f[0])
+		if p == "sudo" || p == "doas" || p == "env" || p == "nohup" || (strings.Contains(f[0], "=") && !strings.HasPrefix(f[0], "-")) {
+			f = f[1:]
+			for (p == "sudo" || p == "doas") && len(f) > 0 && strings.HasPrefix(f[0], "-") {
+				f = f[1:] // sudo's own options
+			}
+			continue
+		}
+		break
+	}
+	if len(f) == 0 {
+		return false
+	}
+	// A redirect that empties or overwrites a log: "> /var/log/x".
+	for i, w := range f {
+		target := ""
+		switch {
+		case w == ">" || w == ">>" || w == "1>" || w == "2>":
+			if i+1 < len(f) {
+				target = f[i+1]
+			}
+		case strings.HasPrefix(w, ">") || strings.HasPrefix(w, "1>") || strings.HasPrefix(w, "2>"):
+			target = strings.TrimLeft(w, "12>")
+		}
+		if underVarLog(target) {
+			return true
+		}
+	}
+	prog, args := strings.ToLower(base(f[0])), f[1:]
+	lower := make([]string, len(args))
+	for i, a := range args {
+		lower[i] = strings.ToLower(a)
+	}
+	has := func(w ...string) bool {
+		for _, a := range lower {
+			for _, x := range w {
+				if a == x {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	switch prog {
+	case "sh", "bash", "dash", "zsh", "ksh":
+		for i, a := range args {
+			if a == "-c" && i+1 < len(args) {
+				return tampers(strings.Join(args[i+1:], " "))
+			}
+		}
+	case "systemctl":
+		if !has("stop", "disable", "mask", "kill") {
+			return false
+		}
+		for _, a := range lower {
+			if loggingUnits[strings.TrimSuffix(a, ".service")] {
+				return true
+			}
+		}
+	case "service":
+		return len(lower) >= 2 && loggingUnits[lower[0]] && lower[1] == "stop"
+	case "auditctl":
+		for i, a := range args {
+			if a == "-D" || a == "-d" || a == "-e0" || (a == "-e" && i+1 < len(args) && args[i+1] == "0") {
+				return true
+			}
+		}
+	case "aa-teardown", "aa-disable", "aa-complain":
+		return true
+	case "setenforce":
+		return has("0", "permissive")
+	case "journalctl":
+		for _, a := range lower {
+			if strings.HasPrefix(a, "--vacuum") || a == "--rotate" {
+				return true
+			}
+		}
+	case "history":
+		return has("-c")
+	case "unset":
+		return has("histfile")
+	case "rm", "gnurm", "shred", "truncate", "mv", "gnumv", "unlink":
+		for _, a := range args {
+			if !strings.HasPrefix(a, "-") && underVarLog(a) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func underVarLog(p string) bool {
+	p = strings.Trim(p, `"'`)
+	return p == "/var/log" || strings.HasPrefix(p, "/var/log/")
 }
 
 var shells = map[string]bool{"bash": true, "sh": true, "zsh": true, "dash": true, "ksh": true, "fish": true, "-bash": true}

@@ -112,7 +112,19 @@ func (a *App) Status(w io.Writer) error {
 		if list, err := filepath.Glob(filepath.Join(a.Cfg.Inbox, "*.bbx")); err == nil {
 			waiting = len(list)
 		}
+		bad := lan.Unreadable(a.Cfg.Inbox)
+		for _, b := range bad {
+			if name, _, _ := strings.Cut(b, " ("); strings.HasSuffix(name, ".bbx") {
+				waiting-- // counted below as unreadable, not as waiting
+			}
+		}
+		if len(bad) > 0 && state == "OK" {
+			state = "PROBLEM"
+		}
 		p("Inbox:", "%s — %s; %d batch%s waiting to be imported", a.Cfg.Inbox, state, waiting, es(waiting))
+		if len(bad) > 0 {
+			p("", "%s", unreadableText(bad))
+		}
 		if rej, _ := filepath.Glob(filepath.Join(a.Cfg.Inbox, "rejected", "*")); len(rej) > 0 {
 			p("", "%d file%s set aside in %s (see blackbox.log)", len(rej), map[bool]string{true: "s"}[len(rej) != 1], filepath.Join(a.Cfg.Inbox, "rejected"))
 		}
@@ -284,4 +296,14 @@ func es(n int) string {
 func Exists(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, "state.json"))
 	return err == nil
+}
+
+// unreadableText says which inbox files can't be read (L9): "1 file in
+// the inbox can't be read (access denied): name".
+func unreadableText(bad []string) string {
+	if len(bad) == 1 {
+		name, why, _ := strings.Cut(bad[0], " (")
+		return fmt.Sprintf("1 file in the inbox can't be read (%s): %s", strings.TrimSuffix(why, ")"), name)
+	}
+	return fmt.Sprintf("%d files in the inbox can't be read: %s", len(bad), strings.Join(bad, ", "))
 }

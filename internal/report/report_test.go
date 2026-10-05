@@ -151,10 +151,16 @@ func TestWriteAndVerify(t *testing.T) {
 		`data-preset="psdownload"`, `data-q="text"`, // Search
 		`href="../index.html"`,                                                   // the date range opens the list of reports
 		`data-pop="export"`, `data-pop="verified"`, `href="events.zip" download`, // Export menu, Verified
-		`class="printout"`, "<div>ISSO</div>", "Audit trail</h2>", // printed summary
+		`class="printout"`, "Audit trail</h2>", // printed summary
 	} {
 		if !bytes.Contains(html, []byte(want)) {
 			t.Errorf("report.html missing %q", want)
+		}
+	}
+	// No review section (R10, design.md §13).
+	for _, bad := range []string{"<div>ISSO</div>", "ISSM", "pt-lines"} {
+		if bytes.Contains(html, []byte(bad)) {
+			t.Errorf("report.html has %q", bad)
 		}
 	}
 	// The events are in the data folder, one file per page and day.

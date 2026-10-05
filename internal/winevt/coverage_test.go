@@ -133,6 +133,10 @@ func TestOtherLogs(t *testing.T) {
 		{ev(chApplication, "MsiInstaller", 1033, map[string]string{"Data0": "7-Zip 24.08 (x64)", "Data1": "24.08.00.0", "Data3": "0", "Data4": "Igor Pavlov"}), "software_installed", event.SevMedium, "7-Zip 24.08 (x64) 24.08.00.0"},
 		{ev(chApplication, "MsiInstaller", 11724, map[string]string{"Data0": "Product: 7-Zip 24.08 (x64) -- Removal completed successfully."}), "software_removed", event.SevLow, "7-Zip"},
 		{ev(chApplication, "Application Error", 1000, nil), "", "", ""},
+		// A15: Blackbox's own record of a setting it changed.
+		{ev(chApplication, "Blackbox", 100, map[string]string{"Data0": `Blackbox setting retention_days changed from "365" to "30" by SERVER\claude (blackbox config set).`}),
+			"blackbox_config_changed", event.SevHigh, `SERVER\claude changed Blackbox's retention_days setting from 365 to 30`},
+		{ev(chApplication, "Blackbox", 100, map[string]string{"Data0": "something else"}), "", "", ""},
 		{ev(chFirewall, "", 2004, map[string]string{"RuleName": "Backdoor 4444", "ModifyingUser": "S-1-5-21-1-2-3-1001", "ModifyingApplication": `C:\Windows\System32\netsh.exe`}), "firewall_rule_added", event.SevLow, "Backdoor 4444"},
 		{ev(chFirewall, "", 2003, map[string]string{"Profiles": "4", "SettingType": "1", "SettingValue": "0"}), "firewall_setting_changed", event.SevHigh, "turned off"},
 		{ev("Microsoft-Windows-Windows Defender/Operational", "", 5007, map[string]string{"Old Value": "", "New Value": `HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths\C:\Temp = 0x0`}), "av_exclusion_added", event.SevHigh, `C:\Temp`},

@@ -6,7 +6,7 @@
 2026-09-28T16:38:00Z high WS-07 audit_integrity | Possible covering of tracks | On WS-07 at 2026-09-28 13:01: admin_jd created the user account tempuser. 4 hours later: The Application log was cleared by admin_jd. The second step can hide what was done with the first.
 2026-09-28T17:40:00Z high ubu-audit audit_integrity | Possible covering of tracks | On ubu-audit at 2026-09-28 17:05: admin_jd changed the sudo rules: /etc/sudoers.d/tempuser (using tee). 35 minutes later: admin_jd used sudo to run a command that can stop or weaken auditing: systemctl stop auditd The second step can hide what was done with the first.
 2026-09-28T17:40:01Z high ubu-audit audit_integrity | Auditing was switched off | The audit service on ubu-audit was off for 12 minutes (17:40:01 to 17:52:10). Nothing done in that time was recorded.
-2026-09-28T17:40:01Z high ubu-audit audit_integrity | Possible covering of tracks | On ubu-audit at 2026-09-28 17:02: admin_jd added tempuser to the privileged group sudo. 38 minutes later: The audit service (auditd) was stopped by admin_jd — events are not recorded while it is stopped. The second step can hide what was done with the first.
+2026-09-28T17:40:01Z high ubu-audit audit_integrity | Possible covering of tracks | On ubu-audit at 2026-09-28 17:02: admin_jd added tempuser to the privileged group sudo. 38 minutes later: The audit service (auditd) was stopped by admin_jd (systemctl stop auditd) — events are not recorded while it is stopped. The second step can hide what was done with the first.
 2026-09-28T17:53:05Z high ubu-audit audit_integrity | Possible covering of tracks | On ubu-audit at 2026-09-28 17:01: admin_jd created the user account tempuser. 51 minutes later: admin_jd removed an audit rule (identity) — activity it covered is no longer recorded. The second step can hide what was done with the first.
 2026-09-28T11:32:10Z medium WS-07 failed_logon | Successful logon after failures | mjones logged on to WS-07 at 11:32:10 after 3 failed attempts in the previous 30 minutes.
 2026-09-28T15:32:10Z medium ubu-audit failed_logon | Successful logon after failures | mjones logged on to ubu-audit at 15:32:10 after 3 failed attempts in the previous 30 minutes.
@@ -101,7 +101,7 @@
 2026-09-28T17:25:30Z medium ubu-audit audit_integrity time_changed  | admin_jd changed the system time (using date): date -s 11:25
 2026-09-28T17:30:02Z medium ubu-audit other_security promiscuous_mode  | Network interface eth0 was put into promiscuous mode (packet capture) by admin_jd.
 2026-09-28T17:40:00Z high ubu-audit privileged audit_tamper_command  | admin_jd used sudo to run a command that can stop or weaken auditing: systemctl stop auditd
-2026-09-28T17:40:01Z high ubu-audit audit_integrity audit_stopped  | The audit service (auditd) was stopped by admin_jd — events are not recorded while it is stopped.
+2026-09-28T17:40:01Z high ubu-audit audit_integrity audit_stopped  | The audit service (auditd) was stopped by admin_jd (systemctl stop auditd) — events are not recorded while it is stopped.
 2026-09-28T17:52:10Z info ubu-audit audit_integrity audit_started  | The audit service (auditd) started.
 2026-09-28T17:53:05Z high ubu-audit audit_integrity audit_rule_removed  | admin_jd removed an audit rule (identity) — activity it covered is no longer recorded.
 2026-09-28T18:10:00Z low ubu-audit privileged privileged_program  | jsmith ran the privileged program passwd.
@@ -200,7 +200,7 @@
       "time": "2026-09-28T17:40:01.5Z",
       "host": "ubu-audit",
       "title": "Possible covering of tracks",
-      "detail": "On ubu-audit at 2026-09-28 17:02: admin_jd added tempuser to the privileged group sudo. 38 minutes later: The audit service (auditd) was stopped by admin_jd — events are not recorded while it is stopped. The second step can hide what was done with the first."
+      "detail": "On ubu-audit at 2026-09-28 17:02: admin_jd added tempuser to the privileged group sudo. 38 minutes later: The audit service (auditd) was stopped by admin_jd (systemctl stop auditd) — events are not recorded while it is stopped. The second step can hide what was done with the first."
     },
     {
       "severity": "high",

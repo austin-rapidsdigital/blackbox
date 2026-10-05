@@ -313,6 +313,32 @@ func exampleDir() string {
 	return "/srv/audit-reports"
 }
 
+// RawValues reads the settings in the file as written (unquoted, comments
+// removed), for recording what a change replaced. Settings not in the
+// file are "", and so is everything when the file does not exist.
+func RawValues(path string) map[string]string {
+	out := map[string]string{}
+	for _, k := range append([]string{"collect_every"}, Settable...) {
+		out[k] = ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return out
+	}
+	for _, l := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+		t := strings.TrimSpace(l)
+		k, v, found := strings.Cut(t, "=")
+		if !found || strings.HasPrefix(t, "#") {
+			continue
+		}
+		k = strings.ToLower(strings.TrimSpace(k))
+		if _, known := out[k]; known {
+			out[k] = unquote(strings.TrimSpace(v))
+		}
+	}
+	return out
+}
+
 // Settable lists the settings `blackbox config set` may change.
 var Settable = []string{"site_name", "report_every", "report_at", "report_dir", "retention_days", "exclude_users", "exclude_processes", "working_hours", "send_to", "inbox", "share_user", "scap_results", "scap_max_age_days"}
 

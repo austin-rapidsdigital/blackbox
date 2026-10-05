@@ -100,6 +100,13 @@ func TestAuditdStopNamesWhoStoppedIt(t *testing.T) {
 	if len(evs) != 1 || evs[0].User != "" || evs[0].Severity != event.SevLow {
 		t.Errorf("unattributed stop: %s", summaries(evs))
 	}
+	// Ubuntu 26.04 (v0.10.4 test): systemd's record says auid=0 uid=0
+	// pid=1, so the actor is root, not empty; the person is still named.
+	root := `type=DAEMON_END msg=audit(1790730003.000:21): op=terminate auid=0 uid=0 ses=4294967295 pid=1 subj=unconfined res=success`
+	evs = translateLines(t, Users{1001: "jsmith"}, cmd, root)
+	if e := evs[len(evs)-1]; e.Action != "audit_stopped" || !strings.Contains(e.Summary, "stopped by jsmith (systemctl stop auditd)") {
+		t.Errorf("pid 1 stop: %s", summaries(evs))
+	}
 }
 
 // U5 and U6: OpenSSH 10 records the password check in sshd-session and the
@@ -184,5 +191,67 @@ func TestLoginScriptsCollapse(t *testing.T) {
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// U13: only a command that itself stops, weakens or erases auditing is
+// tampering, not one that names the audit log or shares a line with one.
+func TestTampersPerCommand(t *testing.T) {
+	for cmd, want := range map[string]bool{
+		`/usr/bin/sh -c rm -rf /tmp/rl9; ls /var/log/audit >/dev/null`:    false,
+		`sh -c "rm -rf /tmp/rl9; ls /var/log/audit"`:                      false,
+		`/usr/local/bin/blackbox report --audit /var/log/audit/audit.log`: false,
+		`grep -c failed /var/log/auth.log`:                                false,
+		`systemctl status auditd`:                                         false,
+		`/usr/bin/systemctl stop auditd`:                                  true,
+		`systemctl stop auditd.service`:                                   true,
+		`sudo -n systemctl disable rsyslog`:                               true,
+		`auditctl -e 0`:                                                   true,
+		`auditctl -D`:                                                     true,
+		`auditctl -l`:                                                     false,
+		`sh -c "ls /tmp && rm -f /var/log/syslog.1"`:                      true,
+		`/usr/bin/rm /var/log/bbt2.log`:                                   true,
+		`truncate -s 0 /var/log/auth.log`:                                 true,
+		`echo x > /var/log/auth.log`:                                      true,
+		`echo x >/var/log/auth.log`:                                       true,
+		`journalctl --vacuum-time=1s`:                                     true,
+		`setenforce 0`:                                                    true,
+		`cat /etc/hosts | tee /tmp/x`:                                     false,
+	} {
+		if got := tampers(cmd); got != want {
+			t.Errorf("tampers(%q) = %v, want %v", cmd, got, want)
+		}
+	}
+}
+
+// U14: groupadd and groupdel write the group files as well as the group
+// record; those are not membership changes. userdel -r removing the
+// user's own group is not one either.
+func TestGroupCreateIsNotMembership(t *testing.T) {
+	rec := func(typ string, ser int, pid, op, acct, exe string) string {
+		return fmt.Sprintf(`type=%s msg=audit(1791158238.%03d:%d): pid=%s uid=0 auid=1000 ses=3 subj=unconfined msg='op=%s acct="%s" exe="%s" hostname=? addr=? terminal=pts/0 res=success'`,
+			typ, ser, ser, pid, op, acct, exe)
+	}
+	evs := translateLines(t, Users{1000: "claude"},
+		rec("ADD_GROUP", 1, "11822", "adding group", "bbgrp2", "/usr/sbin/groupadd"),
+		rec("GRP_MGMT", 2, "11822", "adding group to /etc/gshadow", "bbgrp2", "/usr/sbin/groupadd"),
+		rec("USER_MGMT", 3, "11822", "adding user to group", "bbgrp2", "/usr/sbin/groupadd"),
+		rec("DEL_GROUP", 4, "11828", "removing group", "bbgrp2", "/usr/sbin/groupdel"),
+		rec("GRP_MGMT", 5, "11828", "removing group from /etc/gshadow", "bbgrp2", "/usr/sbin/groupdel"),
+		rec("USER_MGMT", 6, "11828", "deleting user from group", "bbgrp2", "/usr/sbin/groupdel"),
+		rec("DEL_USER", 7, "11900", "deleting user", "bbtemp", "/usr/sbin/userdel"),
+		rec("DEL_GROUP", 8, "11900", "deleting group", "bbtemp", "/usr/sbin/userdel"),
+		rec("USER_MGMT", 9, "11900", "deleting user from group", "bbtemp", "/usr/sbin/userdel"),
+	)
+	got := summaries(evs)
+	for _, e := range evs {
+		if e.Action == "group_member_added" || e.Action == "group_member_removed" {
+			t.Errorf("membership row: %s\n%s", e.Summary, got)
+		}
+	}
+	for _, want := range []string{"claude created the group bbgrp2.", "claude deleted the group bbgrp2.", "claude deleted the user account bbtemp."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in\n%s", want, got)
+		}
 	}
 }

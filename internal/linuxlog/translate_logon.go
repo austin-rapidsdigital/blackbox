@@ -19,8 +19,11 @@ type triedName struct {
 
 // triedName is the account name of the latest failed SSH password check
 // by the same sshd process, just before it recorded the logon as an
-// unknown user. OpenSSH 10 may check the password in another process, so
-// failing that, the check from the same address a moment before.
+// unknown user. Only a record with no process ID falls back to the check
+// from the same address a moment before: OpenSSH 10 records the unknown
+// name before the check, and the address alone then picked another
+// connection's account (U5). The report joins a check that comes after
+// (sshAttempts).
 func (t *Translator) triedName(tm time.Time, host, pid, addr string) string {
 	for i := len(t.tried) - 1; i >= 0; i-- {
 		x := t.tried[i]
@@ -30,6 +33,9 @@ func (t *Translator) triedName(tm time.Time, host, pid, addr string) string {
 		if pid != "" && x.pid == pid {
 			return x.name
 		}
+	}
+	if pid != "" {
+		return ""
 	}
 	for i := len(t.tried) - 1; i >= 0; i-- {
 		x := t.tried[i]

@@ -3,7 +3,9 @@ package lan
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -191,13 +193,56 @@ func parseInboxName(n string) (id string, seq uint64, ok bool) {
 }
 
 // reject moves an unusable file aside (so it is not retried every run) and
-// describes why.
+// describes why. It says "set aside" only if the move worked (L9): a file
+// that can't be moved stays in the inbox, is tried again every run, and
+// status and the report list it (Unreadable).
 func reject(inbox, name, why string) string {
 	dir := filepath.Join(inbox, "rejected")
-	if os.MkdirAll(dir, 0o750) == nil {
-		os.Rename(filepath.Join(inbox, name), filepath.Join(dir, name))
+	err := os.MkdirAll(dir, 0o750)
+	if err == nil {
+		err = os.Rename(filepath.Join(inbox, name), filepath.Join(dir, name))
+	}
+	if err != nil {
+		return fmt.Sprintf("%s could not be used (%s) and could not be set aside (%s); it stays in the inbox and is tried again every run",
+			name, why, errReason(err))
 	}
 	return fmt.Sprintf("%s was set aside in %s: %s", name, dir, why)
+}
+
+// errReason is an error in a few words: "access denied" for a permission
+// error, otherwise the error itself.
+func errReason(err error) string {
+	if errors.Is(err, fs.ErrPermission) {
+		return "access denied"
+	}
+	return err.Error()
+}
+
+// Unreadable lists the files in the inbox that this collector can't read,
+// as "name (reason)": they stay in the inbox and their events are not in
+// the reports until someone fixes the file's permissions (L9).
+func Unreadable(inbox string) []string {
+	entries, err := os.ReadDir(inbox)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || strings.HasPrefix(n, ".") || n == MarkerFile {
+			continue
+		}
+		if !strings.HasSuffix(n, batchExt) && !strings.HasSuffix(n, archiveExt) && !strings.HasSuffix(n, scapExt) {
+			continue
+		}
+		f, err := os.Open(filepath.Join(inbox, n))
+		if err != nil {
+			out = append(out, fmt.Sprintf("%s (%s)", n, errReason(err)))
+			continue
+		}
+		f.Close()
+	}
+	return out
 }
 
 // importBatch appends one verified batch to the spool.
