@@ -181,6 +181,26 @@ Missed-schedule test: the VM was shut down over the 05:05 collection and started
 | S15 | (minor) Switching a Linux sender to standalone removes `blackbox-shutdown.service` but leaves it listed by systemd as "not-found failed", which `systemctl --failed` and monitoring tools flag. Stop the unit and run `systemctl reset-failed` for it when removing it. | Confirmed (minor) |
 | T2 (info) | 5038 High "Windows found a system file whose signature doesn't match: …\Windows Defender\Platform\4.18.26080.4-0\DefenderSessionHelper.exe" during a Defender platform update on a fresh install. Probably a Windows quirk; worth checking whether this file and version are a known false positive before treating every 5038 on Defender's platform folder as High. | To check |
 
+## v0.12.1 verification (5 Oct 2026, in progress)
+
+0.12.0 and 0.12.1 (released 5 Oct, PRs #43-#48) claim every item in the third work list and its addendum. All three machines were upgraded to 0.12.1 in place, with settings kept.
+
+**Confirmed:**
+- **T1:** the task trigger now starts in 2000.
+- **T3:** the clock moved back is detected. The run log says so, `status` shows "CLOCK MOVED BACK" and exits 4, and the report has a High detection "The clock was moved back". Reports now pick events by collection order (`SelectByCollection`), so events collected during a backwards period are no longer dropped.
+- **On Ubuntu 26.04, live:** U4b (one Info row for the login scripts), U8b ("stopped by claude (/usr/bin/systemctl stop auditd)") and A14b. U5, U6, O1, U13, U14 and A15 are still right.
+- **SC1 and SC3:** STIG IDs are in the CSV. Audit health's "STIG compliance (SCAP)" opens "Open STIG rules on ubuntu-server · 144", CAT I first, with STIG ID, title and rule ID.
+- **L11 resend:** a kept batch was resent from the Windows sender, and the collector imported 0 records from it (a duplicate).
+
+| # | Finding | Status |
+|---|---|---|
+| U4c | (minor) Programs the login scripts start still leave rows: Low "AppArmor blocked who from open on /etc/nsswitch.conf" and "…/etc/passwd" (`who` started by 50-landscape-sysinfo), and "claude changed the permissions of /var/lib/landscape/landscape-sysinfo.cache (using chmod) to 0644". Fold AppArmor denials and file changes by processes inside the login-script chain into the same Info row. | Confirmed |
+| L11b | (minor) `blackbox send --resend 1-3`, when none of them is kept, exits 0 ("Not kept on this computer: 1, 2, 3 …"). Exit non-zero when nothing could be resent. The collector logs a resent duplicate as "received 1 batch (0 records)"; say "1 batch already imported". | Confirmed |
+| T3b | (minor) An **interim** report leaves out events stamped up to `clockSlack` after its own creation time ("belongs to a later report"). After a clock correction, the Security log clear (1102), two 4719 and two 4616 were collected at 06:44:14 but stamped 06:45:06, and the interim made at 06:44:44 didn't show them. They go into the next scheduled report, so nothing is lost. But an ISSO running an interim report right after an incident will miss exactly those events. For interim reports, include everything collected up to now, whatever its stamp. | Confirmed |
+| T1b | (minor) After the clock moved back, the Systems table still shows the computer's last collection as "2026-10-06 00:02" (the future), while the header says 06:44. Show the latest by collection order, and mark the future one. | Confirmed |
+| W1b | A collector that imports a former collector's relayed data (L14) shows that collector's **former** name (`WIN-R5L5B9EF403`, 42 events) as a fourth system, and the report is named "4-systems". `formerNames` only folds a name when exactly one computer of that OS collects here. Use the sender's own systems list in its batches (its former names) to fold them. | Confirmed |
+| A17b | High "Possible covering of tracks: claude created the user account bbsend2 … less than a minute later: … changed Blackbox's inbox setting". Setting up a collector (creating the delivery account, then running Blackbox setup) reads as covering tracks. Don't pair account creation with Blackbox's own self-recorded setup changes, or show the pair as "Blackbox setup" at most. | Confirmed |
+
 ## ISSO / ISSM review: audit coverage (AU-2, AU-6, AU-12)
 
 Looked at as an ISSO doing the weekly audit review, and as an assessor checking that what the STIG makes you audit is actually reviewed. Owner decisions respected and not re-raised: no review/sign-off section (reviews are recorded on a separate platform) and no classification banner (`design.md` §13).
