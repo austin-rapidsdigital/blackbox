@@ -477,6 +477,10 @@ func cmdStatus(args []string) error {
 	if errors.Is(err, os.ErrPermission) {
 		return fmt.Errorf("%w\nBlackbox's data folder can only be read by administrators: run this from an elevated Command Prompt (Windows) or with sudo (Linux)", err)
 	}
+	var na *app.NeedsAttention
+	if errors.As(err, &na) {
+		os.Exit(4) // the status says what; lets scripts and monitoring notice (L10)
+	}
 	return err
 }
 
@@ -536,6 +540,7 @@ func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	var c common
 	c.register(fs)
+	noDeliver := fs.Bool("no-deliver", false, "make the data ready to send, but leave delivery to blackbox-send.service")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -546,6 +551,7 @@ func cmdRun(args []string) error {
 	logf, closeLog := openLog(cfg.DataDir)
 	defer closeLog()
 	a := newApp(cfg, logf)
+	a.NoDeliver = *noDeliver
 	logf("run started (blackbox %s)", version)
 	install.RemoveOld() // programs replaced by an upgrade, once nothing runs them
 	dir, err := a.Scheduled()

@@ -3,6 +3,7 @@
 package app
 
 import (
+	"errors"
 	"github.com/casea1/blackbox/internal/scap"
 
 	"fmt"
@@ -40,6 +41,10 @@ type App struct {
 	// QuietSend leaves the send result out of the log, for a caller that
 	// says it in its own words (setup), so it isn't printed twice (L4).
 	QuietSend bool
+	// NoDeliver makes the data ready to send but leaves delivery to
+	// blackbox-send.service (Linux, a folder the site mounted), so a
+	// delivery problem never stops collection (L8).
+	NoDeliver bool
 }
 
 func (a *App) now() time.Time {
@@ -276,6 +281,7 @@ type SendResult struct {
 	Made, Delivered, Waiting int
 	ArchivesDelivered        int
 	ArchivesWaiting          int
+	ScapDelivered            int
 	Err                      error
 }
 
@@ -303,6 +309,11 @@ func (a *App) send(st *store.Store) SendResult {
 			a.logf("queueing SCAP results: %v", err)
 		}
 	}
+	if r.Err == nil && a.NoDeliver {
+		r.Waiting = lan.Queued(st)
+		r.ArchivesWaiting = lan.QueuedArchives(st)
+		return r
+	}
 	if r.Err == nil {
 		dest, err := share.Destination(a.Cfg)
 		if err != nil {
@@ -313,7 +324,11 @@ func (a *App) send(st *store.Store) SendResult {
 				r.ArchivesDelivered, r.Err = lan.DeliverArchives(st, dest)
 			}
 			if r.Err == nil {
-				_, r.Err = lan.DeliverScap(st, dest)
+				r.ScapDelivered, r.Err = lan.DeliverScap(st, dest)
+			}
+			if errors.Is(r.Err, lan.ErrNoInbox) {
+				// Why, in the mount's own words (L6).
+				r.Err = fmt.Errorf("%w (%s)", r.Err, share.Why(a.Cfg, dest))
 			}
 		}
 	}
@@ -333,10 +348,33 @@ func (a *App) send(st *store.Store) SendResult {
 	case a.QuietSend:
 	case r.Err != nil:
 		a.logf("could not send to the collector: %v; %d batch(es) waiting, will retry next run", r.Err, r.Waiting)
-	case r.Delivered > 0 || r.ArchivesDelivered > 0:
-		a.logf("sent %d batch(es) and %d log archive(s) to the collector", r.Delivered, r.ArchivesDelivered)
+	case r.Delivered > 0 || r.ArchivesDelivered > 0 || r.ScapDelivered > 0:
+		a.logf("sent %s to the collector", sentText(r)) // SC2: SCAP results counted too
 	}
 	return r
+}
+
+// sentText is "3 batches, 1 log archive and 2 SCAP results".
+func sentText(r SendResult) string {
+	var parts []string
+	for _, p := range []struct {
+		n          int
+		one, other string
+	}{{r.Delivered, "batch", "batches"}, {r.ArchivesDelivered, "log archive", "log archives"}, {r.ScapDelivered, "SCAP result", "SCAP results"}} {
+		switch {
+		case p.n == 1:
+			parts = append(parts, "1 "+p.one)
+		case p.n > 1:
+			parts = append(parts, fmt.Sprintf("%d %s", p.n, p.other))
+		}
+	}
+	switch len(parts) {
+	case 0:
+		return "nothing"
+	case 1:
+		return parts[0]
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
 }
 
 // Scheduled is what the scheduled task runs: collect (and receive, on a

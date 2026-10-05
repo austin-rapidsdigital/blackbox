@@ -327,6 +327,25 @@ jobs:
           sudo test ! -e /etc/systemd/system/var-lib-blackbox-collector.mount
           sudo test ! -e /etc/blackbox/share.cred
           sudo test ! -e /etc/systemd/system/blackbox-shutdown.service
+      - name: "LAN: send to a mounted folder from blackbox-send.service; an unreachable folder never stops collection (L8)"
+        run: |
+          # The collector's inbox from the step above, as a folder the site mounted.
+          sudo ./blackbox install --yes --send-to /srv/inbox --no-first-report
+          grep -q "run --no-deliver" /etc/systemd/system/blackbox.service
+          if grep -q "/srv/inbox" /etc/systemd/system/blackbox.service /etc/systemd/system/blackbox-shutdown.service; then echo "a unit names the collector's folder"; exit 1; fi
+          grep -q "ExecStart=/usr/local/bin/blackbox send" /etc/systemd/system/blackbox-send.service
+          sudo systemctl start blackbox.service || { sudo journalctl -u blackbox.service --no-pager | tail -40; exit 1; }
+          for i in $(seq 1 60); do sudo sh -c 'ls /srv/inbox/*.bbx' >/dev/null 2>&1 && break; sleep 1; done
+          sudo sh -c 'ls /srv/inbox/*.bbx' || { sudo journalctl -u blackbox.service -u blackbox-send.service --no-pager | tail -40; exit 1; }
+          # The folder goes away: collection still runs, the data waits.
+          sudo mv /srv/inbox /srv/inbox-away
+          sudo systemctl start blackbox.service || { echo "collection stopped with the collector unreachable"; sudo journalctl -u blackbox.service --no-pager | tail -40; exit 1; }
+          sleep 5
+          sudo /usr/local/bin/blackbox status || true
+          sudo /usr/local/bin/blackbox status | grep -q "Waiting to send" || { echo "status does not say data is waiting"; exit 1; }
+          sudo mv /srv/inbox-away /srv/inbox
+          sudo ./blackbox uninstall
+          sudo test ! -e /etc/systemd/system/blackbox-send.service
       - uses: actions/upload-artifact@v4
         with:
           name: linux-batches

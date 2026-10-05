@@ -241,3 +241,16 @@ func RequireAdmin() error {
 	}
 	return nil
 }
+
+// VirtualBoxInstalled reports whether Oracle VirtualBox is installed, so
+// setup suggests the VirtualBox shared folder only where there is one (S12).
+func VirtualBoxInstalled() bool {
+	for _, env := range []string{"ProgramFiles", "ProgramW6432"} {
+		if d := os.Getenv(env); d != "" {
+			if _, err := os.Stat(filepath.Join(d, "Oracle", "VirtualBox", "VBoxSVC.exe")); err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}

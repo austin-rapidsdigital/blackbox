@@ -266,16 +266,23 @@ func (s *setupWin) build() {
 		s.button("Browse…", x+w-92, y+42, 92, false, func() { s.browse("inbox", "Which folder should other computers deliver to?") })
 		y += 92
 		s.label(install.QInboxReach, x, y, w, 20)
-		s.c["vm"] = s.check("Virtual machines on this PC send to it (VirtualBox shared folder)", len(s.a.InboxWriters) > 0 || !s.a.ShareInbox, x, y+24, w)
+		// Suggested only where VirtualBox is installed (S12).
+		vbox := install.VirtualBoxInstalled()
+		s.c["vm"] = s.check("Virtual machines on this PC send to it (VirtualBox shared folder)", len(s.a.InboxWriters) > 0 || (vbox && !s.a.ShareInbox), x, y+24, w)
 		s.note("Windows account(s) that run VirtualBox; it writes into the shared folder as that account (separate several with commas)", x+20, y+50, w-20, 34)
 		writers := strings.Join(s.a.InboxWriters, ", ")
-		if writers == "" {
+		if writers == "" && vbox {
 			writers = os.Getenv("USERNAME")
 		}
 		s.c["writers"] = s.edit(writers, x+20, y+86, w-20, false)
 		s.on(s.c["vm"], func(uint16) { enable(s.c["writers"], checked(s.c["vm"])) })
 		enable(s.c["writers"], checked(s.c["vm"]))
 		s.c["share"] = s.check("Share it on the network as "+install.ShareName+", so other computers can send to it", s.a.ShareInbox, x, y+122, w)
+		// The accounts other computers deliver as (S11).
+		s.note(install.NoteShareWriters, x+20, y+148, w-20, 34)
+		s.c["swriters"] = s.edit(strings.Join(s.a.ShareWriters, ", "), x+20, y+184, w-20, false)
+		s.on(s.c["share"], func(uint16) { enable(s.c["swriters"], checked(s.c["share"])) })
+		enable(s.c["swriters"], checked(s.c["share"]))
 	case pSendTo:
 		s.label(install.QSendTo, x, y, w, 20)
 		s.note(strings.ReplaceAll(install.SendToExample(true), "\n", " "), x, y+20, w, 20)
@@ -396,6 +403,10 @@ func (s *setupWin) save() {
 			s.a.InboxWriters = install.SplitList(get("writers"))
 		}
 		s.a.ShareInbox = checked(s.c["share"])
+		s.a.ShareWriters = nil
+		if s.a.ShareInbox {
+			s.a.ShareWriters = install.SplitList(get("swriters"))
+		}
 	case pSendTo:
 		s.a.SendTo = strings.Trim(get("sendto"), `"`)
 		s.a.ShareUser = get("user")
@@ -491,6 +502,9 @@ func (s *setupWin) check_() bool {
 		}
 		if checked(s.c["vm"]) && len(s.a.InboxWriters) == 0 {
 			return warn("writers", "Enter the Windows account that runs VirtualBox, or untick the box.")
+		}
+		if s.a.ShareInbox && len(s.a.ShareWriters) == 0 && !s.reinstall {
+			return warn("swriters", "Enter the account other computers deliver as (for example bbsend), or untick sharing.")
 		}
 	case pSendTo:
 		v, err := install.SendToAnswer(s.a.SendTo, true)

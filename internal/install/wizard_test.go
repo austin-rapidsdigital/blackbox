@@ -226,6 +226,7 @@ func TestWizardWindowsCollector(t *testing.T) {
 		"y",      // VMs on this PC send to it
 		"vmuser", // account that runs VirtualBox
 		"y",      // share it on the network too
+		"bbsend", // the account other computers deliver as (S11)
 		"",       // hourly
 		"y",      // status icon
 		"",       // confirm
@@ -235,13 +236,33 @@ func TestWizardWindowsCollector(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	want := Answers{Role: RoleCollector, Site: "Lab 3", ReportEvery: "daily", ReportAt: config.DefaultReportAt, CollectEvery: time.Hour,
-		Inbox: abs("/srv/blackbox-inbox"), ShareInbox: true, InboxWriters: []string{"vmuser"}, Tray: true}
+		Inbox: abs("/srv/blackbox-inbox"), ShareInbox: true, InboxWriters: []string{"vmuser"}, ShareWriters: []string{"bbsend"}, Tray: true}
 	if !reflect.DeepEqual(a, want) {
 		t.Errorf("got %+v, want %+v", a, want)
 	}
-	if !strings.Contains(out, "shared on the network as BlackboxInbox") || !strings.Contains(out, "Can deliver:      vmuser") ||
+	if !strings.Contains(out, "shared on the network as BlackboxInbox") || !strings.Contains(out, "Can deliver:      vmuser, bbsend") ||
 		!strings.Contains(out, "Status icon:      shown to administrators") {
 		t.Errorf("summary:\n%s", out)
+	}
+}
+
+// S12: on a server without VirtualBox, the VirtualBox shared folder is not
+// suggested (Enter means no), and no account is filled in for it.
+func TestWizardNoVirtualBox(t *testing.T) {
+	input := lines("3", "", "", "", "", "", "y",
+		"",       // VMs on this PC send to it? Enter: no
+		"y",      // share it
+		"bbsend", // who delivers
+		"", "", "")
+	a, out, err := runWizard(t, input, Answers{}, fakeEnv{windows: true}, false)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if a.InboxWriters != nil || !a.ShareInbox || strings.Join(a.ShareWriters, ",") != "bbsend" {
+		t.Errorf("got %+v", a)
+	}
+	if !strings.Contains(out, "(VirtualBox shared folder)? (y/N)") {
+		t.Errorf("VirtualBox suggested:\n%s", out)
 	}
 }
 

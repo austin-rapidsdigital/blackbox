@@ -90,7 +90,16 @@ The Linux service is also sandboxed with `ProtectSystem=strict`,
   against a collector that doesn't offer encryption, setup fails with
   "could not connect with an encrypted connection" and says how to turn
   it on. Windows senders encrypt automatically when the share asks.
-  Batches in a VirtualBox shared folder never cross a network.
+  Batches in a VirtualBox shared folder never cross a network. The share
+  has offline caching turned off, so no client keeps a cached copy.
+- **Encrypted in transit (SFTP).** An sshfs mount (the route under FIPS)
+  is encrypted by SSH. Note for SC-8/SC-13: OpenSSH for Windows, as the
+  collector's server, offers no post-quantum key exchange yet, and
+  Ubuntu's OpenSSH 10 client warns that the connection may be "stored now,
+  decrypted later". The batches are audit records, not classified
+  content. If that matters at your site, prefer SMB 3 encryption (AES),
+  or keep senders and the collector on an isolated segment. Under FIPS,
+  use ECDSA or RSA keys (lan.md).
 - **Firewall and network profile.** File sharing must be allowed on the
   collector for the network senders are on. Windows blocks it on a
   network marked **Public**; on an isolated lab network, mark it

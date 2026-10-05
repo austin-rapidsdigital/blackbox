@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 	"unsafe"
 
 	"github.com/casea1/blackbox/internal/config"
+	"github.com/casea1/blackbox/internal/hidden"
 )
 
 var (
@@ -137,4 +139,20 @@ func Destination(cfg *config.Config) (string, error) {
 		return "", errors.New("no password is stored for share_user; run the installer again to enter it")
 	}
 	return cfg.SendTo, Connect(cfg.SendTo, cfg.ShareUser, pw)
+}
+
+// smbInQuery says whether an enabled inbound firewall rule allows TCP 445
+// (Windows file sharing).
+const smbInQuery = `$r = Get-NetFirewallPortFilter -Protocol TCP -ErrorAction SilentlyContinue | Where-Object { @($_.LocalPort) -contains '445' } | Get-NetFirewallRule -ErrorAction SilentlyContinue | Where-Object { $_.Enabled -eq 'True' -and $_.Direction -eq 'Inbound' -and $_.Action -eq 'Allow' }; if ($r) { 'open' } else { 'closed' }`
+
+// SMBAllowedIn reports whether Windows Firewall lets other computers reach
+// this computer's file shares (N2). Server 2025 ships "File and Printer
+// Sharing (SMB-In)" turned off. Blackbox only reports it; it never changes
+// the firewall.
+func SMBAllowedIn() (bool, error) {
+	out, err := hidden.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", smbInQuery).Output()
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(out)) == "open", nil
 }

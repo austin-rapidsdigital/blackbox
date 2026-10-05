@@ -22,9 +22,6 @@ const isWindows = true
 // ShareName is the network share name for a collector's inbox.
 const ShareName = "BlackboxInbox"
 
-// SendersGroup is the local group allowed to deliver into the inbox.
-const SendersGroup = "Blackbox Senders"
-
 // DefaultInbox is the suggested inbox folder for a collector.
 func DefaultInbox() string { return `C:\BlackboxInbox` }
 
@@ -74,7 +71,7 @@ func prepareInbox(opt Options, logf func(string, ...any)) error {
 		"/grant:r", SendersGroup+":(OI)(CI)M").CombinedOutput(); err != nil {
 		return fmt.Errorf("set permissions on %s: %v: %s", dir, err, strings.TrimSpace(string(out)))
 	}
-	for _, u := range opt.InboxWriters {
+	for _, u := range append(append([]string{}, opt.InboxWriters...), opt.ShareWriters...) {
 		out, err := hidden.Command("net.exe", "localgroup", SendersGroup, u, "/add").CombinedOutput()
 		if err != nil && !strings.Contains(string(out), "1378") { // 1378: already a member
 			return fmt.Errorf("add %s to %q: %v: %s", u, SendersGroup, err, strings.TrimSpace(string(out)))
@@ -87,7 +84,7 @@ func prepareInbox(opt Options, logf func(string, ...any)) error {
 	switch {
 	case opt.ShareInbox && !shared:
 		if out, err := hidden.Command("net.exe", "share", ShareName+"="+dir, "/GRANT:"+SendersGroup+",CHANGE",
-			"/REMARK:Blackbox collector inbox").CombinedOutput(); err != nil {
+			"/CACHE:None", "/REMARK:Blackbox collector inbox").CombinedOutput(); err != nil {
 			return fmt.Errorf("share %s: %v: %s", dir, err, strings.TrimSpace(string(out)))
 		}
 		fallthrough
@@ -95,11 +92,17 @@ func prepareInbox(opt Options, logf func(string, ...any)) error {
 		// Batches cross the network encrypted (N1): SMB 3 encryption on
 		// Blackbox's own share. Senders that can't encrypt are refused.
 		if out, err := hidden.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
-			"Set-SmbShare -Name '"+ShareName+"' -EncryptData $true -Force -ErrorAction Stop").CombinedOutput(); err != nil {
+			"Set-SmbShare -Name '"+ShareName+"' -EncryptData $true -CachingMode None -Force -ErrorAction Stop").CombinedOutput(); err != nil {
 			return fmt.Errorf("could not turn on encryption for the %s share (Set-SmbShare -EncryptData): %v: %s", ShareName, err, strings.TrimSpace(string(out)))
 		}
 		host, _ := os.Hostname()
-		logf("Network share:       \\\\%s\\%s (members of %q may deliver; encrypted)", host, ShareName, SendersGroup)
+		logf("Network share:       \\\\%s\\%s (members of %q may deliver; encrypted; no offline copies)", host, ShareName, SendersGroup)
+		// The firewall is reported, never changed (N2).
+		if open, err := share.SMBAllowedIn(); err == nil && !open {
+			logf("FIREWALL:            Windows Firewall does not allow file sharing (SMB, TCP 445) in, so other computers can NOT deliver yet.")
+			logf("                     To allow it (an administrator's decision; Blackbox does not change the firewall):")
+			logf("                     Enable-NetFirewallRule -DisplayGroup \"File and Printer Sharing\" (or a rule limited to the senders' addresses).")
+		}
 	case shared:
 		hidden.Command("net.exe", "share", ShareName, "/delete", "/y").Run()
 		logf("Network share:       %s removed", ShareName)

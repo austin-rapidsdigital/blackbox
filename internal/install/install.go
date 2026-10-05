@@ -159,6 +159,9 @@ func ApplyLAN(cfgPath string, logf func(string, ...any)) error {
 	return afterReportDirChange(logf)
 }
 
+// SendersGroup is the local group allowed to deliver into the inbox.
+const SendersGroup = "Blackbox Senders"
+
 // TaskName is the Windows scheduled task name.
 const TaskName = "Blackbox Audit Collection"
 
@@ -226,15 +229,25 @@ func xmlEscape(s string) string {
 // systemdService is the unit that runs one collection (and a report when
 // one is due). It is sandboxed: no network, read-only system, and the only
 // writable places are Blackbox's data folder, the report folder and, on a
-// LAN, the folders it sends to and receives in. Paths starting with "-"
-// may be missing (a shared folder that is not mounted) without stopping
-// the run. mount is the unit that mounts the collector's share, if any: it
-// is started before each run, and a failure to mount does not stop
-// collection (the data waits until the share is back).
-func systemdService(exe, mount string, writable ...string) string {
+// collector, its inbox. Paths starting with "-" may be missing without
+// stopping the run. mount is the unit that mounts the collector's SMB
+// share, if any: it is started before each run, and a failure to mount
+// does not stop collection (the data waits until the share is back).
+//
+// A sender to a folder (an sshfs or other mount the site set up) does not
+// deliver from this unit (L8): a dead mount makes systemd fail to set up
+// the sandbox, which stopped collection for the whole outage. The run only
+// queues the data (run --no-deliver) and starts blackbox-send.service,
+// whose failure does not affect it.
+func systemdService(exe, mount string, sendUnit bool, writable ...string) string {
 	deps := ""
 	if mount != "" {
 		deps = "\nWants=" + mount + "\nAfter=" + mount
+	}
+	run := exe + " run"
+	if sendUnit {
+		deps += "\nWants=" + sendUnitName
+		run += " --no-deliver"
 	}
 	return fmt.Sprintf(`[Unit]
 Description=Blackbox audit log collection and reporting
@@ -243,19 +256,53 @@ After=auditd.service local-fs.target%s
 
 [Service]
 Type=oneshot
-ExecStart=%s run
+ExecStart=%s
 Nice=10
 IOSchedulingClass=idle
 TimeoutStartSec=2h
-`, deps, exe) + sandbox(writable)
+`, deps, run) + sandbox(writable)
+}
+
+// sendUnitName delivers what a run queued to a collector's folder.
+const sendUnitName = "blackbox-send.service"
+
+// systemdSendService delivers the queued data to the collector's folder
+// after each run (L8). It runs separately so a delivery problem never
+// stops collection. Its sandbox does not name the collector's folder
+// (systemd fails to set up a sandbox naming a dead mount); it protects the
+// system (ProtectSystem=full) instead. Before sending it asks for the
+// folder to be mounted from /etc/fstab, so a mount that failed at boot is
+// tried again at every run (L7), as Blackbox does for an SMB share.
+func systemdSendService(exe, sendTo string) string {
+	return fmt.Sprintf(`[Unit]
+Description=Deliver Blackbox audit events to the collector
+Documentation=https://github.com/casea1/blackbox/blob/main/docs/lan.md
+After=blackbox.service network-online.target remote-fs.target
+
+[Service]
+Type=oneshot
+ExecStartPre=-+/bin/mount %s
+ExecStart=%s send
+Nice=10
+TimeoutStartSec=30min
+`, systemdQuote(sendTo), exe) + sandboxFull()
+}
+
+// systemdQuote quotes a path for a unit file command line.
+func systemdQuote(p string) string {
+	if !strings.ContainsAny(p, " \t\"'\\") {
+		return p
+	}
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(p) + `"`
 }
 
 // systemdShutdownService sends collected events to the collector when the
 // system shuts down (for example a virtual machine stopped from its host),
 // so they do not wait for the next boot. Being ordered after the network,
 // remote filesystems, the share mount and the VirtualBox service, it runs
-// before those are stopped.
-func systemdShutdownService(exe, mount string, writable ...string) string {
+// before those are stopped. Like blackbox-send.service, its sandbox does
+// not name the collector's folder (L8).
+func systemdShutdownService(exe, mount string) string {
 	after := "network-online.target remote-fs.target vboxadd-service.service"
 	if mount != "" {
 		after += " " + mount
@@ -272,7 +319,7 @@ RemainAfterExit=yes
 ExecStart=/bin/true
 ExecStop=%s send
 TimeoutStopSec=90
-`, after, exe) + sandbox(writable) + `
+`, after, exe) + sandboxFull() + `
 [Install]
 WantedBy=multi-user.target
 `
@@ -292,6 +339,24 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 UMask=0077
 `, strings.Join(uniq(writable), " "))
+}
+
+// sandboxFull is the hardening of the units that deliver to the
+// collector: the system is read-only (ProtectSystem=full: /usr, /boot,
+// /etc), but no path is named, so a dead mount cannot stop the unit from
+// starting (L8).
+func sandboxFull() string {
+	return `PrivateNetwork=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+UMask=0077
+`
 }
 
 func uniq(in []string) []string {

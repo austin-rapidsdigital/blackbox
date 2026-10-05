@@ -70,3 +70,6 @@ func RemoveOld() {}
 
 // InstalledVersion is only used by the Windows setup window.
 func InstalledVersion() string { return "" }
+
+// VirtualBoxInstalled is only asked on Windows (the collector's host).
+func VirtualBoxInstalled() bool { return false }

@@ -37,6 +37,10 @@ type Health struct {
 	Rejected  int // files set aside in the inbox
 	// Unreadable are the files in the inbox that can't be read (L9).
 	Unreadable []string
+	// WaitingSince is when the oldest data still waiting to be sent was
+	// queued, and LowSpace the data folder's disk when nearly full (L10).
+	WaitingSince time.Time
+	LowSpace     string
 
 	// AuditOff lists the systems whose last collection found auditing not
 	// running, and why (host → reason).
@@ -147,6 +151,8 @@ func (a *App) Health() (Health, error) {
 		json.Unmarshal(b, &h.LastRun)
 	}
 	h.AuditOff = auditOffNow(st, now)
+	h.WaitingSince = a.waitingSince(st)
+	h.LowSpace = lowSpace(a.Cfg.DataDir)
 	if !a.Cfg.MakesReports() {
 		return h, nil
 	}

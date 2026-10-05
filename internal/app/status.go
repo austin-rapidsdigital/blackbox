@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -12,7 +13,9 @@ import (
 	"github.com/casea1/blackbox/internal/brand"
 	"github.com/casea1/blackbox/internal/collect"
 	"github.com/casea1/blackbox/internal/config"
+	"github.com/casea1/blackbox/internal/install"
 	"github.com/casea1/blackbox/internal/lan"
+	"github.com/casea1/blackbox/internal/share"
 	"github.com/casea1/blackbox/internal/store"
 )
 
@@ -29,6 +32,7 @@ func (a *App) Status(w io.Writer) error {
 	p := func(label, format string, args ...any) {
 		fmt.Fprintf(w, "  %-17s %s\n", label, fmt.Sprintf(format, args...))
 	}
+	var attention []string // problems that make "blackbox status" exit 4 (L10)
 
 	fmt.Fprintf(w, "%s %s on %s\n\n", brand.Name, a.Version, host)
 	switch a.Cfg.Role() {
@@ -77,18 +81,31 @@ func (a *App) Status(w io.Writer) error {
 			p("Share account:", "%s", a.Cfg.ShareUser)
 		}
 		waiting := lan.Queued(st)
+		oldest := ""
+		since := a.waitingSince(st)
+		if !since.IsZero() {
+			oldest = fmt.Sprintf("; the oldest waiting since %s (%s)", stampLocal(since, a.loc()), ago(now.Sub(since)))
+		}
 		switch snd := s.Send; {
 		case snd == nil:
 			p("Sent:", "nothing yet (sends after the next collection)")
 		case snd.LastError != "":
 			p("Last attempt:", "%s — FAILED: %s", stampLocal(snd.LastAttempt, a.loc()), snd.LastError)
-			p("Waiting to send:", "%d batch%s (kept safely here; sent when the collector can be reached)", waiting, es(waiting))
+			p("Waiting to send:", "%d batch%s%s (kept safely here; sent when the collector can be reached, or now with: blackbox send)", waiting, es(waiting), oldest)
 		default:
 			if !snd.LastDelivered.IsZero() {
 				p("Last delivered:", "%s (%s)", stampLocal(snd.LastDelivered, a.loc()), ago(now.Sub(snd.LastDelivered)))
 			}
-			p("Waiting to send:", "%d batch%s", waiting, es(waiting))
+			p("Waiting to send:", "%d batch%s%s", waiting, es(waiting), oldest)
 		}
+		if !since.IsZero() && now.Sub(since) > SendStaleAfter {
+			attention = append(attention, "data has waited more than a day to be sent")
+			p("NOT SENT:", "data has been waiting to be sent for %s. It is kept here, never deleted; check that the collector can be reached (see Last attempt), then run: blackbox send", ago(now.Sub(since)))
+		}
+	}
+	if low := lowSpace(a.Cfg.DataDir); low != "" {
+		attention = append(attention, "low disk space")
+		p("LOW DISK SPACE:", "%s. Collected and queued data is never deleted to make room; free some space.", low)
 	}
 	if a.Cfg.MakesReports() {
 		fmt.Fprintln(w)
@@ -112,6 +129,14 @@ func (a *App) Status(w io.Writer) error {
 		if list, err := filepath.Glob(filepath.Join(a.Cfg.Inbox, "*.bbx")); err == nil {
 			waiting = len(list)
 		}
+		// A shared inbox the firewall keeps closed (N2): reported, never changed.
+		if runtime.GOOS == "windows" && install.InboxShared() {
+			if open, err := share.SMBAllowedIn(); err == nil && !open {
+				attention = append(attention, "the firewall blocks delivery")
+				p("FIREWALL:", "Windows Firewall does not allow file sharing (SMB, TCP 445) in: other computers cannot deliver. "+
+					"To allow it: Enable-NetFirewallRule -DisplayGroup \"File and Printer Sharing\" (or a rule for the senders' addresses only).")
+			}
+		}
 		bad := lan.Unreadable(a.Cfg.Inbox)
 		for _, b := range bad {
 			if name, _, _ := strings.Cut(b, " ("); strings.HasSuffix(name, ".bbx") {
@@ -133,8 +158,19 @@ func (a *App) Status(w io.Writer) error {
 		fmt.Fprintln(w)
 		a.writeSystems(w, st, now)
 	}
+	if len(attention) > 0 {
+		return &NeedsAttention{What: attention}
+	}
 	return nil
 }
+
+// NeedsAttention is what Status returns when something needs looking at
+// (L10): data waiting more than a day to be sent, or low disk space. The
+// status itself was written; "blackbox status" exits 4 so scripts and
+// monitoring can tell.
+type NeedsAttention struct{ What []string }
+
+func (e *NeedsAttention) Error() string { return "needs attention: " + strings.Join(e.What, "; ") }
 
 // Systems writes the table of known computers.
 func (a *App) Systems(w io.Writer) error {

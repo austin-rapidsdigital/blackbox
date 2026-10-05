@@ -495,6 +495,38 @@ own SCC configuration. It would never install SCC, never change a
 setting, and never run remediation. It is *not* implemented: running a
 third-party scanner from a SYSTEM task needs its own security review.
 
+## 13b. Proposals for the owner (v0.10.4 re-test)
+
+*Written 5 Oct 2026. Not implemented; each needs the owner's decision.*
+
+**L11: keep delivered batches so a sender can resend them.** Today a
+sender deletes a batch from its outbox once it is copied into the inbox.
+If the collector then loses inbox files before importing them, or its
+data folder is restored from a backup, it reports a gap the sender can't
+fill. The collector already accepts a late batch that fills a gap
+(`inGap`, `fillGap`) and skips one it already has, so the change is on
+the sender only:
+
+- `keep_sent_days` (default 14): delivered batches move to `outbox/sent`
+  instead of being deleted, and are removed after that many days.
+  Delivered log archives and SCAP results are not kept (the archive is
+  already on the collector, and the next scan replaces the results).
+- `blackbox send --resend 214-219` copies those batches into the inbox
+  again. The collector imports the ones in a gap and ignores the rest.
+  The collector's gap warning names the batches and the command to run on
+  the sender.
+- Cost: about 14 days of compressed batches on each sender, typically a
+  few MB. Retention still never deletes waiting (undelivered) data.
+
+**N2: offer to allow file sharing through the firewall.** Setup and
+`status` now say when Windows Firewall blocks SMB (TCP 445) in, but
+Blackbox does not change it (decision 2: report, don't change settings).
+An option for the owner: setup could offer, unticked by default, "Allow
+file sharing from these addresses only", creating one inbound rule for
+TCP 445 limited to the senders' addresses and the Private/Domain
+profiles, and removing it on uninstall. Recommended only if sites ask.
+Otherwise the documented command stays the way to do it.
+
 ## 14. M1 implementation status
 
 **Done:**
