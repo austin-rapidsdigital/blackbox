@@ -165,6 +165,21 @@ computer account, and its routine activity is left out, only when it is
 this computer's own account or comes from a domain. A local account named
 like one (for example `helper$`) is always shown.
 
+**Windows' own housekeeping.** The firewall rules Windows registers for
+its built-in app packages (`@{Microsoft.…}`, changed by the Windows
+Firewall service) are one Info row per computer and day with the counts;
+rules changed by people keep their own rows. PowerShell module code that
+Windows generates (CDXML modules such as the firewall's
+`Get-NetFirewallRule`, in every part of a long script) is not flagged.
+OpenSSH for Windows' per-connection account `VIRTUAL USERS\sshd_<pid>` is
+not a person. An account "renamed" to its own name and a new account
+joining its default primary group (None) during Windows setup are left
+out. Events recorded under a computer's name from before setup renamed
+it are shown on that computer, with a "Recorded under its former name"
+detail. On Linux, the temporary account files `groupadd` and the other
+account tools write (`/etc/group+` and so on) and Blackbox's own writes
+in its data folder are not rows of their own; the account change is.
+
 **Hidden PowerShell.** PowerShell started with two or more of a hidden
 window, a bypassed execution policy, no prompts (`-NonInteractive`) and an
 encoded command is flagged Medium, whatever the script does: that is how

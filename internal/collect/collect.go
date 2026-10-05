@@ -44,6 +44,23 @@ func LocalHost() string {
 	return host
 }
 
+// OnThisComputer files an event read from this computer's own logs under
+// its current name (W1). Windows records the name at the time, so events
+// from before it was renamed (a new server's WIN-XXXXXXXX name from before
+// setup finished) would otherwise look like another computer.
+func OnThisComputer(e *event.Event, host string) {
+	short := func(h string) string {
+		h, _, _ = strings.Cut(strings.TrimSpace(h), ".")
+		return strings.ToUpper(h)
+	}
+	if e.Host == "" || short(e.Host) == short(host) {
+		e.Host = host
+		return
+	}
+	e.AddDetail("Recorded under", "its former name "+e.Host)
+	e.Host = host
+}
+
 // Live collects from this system's logs: the Windows event logs, or the
 // Linux audit and system logs.
 func Live(st *store.Store, opt Options) (*store.Run, error) {
@@ -142,6 +159,7 @@ func collectChannel(st *store.Store, tr *winevt.Translator, host, ch string, now
 		cr.LastRecord = r.RecordID
 		if e := tr.Translate(r); e != nil {
 			e.Collected = now
+			OnThisComputer(e, host)
 			batch = append(batch, e)
 			cr.Kept++
 		}

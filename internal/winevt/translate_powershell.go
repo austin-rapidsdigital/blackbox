@@ -121,6 +121,13 @@ func (t *Translator) powerShell(r *Raw) *event.Event {
 		return nil
 	}
 	text := r.Get("ScriptBlockText")
+	// A large script is logged in parts sharing one ScriptBlockId; once
+	// one part shows it is Windows' own module code, so are the others
+	// (W3).
+	id := strings.ToLower(r.Get("ScriptBlockId"))
+	if id != "" && t.psModule[id] {
+		return nil
+	}
 	var rule *psRule
 	var line string
 	for i := range psRules {
@@ -140,6 +147,12 @@ func (t *Translator) powerShell(r *Raw) *event.Event {
 		// own modules do too (the cmdlets it generates for Defender,
 		// networking and the like), so those are left out.
 		if WindowsModule(text, r.Get("Path")) {
+			if id != "" {
+				if len(t.psModule) > 4096 {
+					t.psModule = map[string]bool{}
+				}
+				t.psModule[id] = true
+			}
 			return nil
 		}
 		rule = &psRule{action: "powershell_suspicious", sev: event.SevMedium, cat: event.CatOther,
@@ -295,6 +308,13 @@ var cimClass = regexp.MustCompile(`(?i)\$script:ClassName\s*=\s*'([^']+)'`)
 // generates from CDXML for its own WMI classes (Defender, networking,
 // storage …), and modules installed with Windows.
 func WindowsModule(text, path string) bool {
+	// Every part of a module generated from a CDXML file (NetSecurity's
+	// Get-/Set-NetFirewallRule, Storage, NetAdapter …) uses PowerShell's
+	// $__cmdletization_ variables, including the parts after the first,
+	// which do not name the CIM class (W3).
+	if cmdletizationVar.MatchString(text) {
+		return true
+	}
 	if strings.Contains(text, "Microsoft.PowerShell.Cmdletization") {
 		if m := cimClass.FindStringSubmatch(text); m != nil {
 			c := strings.ToLower(strings.ReplaceAll(m[1], "/", `\`))
@@ -307,6 +327,9 @@ func WindowsModule(text, path string) bool {
 	return strings.Contains(p, `\windows\system32\windowspowershell\v1.0\modules\`) ||
 		strings.Contains(p, `\windows\syswow64\windowspowershell\v1.0\modules\`)
 }
+
+// cmdletizationVar is a variable PowerShell's CDXML code generator uses.
+var cmdletizationVar = regexp.MustCompile(`\$__cmdletization_\w+`)
 
 // psSuspicious are words that make PowerShell log a script block as a
 // warning (from its own list), with what they are used for.

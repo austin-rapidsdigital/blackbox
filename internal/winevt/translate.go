@@ -19,11 +19,12 @@ type Translator struct {
 
 	sidNames map[string]string    // learned from events seen so far
 	logons   map[string]logonInfo // recent 4624s by host|logon ID
+	psModule map[string]bool      // script block IDs found to be Windows' own module code (W3)
 }
 
 // NewTranslator returns a ready Translator.
 func NewTranslator() *Translator {
-	return &Translator{sidNames: map[string]string{}, logons: map[string]logonInfo{}}
+	return &Translator{sidNames: map[string]string{}, logons: map[string]logonInfo{}, psModule: map[string]bool{}}
 }
 
 // Channels are the logs Blackbox reads on a live Windows system.
@@ -251,7 +252,9 @@ func (t *Translator) isServiceAccount(sid, name string) bool {
 	case "S-1-5-18", "S-1-5-19", "S-1-5-20", "S-1-5-7", "S-1-0-0":
 		return true
 	}
-	for _, p := range []string{"S-1-5-80-", "S-1-5-82-", "S-1-5-90-", "S-1-5-96-"} {
+	// S-1-5-111-: VIRTUAL USERS, such as the sshd_<pid> account OpenSSH for
+	// Windows runs each connection's pre-logon stage as (W2).
+	for _, p := range []string{"S-1-5-80-", "S-1-5-82-", "S-1-5-90-", "S-1-5-96-", "S-1-5-111-"} {
 		if strings.HasPrefix(sid, p) {
 			return true
 		}
@@ -261,7 +264,27 @@ func (t *Translator) isServiceAccount(sid, name string) bool {
 	case "SYSTEM", "LOCAL SERVICE", "NETWORK SERVICE", "ANONYMOUS LOGON":
 		return true
 	}
-	return strings.HasPrefix(n, "DWM-") || strings.HasPrefix(n, "UMFD-")
+	return strings.HasPrefix(n, "DWM-") || strings.HasPrefix(n, "UMFD-") || sshdVirtual(n)
+}
+
+// sshdVirtual is OpenSSH for Windows' per-connection virtual account,
+// "VIRTUAL USERS\sshd_<pid>": a new one for every connection, not a
+// person (W2). The person's own logon follows it.
+func sshdVirtual(name string) bool {
+	n := strings.ToUpper(name)
+	if i := strings.LastIndex(n, `\`); i >= 0 {
+		n = n[i+1:]
+	}
+	rest, ok := strings.CutPrefix(n, "SSHD_")
+	if !ok || rest == "" {
+		return false
+	}
+	for _, c := range rest {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ignoredAccount reports whether an event's Target or Subject account is

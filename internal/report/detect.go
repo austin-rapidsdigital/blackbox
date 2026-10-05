@@ -72,6 +72,9 @@ var systemAccounts = map[string]bool{"system": true, "local service": true, "net
 // or a computer's.
 func person(u string) bool {
 	l := strings.ToLower(u)
+	if strings.HasPrefix(l, `virtual users\`) {
+		return false // OpenSSH for Windows' per-connection sshd_<pid> account (W2)
+	}
 	if i := strings.LastIndex(l, `\`); i >= 0 {
 		l = l[i+1:]
 	}
