@@ -40,6 +40,7 @@ type LineParser struct {
 
 // Parse returns the parsed line, or false if it is not syslog format.
 func (p *LineParser) Parse(s string) (Line, bool) {
+	s = strings.TrimRight(s, "\r") // a log copied through Windows has CRLF line ends
 	var l Line
 	var rest string
 	if m := isoRE.FindStringSubmatch(s); m != nil {
