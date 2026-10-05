@@ -21,6 +21,7 @@ const (
 	serviceFile  = "/etc/systemd/system/blackbox.service"
 	timerFile    = "/etc/systemd/system/blackbox.timer"
 	shutdownFile = "/etc/systemd/system/blackbox-shutdown.service"
+	sendFile     = "/etc/systemd/system/" + sendUnitName
 )
 
 // Install copies the program, creates the data folder and config, and
@@ -104,7 +105,7 @@ func Uninstall(logf func(string, ...any)) error {
 	recordRemoval(logf)
 	exec.Command("systemctl", "disable", "--now", "blackbox.timer").Run()
 	exec.Command("systemctl", "disable", "blackbox-shutdown.service").Run()
-	for _, f := range []string{timerFile, serviceFile, shutdownFile} {
+	for _, f := range []string{timerFile, serviceFile, shutdownFile, sendFile} {
 		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
 			return err
 		}
@@ -142,10 +143,18 @@ func afterReportDirChange(logf func(string, ...any)) error {
 
 // writeUnits writes the service unit and, on a computer that sends to a
 // collector, the unit that sends before shutdown (enabled so it runs at
-// the next shutdown; removed on other computers).
+// the next shutdown; removed on other computers) and, for a folder the
+// site mounted, the unit that delivers after each run (L8).
 func writeUnits(exe string, cfg *config.Config) error {
 	if err := os.WriteFile(serviceFile, []byte(serviceFor(exe, cfg)), 0o644); err != nil {
 		return err
+	}
+	if separateSend(cfg) {
+		if err := os.WriteFile(sendFile, []byte(systemdSendService(exe, cfg.SendTo)), 0o644); err != nil {
+			return err
+		}
+	} else {
+		os.Remove(sendFile)
 	}
 	if cfg.SendTo == "" {
 		if _, err := os.Stat(shutdownFile); err == nil {
@@ -164,27 +173,32 @@ func writeUnits(exe string, cfg *config.Config) error {
 	return nil
 }
 
+// separateSend reports whether delivery runs in its own unit: for a
+// folder the site mounted (sshfs, NFS, a VirtualBox shared folder), not
+// for an SMB share Blackbox mounts itself inside its data folder.
+func separateSend(cfg *config.Config) bool {
+	return cfg.SendTo != "" && !config.IsShare(cfg.SendTo)
+}
+
 // serviceFor is the service unit for these settings.
 func serviceFor(exe string, cfg *config.Config) string {
 	mount, writable := unitPaths(cfg)
-	return systemdService(exe, mount, writable...)
+	return systemdService(exe, mount, separateSend(cfg), writable...)
 }
 
 // shutdownFor is the send-before-shutdown unit for these settings.
 func shutdownFor(exe string, cfg *config.Config) string {
-	mount, writable := unitPaths(cfg)
-	return systemdShutdownService(exe, mount, writable...)
+	mount, _ := unitPaths(cfg)
+	return systemdShutdownService(exe, mount)
 }
 
-// unitPaths are the share mount unit (if any) and the folders the units
-// may write to.
+// unitPaths are the share mount unit (if any) and the folders the run
+// may write to. The collector's folder is not one of them (L8): the run
+// unit does not deliver to it.
 func unitPaths(cfg *config.Config) (mount string, writable []string) {
 	writable = []string{cfg.DataDir, cfg.ReportsDir()}
-	switch {
-	case config.IsShare(cfg.SendTo):
+	if config.IsShare(cfg.SendTo) {
 		mount = mountUnitName() // mounted inside the data folder
-	case cfg.SendTo != "":
-		writable = append(writable, "-"+cfg.SendTo)
 	}
 	if cfg.Inbox != "" {
 		writable = append(writable, "-"+cfg.Inbox)
@@ -241,3 +255,6 @@ func RemoveOld() {}
 
 // InstalledVersion is only used by the Windows setup window.
 func InstalledVersion() string { return "" }
+
+// VirtualBoxInstalled is only asked on Windows (the collector's host).
+func VirtualBoxInstalled() bool { return false }

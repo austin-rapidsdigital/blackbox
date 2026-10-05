@@ -87,7 +87,7 @@ func WithDefaults(a Answers) Answers {
 // ForRole clears the settings the chosen role does not use.
 func ForRole(a Answers) Answers {
 	if a.Role == RoleSender || a.Role == RoleStandalone {
-		a.Inbox, a.ShareInbox, a.InboxWriters = "", false, nil
+		a.Inbox, a.ShareInbox, a.InboxWriters, a.ShareWriters = "", false, nil, nil
 	}
 	if a.Role == RoleStandalone || a.Role == RoleCollector {
 		a.SendTo, a.ShareUser, a.SharePassword = "", "", ""
@@ -183,8 +183,8 @@ func Summary(a Answers, defaultReports string, windows bool) []SummaryLine {
 			extra = " (shared on the network as " + ShareName + ")"
 		}
 		l = append(l, SummaryLine{"Receives in", a.Inbox + extra})
-		if len(a.InboxWriters) > 0 {
-			l = append(l, SummaryLine{"Can deliver", strings.Join(a.InboxWriters, ", ")})
+		if w := append(append([]string{}, a.InboxWriters...), a.ShareWriters...); len(w) > 0 {
+			l = append(l, SummaryLine{"Can deliver", strings.Join(w, ", ")})
 		}
 	}
 	if a.SendTo != "" {

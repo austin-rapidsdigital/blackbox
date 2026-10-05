@@ -2,6 +2,8 @@ package app
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -140,5 +142,49 @@ func TestPruneReportsSaysWhat(t *testing.T) {
 	removed, err := pruneReports(dir, 30, now)
 	if err != nil || len(removed) != 1 || removed[0] != "old" {
 		t.Errorf("removed %v %v", removed, err)
+	}
+}
+
+// L10: data waiting more than a day to be sent is pointed out, with the
+// oldest item's age, and status says it needs attention (exit code 4).
+func TestWaitingTooLong(t *testing.T) {
+	st, _ := store.Open(t.TempDir())
+	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	st.State.Send = &store.SendState{ID: "ab12", LastAttempt: now.Add(-time.Hour), LastError: "collector inbox not available: /mnt/blackbox-inbox (nothing is mounted there)"}
+	st.Save()
+	out := filepath.Join(st.Dir, "outbox")
+	os.MkdirAll(out, 0o700)
+	for i, age := range []time.Duration{50 * time.Hour, time.Hour} {
+		f := filepath.Join(out, fmt.Sprintf("%08d.bbx", i+1))
+		os.WriteFile(f, []byte("x"), 0o600)
+		os.Chtimes(f, now.Add(-age), now.Add(-age))
+	}
+	a := &App{Cfg: &config.Config{DataDir: st.Dir, SendTo: "/mnt/blackbox-inbox", ReportEvery: "weekly"}, Now: func() time.Time { return now }, Loc: time.UTC}
+	var b bytes.Buffer
+	err := a.Status(&b)
+	var na *NeedsAttention
+	if !errors.As(err, &na) {
+		t.Errorf("status error: %v", err)
+	}
+	for _, want := range []string{"2 batches; the oldest waiting since 2026-10-03 10:00", "NOT SENT:", "never deleted", "blackbox send"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("status missing %q:\n%s", want, b.String())
+		}
+	}
+	if h, _ := a.Health(); !h.WaitingSince.Equal(now.Add(-50 * time.Hour)) {
+		t.Errorf("health waiting since %v", h.WaitingSince)
+	}
+}
+
+// SC2: the sender's log counts SCAP results with the batches.
+func TestSentText(t *testing.T) {
+	for r, want := range map[SendResult]string{
+		{Delivered: 1, ScapDelivered: 2}:                       "1 batch and 2 SCAP results",
+		{Delivered: 3, ArchivesDelivered: 1, ScapDelivered: 1}: "3 batches, 1 log archive and 1 SCAP result",
+		{ScapDelivered: 1}:                                     "1 SCAP result",
+	} {
+		if got := sentText(r); got != want {
+			t.Errorf("sentText(%+v) = %q, want %q", r, got, want)
+		}
 	}
 }

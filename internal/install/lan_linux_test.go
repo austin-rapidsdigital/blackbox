@@ -29,10 +29,11 @@ func TestLinuxLANUnits(t *testing.T) {
 		t.Errorf("credentials: %q", c)
 	}
 
-	// A VM sending through a VirtualBox shared folder.
+	// A VM sending through a VirtualBox shared folder: the run does not
+	// name the folder; blackbox-send.service delivers (L8).
 	cfg.SendTo = "/media/sf_BlackboxInbox"
 	svc = serviceFor("/usr/local/bin/blackbox", cfg)
-	if !strings.Contains(svc, "-/media/sf_BlackboxInbox") || strings.Contains(svc, "Wants=") {
+	if strings.Contains(svc, "sf_BlackboxInbox") || !strings.Contains(svc, "Wants=blackbox-send.service") {
 		t.Errorf("shared-folder sender service:\n%s", svc)
 	}
 	// A Linux collector receiving in a folder.
@@ -42,14 +43,18 @@ func TestLinuxLANUnits(t *testing.T) {
 		t.Errorf("collector service:\n%s", svc)
 	}
 
-	// A sender also sends before shutdown, in the same sandbox.
+	// A sender also sends before shutdown; like blackbox-send.service, its
+	// sandbox does not name the folder (L8).
 	cfg.SendTo, cfg.Inbox = "/media/sf_BlackboxInbox", ""
 	sd := shutdownFor("/usr/local/bin/blackbox", cfg)
 	for _, want := range []string{"ExecStop=/usr/local/bin/blackbox send", "RemainAfterExit=yes", "After=network-online.target remote-fs.target vboxadd-service.service",
-		"PrivateNetwork=yes", "-/media/sf_BlackboxInbox", "WantedBy=multi-user.target"} {
+		"PrivateNetwork=yes", "ProtectSystem=full", "WantedBy=multi-user.target"} {
 		if !strings.Contains(sd, want) {
 			t.Errorf("shutdown unit missing %q:\n%s", want, sd)
 		}
+	}
+	if strings.Contains(sd, "sf_BlackboxInbox") {
+		t.Errorf("shutdown unit names the folder:\n%s", sd)
 	}
 	if strings.Contains(sd, "TimeoutStartSec") {
 		t.Error("the shutdown unit must not carry the collection run's start timeout")

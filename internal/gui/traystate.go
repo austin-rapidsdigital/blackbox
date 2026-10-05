@@ -139,6 +139,12 @@ func classify(h app.Health, err error, now time.Time) trayView {
 	for _, l := range h.Lost {
 		v.Items = append(v.Items, fmt.Sprintf("%s log on %s: %s events lost to rollover since %s", l.Channel, l.Host, commaNum(l.Count), when(l.Since, now)))
 	}
+	if !h.WaitingSince.IsZero() && now.Sub(h.WaitingSince) > app.SendStaleAfter {
+		v.Items = append(v.Items, "Data has waited to be sent to the collector since "+when(h.WaitingSince, now))
+	}
+	if h.LowSpace != "" {
+		v.Items = append(v.Items, "Low disk space: "+h.LowSpace)
+	}
 	if n := len(h.Unreadable); n > 0 {
 		v.Items = append(v.Items, fmt.Sprintf("%s in the inbox can't be read", plural(n, "file")))
 	}

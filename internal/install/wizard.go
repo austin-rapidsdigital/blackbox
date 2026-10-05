@@ -37,6 +37,7 @@ type Answers struct {
 	Inbox        string   // this collector's inbox (collector)
 	ShareInbox   bool     // Windows: share the inbox on the network
 	InboxWriters []string // Windows: local accounts allowed to deliver (e.g. the user who runs VirtualBox)
+	ShareWriters []string // Windows: accounts allowed to deliver over the network share (S11)
 
 	Tray bool // Windows collector or standalone: the status icon for administrators
 }
@@ -69,6 +70,7 @@ type wizard struct {
 	tryInbox     func(sendTo, user, pw string) error // can the collector's inbox be reached?
 	defaultInbox string                              // suggested inbox folder for a collector
 	isWindows    bool
+	virtualBox   func() bool // is VirtualBox installed here? (S12)
 }
 
 // Wizard asks the setup questions, offering cur as the defaults (the
@@ -86,7 +88,8 @@ func newWizard(in io.Reader, out io.Writer) *wizard {
 		br = bufio.NewReader(in)
 	}
 	w := &wizard{in: br, out: out, dirExists: dirExists, dirWritable: CheckWritable,
-		findInboxes: FindInboxes, tryInbox: TryInbox, defaultInbox: DefaultInbox(), isWindows: isWindows}
+		findInboxes: FindInboxes, tryInbox: TryInbox, defaultInbox: DefaultInbox(), isWindows: isWindows,
+		virtualBox: VirtualBoxInstalled}
 	w.password = func(prompt string) (string, error) {
 		w.printf("%s", prompt)
 		pw, err := readPassword(br)
@@ -355,7 +358,9 @@ func (w *wizard) askInbox(a *Answers) error {
 	w.question(QInboxReach)
 	w.printf("   A virtual machine on this PC reaches it through a VirtualBox shared folder.\n")
 	w.printf("   Other computers on the network reach it through a Windows share.\n")
-	vm, err := w.yes("Will virtual machines on this PC send to it (VirtualBox shared folder)?", len(a.InboxWriters) > 0 || !a.ShareInbox)
+	// Suggested only where VirtualBox is installed (S12).
+	vbox := w.virtualBox != nil && w.virtualBox()
+	vm, err := w.yes("Will virtual machines on this PC send to it (VirtualBox shared folder)?", len(a.InboxWriters) > 0 || (vbox && !a.ShareInbox))
 	if err != nil {
 		return err
 	}
@@ -363,15 +368,33 @@ func (w *wizard) askInbox(a *Answers) error {
 	if vm {
 		w.printf("   VirtualBox writes into the shared folder as the Windows account that runs it.\n")
 		w.printf("   Windows account that runs VirtualBox (several: separate with commas)\n")
-		s, err := w.ask(os.Getenv("USERNAME"))
+		def := ""
+		if vbox {
+			def = os.Getenv("USERNAME")
+		}
+		s, err := w.ask(def)
 		if err != nil {
 			return err
 		}
 		a.InboxWriters = SplitList(s)
 	}
 	a.ShareInbox, err = w.yes("Share it on the network so other computers can send to it?", a.ShareInbox)
-	return err
+	if err != nil || !a.ShareInbox {
+		a.ShareWriters = nil
+		return err
+	}
+	w.printf("   %s\n", NoteShareWriters)
+	s, err := w.ask(strings.Join(a.ShareWriters, ", "))
+	if err != nil {
+		return err
+	}
+	a.ShareWriters = SplitList(s)
+	return nil
 }
+
+// NoteShareWriters explains the accounts that may deliver over the share
+// (S11): they are added to the Blackbox Senders group.
+const NoteShareWriters = "Accounts the other computers deliver as (for example bbsend, or CORP\\svc-bbsend; several: separate with commas). They are added to the \"" + SendersGroup + "\" group; you can add more to it later."
 
 func (w *wizard) askSendTo(a *Answers) error {
 	w.question(QSendTo)
