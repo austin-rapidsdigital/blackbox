@@ -33,8 +33,46 @@ jobs:
           echo "tag=v$v" >> "$GITHUB_OUTPUT"
       - name: Test
         run: go test ./...
+      # Code signing (A10) uses repository secrets, and is skipped cleanly
+      # when they are not set: the release is then unsigned, as before.
+      #   WINDOWS_SIGN_PFX_BASE64  code-signing certificate (.pfx), base64
+      #   WINDOWS_SIGN_PASSWORD    its password
+      #   SIGN_TIMESTAMP_URL       (variable) timestamp server, optional
+      #   RELEASE_GPG_KEY          armored private key that signs SHA256SUMS
+      #   RELEASE_GPG_PASSPHRASE   its passphrase
+      - name: Code-signing certificate
+        env:
+          PFX: ${{ secrets.WINDOWS_SIGN_PFX_BASE64 }}
+        run: |
+          if [ -z "$PFX" ]; then
+            echo "No code-signing certificate: the Windows programs are not signed."
+            exit 0
+          fi
+          sudo apt-get update -qq && sudo apt-get install -y -qq osslsigncode
+          printf '%s' "$PFX" | base64 -d > "$RUNNER_TEMP/sign.pfx"
+          echo "SIGN_PFX=$RUNNER_TEMP/sign.pfx" >> "$GITHUB_ENV"
       - name: Build packages
+        env:
+          SIGN_PASSWORD: ${{ secrets.WINDOWS_SIGN_PASSWORD }}
+          SIGN_TIMESTAMP: ${{ vars.SIGN_TIMESTAMP_URL }}
         run: VERSION="${{ steps.v.outputs.version }}" scripts/build.sh
+      - name: Sign SHA256SUMS
+        env:
+          GPG_KEY: ${{ secrets.RELEASE_GPG_KEY }}
+          GPG_PASS: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+        run: |
+          rm -f "$RUNNER_TEMP/sign.pfx"
+          if [ -z "$GPG_KEY" ]; then
+            echo "No release signing key: SHA256SUMS is not signed."
+            exit 0
+          fi
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -m 700 -p "$GNUPGHOME"
+          printf '%s\n' "$GPG_KEY" | gpg --batch --import
+          printf '%s' "$GPG_PASS" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+            --armor --detach-sign --output dist/SHA256SUMS.asc dist/SHA256SUMS
+          gpg --batch --verify dist/SHA256SUMS.asc dist/SHA256SUMS
+          rm -rf "$GNUPGHOME"
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,7 +88,12 @@ jobs:
           | Linux (x86-64) | \`blackbox-${VERSION}-linux-amd64.tar.gz\` | Extract, then \`sudo ./install.sh\` |
           | Linux (ARM64) | \`blackbox-${VERSION}-linux-arm64.tar.gz\` | Extract, then \`sudo ./install.sh\` |
 
-          Check downloads with \`sha256sum -c SHA256SUMS\`. See the [README](https://github.com/casea1/blackbox#readme) and the [Windows](https://github.com/casea1/blackbox/blob/main/docs/windows.md) and [Linux](https://github.com/casea1/blackbox/blob/main/docs/linux.md) guides.
+          Check downloads with \`sha256sum -c SHA256SUMS\`, and, when \`SHA256SUMS.asc\` is attached, the checksums themselves with \`gpg --verify SHA256SUMS.asc SHA256SUMS\` (the key is in the [README](https://github.com/casea1/blackbox#verifying-a-release)). \`blackbox-${VERSION}.spdx.json\` is the software bill of materials. See the [README](https://github.com/casea1/blackbox#readme) and the [Windows](https://github.com/casea1/blackbox/blob/main/docs/windows.md) and [Linux](https://github.com/casea1/blackbox/blob/main/docs/linux.md) guides.
           NOTES
-          gh release create "$TAG" dist/*.exe dist/*.tar.gz dist/SHA256SUMS \
+          # What this version fixes, when its notes are in the repository.
+          if [ -f "docs/releases/${VERSION}.md" ]; then
+            printf '\n' >> notes.md
+            cat "docs/releases/${VERSION}.md" >> notes.md
+          fi
+          gh release create "$TAG" dist/*.exe dist/*.tar.gz dist/*.spdx.json dist/SHA256SUMS $(ls dist/SHA256SUMS.asc 2>/dev/null) \
             --target "$GITHUB_SHA" --title "Blackbox $TAG" --notes-file notes.md

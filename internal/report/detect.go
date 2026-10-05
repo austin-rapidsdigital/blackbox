@@ -50,11 +50,15 @@ func tamperAction(r *Row) bool {
 	switch r.Action {
 	case "log_cleared", "log_tampered":
 		return r.User == "" || person(r.User)
-	case "audit_disabled", "audit_policy_changed", "audit_rule_added", "audit_rule_removed", "audit_config_changed",
+	case "audit_disabled", "audit_policy_changed", "audit_rule_added", "audit_rule_removed", "audit_config_changed", "audit_rules_refused",
 		"audit_tamper_command", "powershell_tamper", "powershell_av_tamper":
 		return person(r.User)
-	case "av_disabled":
+	case "av_disabled", "av_exclusion_added", "firewall_stopped", "firewall_rules_cleared":
 		return r.User == "" || person(r.User) // Defender's own events name no user
+	case "blackbox_stopped", "blackbox_uninstalled", "blackbox_files_removed", "blackbox_files_changed", "object_audit_changed":
+		return person(r.User)
+	case "blackbox_config_changed":
+		return person(r.User) && r.Severity == event.SevHigh
 	case "audit_stopped":
 		return r.Severity == event.SevHigh // stopped by a person, not at shutdown
 	}
@@ -68,6 +72,9 @@ var systemAccounts = map[string]bool{"system": true, "local service": true, "net
 // or a computer's.
 func person(u string) bool {
 	l := strings.ToLower(u)
+	if strings.HasPrefix(l, `virtual users\`) {
+		return false // OpenSSH for Windows' per-connection sshd_<pid> account (W2)
+	}
 	if i := strings.LastIndex(l, `\`); i >= 0 {
 		l = l[i+1:]
 	}
@@ -76,6 +83,9 @@ func person(u string) bool {
 
 // adminActivity is something done with administrator rights by a person.
 func adminActivity(r *Row) bool {
+	if r.Action == "logon" && detail(r.Event, "Privileges") != "" {
+		return person(r.User) // a logon with administrator rights (U3)
+	}
 	return r.Category == event.CatPrivileged && person(r.User)
 }
 
@@ -319,15 +329,15 @@ func localAddress(s string) bool {
 // on it, or a logon from another computer's address.
 func firstTimeKeys(x *Row) (keys []string, labels []string) {
 	host := strings.ToLower(x.Host)
-	switch {
-	case x.Action == "logon" && x.Interactive && person(x.User):
+	if x.Action == "logon" && x.Interactive && person(x.User) {
 		keys = append(keys, "logon|"+host+"|"+strings.ToLower(x.User))
 		labels = append(labels, "logon")
 		if !localAddress(x.SourceIP) {
 			keys = append(keys, "src|"+host+"|"+x.SourceIP)
 			labels = append(labels, "source")
 		}
-	case adminActivity(x):
+	}
+	if adminActivity(x) {
 		keys = append(keys, "admin|"+host+"|"+strings.ToLower(x.User))
 		labels = append(labels, "admin")
 	}

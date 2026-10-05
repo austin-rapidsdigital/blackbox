@@ -64,7 +64,15 @@ func (t *Translator) Syslog(l Line, source string) *event.Event {
 		e = t.kernel(l)
 	case l.Prog == "udisksd" || l.Prog == "udisks2":
 		e = t.udisks(l)
+	case l.Prog == "blackbox":
+		// Blackbox's own record of a change to itself, also in its spool
+		// (A15); the two merge.
+		if c, ok := event.ParseSelfChange(l.Msg); ok {
+			e = c.Event()
+		}
 	case t.AuthFromSyslog:
+		e = t.auth(l)
+	case t.SudoFromSyslog && (l.Prog == "sudo" || l.Prog == "sudo-rs"):
 		e = t.auth(l)
 	}
 	if e == nil {
@@ -239,7 +247,7 @@ var (
 	sessCloseRE   = regexp.MustCompile(`^pam_unix\((sshd|login|gdm-password|lightdm|sddm):session\): session closed for user (\S+)`)
 	sessOpenRE    = regexp.MustCompile(`^pam_unix\((login|gdm-password|lightdm|sddm):session\): session opened for user ([^\s(]+)`)
 	consoleFailRE = regexp.MustCompile(`^pam_unix\((login|gdm-password|lightdm|sddm):auth\): authentication failure;.*\buser=(\S+)`)
-	sudoRE        = regexp.MustCompile(`^\s*(\S+) : (.*?)\s*;?\s*TTY=(\S+) ; PWD=(.*?) ; USER=(\S+) ;(?: COMMAND=(.*))?$`)
+	sudoRE        = regexp.MustCompile(`^\s*(\S+) : (.*?)\s*;?\s*(?:TTY=(\S+) ; )?PWD=(.*?) ; USER=(\S+) ;(?: COMMAND=(.*))?$`)
 	suOpenRE      = regexp.MustCompile(`^pam_unix\(su(?:-l)?:session\): session opened for user ([^\s(]+)(?:\(uid=\d+\))? by ([^\s(]*)`)
 	suFailRE      = regexp.MustCompile(`^pam_unix\(su(?:-l)?:auth\): authentication failure;.*\bruser=(\S*).*\buser=(\S+)`)
 	suFailAlmaRE  = regexp.MustCompile(`^FAILED SU \(to (\S+)\) (\S+) on`)
@@ -256,7 +264,7 @@ var (
 func (t *Translator) auth(l Line) *event.Event {
 	m := l.Msg
 	switch l.Prog {
-	case "sshd":
+	case "sshd", "sshd-session", "sshd-auth":
 		if x := sshFailRE.FindStringSubmatch(m); x != nil {
 			acct, reason := x[3], "wrong password"
 			if x[2] != "" {
@@ -275,14 +283,16 @@ func (t *Translator) auth(l Line) *event.Event {
 			e.AddDetail("Authentication", x[1])
 			return e
 		}
-	case "sudo":
+	case "sudo", "sudo-rs":
 		if x := sudoRE.FindStringSubmatch(m); x != nil {
 			user, note, runas, cmd := x[1], x[2], x[5], x[6]
 			as := "with sudo"
 			if runas != "root" {
 				as = "as " + runas + " with sudo"
 			}
-			e := &event.Event{Category: event.CatPrivileged, User: user, Target: runas, Command: cmd}
+			// Merges with the root command the audit log records for it.
+			e := &event.Event{Category: event.CatPrivileged, User: user, Target: runas, Command: cmd,
+				DedupeKey: "cmd|" + user + "|" + cmdKey(cmd), Priority: 2}
 			switch {
 			case strings.Contains(note, "incorrect password"):
 				e.Category, e.Action, e.Severity, e.Outcome = event.CatFailedLogon, "logon_failed", event.SevLow, "failure"
@@ -294,6 +304,7 @@ func (t *Translator) auth(l Line) *event.Event {
 			case tampers(cmd):
 				e.Action, e.Severity = "audit_tamper_command", event.SevHigh
 				e.Summary = fmt.Sprintf("%s used sudo to run a command that can stop or weaken auditing: %s", user, cmd)
+			case blackboxChange(e, cmd, user):
 			default:
 				e.Action, e.Severity = "sudo_command", event.SevLow
 				e.Summary = fmt.Sprintf("%s ran %s: %s", user, as, cmd)

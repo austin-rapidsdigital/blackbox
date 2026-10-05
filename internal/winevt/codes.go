@@ -320,6 +320,10 @@ var AuditSubcategories = map[string]string{
 // "Removable Storage" audit subcategory (events 4656/4663).
 const taskRemovableStorage = 12812
 
+// taskFileSystem is the task category of the "File System" subcategory:
+// object access on files and folders with an auditing (SACL) entry.
+const taskFileSystem = 12800
+
 // busTypes maps STORAGE_BUS_TYPE values (Partition/Diagnostic 1006).
 var busTypes = map[string]string{
 	"1": "SCSI", "2": "ATAPI", "3": "ATA", "4": "FireWire (1394)", "5": "SSA",
@@ -374,6 +378,24 @@ var EventNames = map[int]string{
 	5158: "Filtering Platform permitted bind", 5379: "Credential Manager credentials read",
 	5382: "Vault credentials read",
 	6416: "New external device recognized",
+	4611: "Trusted logon process registered", 4612: "Audit events dropped (queue full)",
+	4614: "Notification package loaded", 4622: "Security package loaded", 4704: "User right assigned",
+	4705: "User right removed", 4706: "Domain trust created", 4707: "Domain trust removed",
+	4713: "Kerberos policy changed", 4716: "Domain trust changed", 4739: "Domain policy changed",
+	4765: "SID history added", 4766: "SID history add failed", 4826: "Boot configuration loaded",
+	4947: "Firewall rule changed", 4948: "Firewall rule deleted", 4949: "Firewall settings reset",
+	4950: "Firewall setting changed", 5024: "Firewall service started", 5025: "Firewall service stopped",
+	5030: "Firewall service failed to start", 5038: "Code integrity: file hash invalid",
+	6281: "Code integrity: page hashes invalid", 4691: "Indirect access to an object",
+	4944: "Firewall policy at startup", 4945: "Firewall rule listed at startup", 4985: "Transaction state changed",
+	5059: "Key migration operation", 5153: "Filtering Platform blocked packet", 5155: "Filtering Platform blocked listen",
+	5159: "Filtering Platform blocked bind", 5381: "Vault credentials read", 5444: "Filtering Platform provider",
+	5447: "Filtering Platform filter changed", 5632: "Wireless authentication request", 5633: "Wired authentication request",
+	4802: "Screen saver started", 4803: "Screen saver stopped", 4649: "Replay attack detected",
+	4964: "Special groups assigned to logon", 4902: "Per-user audit policy table created", 4904: "Security event source registered",
+	4905: "Security event source unregistered", 4906: "CrashOnAuditFail changed", 4908: "Special groups logon table changed",
+	4912: "Per-user audit policy changed", 4715: "Audit policy (SACL) on object changed", 4817: "Auditing settings changed on object",
+	5378: "Credential delegation not allowed", 4793: "Password policy checking API called", 4782: "Password hash accessed",
 	// System log
 	104: "Event log cleared", 1074: "Shutdown/restart initiated", 6005: "Event log service started",
 	6006: "Event log service stopped", 6008: "Unexpected shutdown", 7036: "Service state changed",

@@ -21,6 +21,7 @@ import (
 	"github.com/casea1/blackbox/internal/gui"
 	"github.com/casea1/blackbox/internal/install"
 	"github.com/casea1/blackbox/internal/report"
+	"github.com/casea1/blackbox/internal/selfaudit"
 	"github.com/casea1/blackbox/internal/setup"
 	"github.com/casea1/blackbox/internal/store"
 )
@@ -346,8 +347,20 @@ func cmdConfig(args []string) error {
 	if args[0] != "set" || len(args) < 2 {
 		return fmt.Errorf("usage: blackbox config                     (show settings)\n       blackbox config set <setting> <value>\nsettings: %s", strings.Join(config.Settable, ", "))
 	}
-	key, value := strings.ToLower(args[1]), strings.Join(args[2:], " ")
+	yes := false
+	var rest []string
+	for _, a := range args[2:] {
+		if a == "--yes" || a == "-yes" {
+			yes = true
+		} else {
+			rest = append(rest, a)
+		}
+	}
+	key, value := strings.ToLower(args[1]), strings.Join(rest, " ")
 	if err := install.RequireAdmin(); err != nil {
+		return err
+	}
+	if err := confirmRetention(key, value, yes, install.IsTerminal(os.Stdin), os.Stdin); err != nil {
 		return err
 	}
 	// A run that is already going would read the new setting but keep the
@@ -364,6 +377,7 @@ func cmdConfig(args []string) error {
 			defer unlock()
 		}
 	}
+	before := config.RawValues(path)
 	if key == "report_dir" {
 		if value == "default" || value == filepath.Join(config.DefaultDataDir(), "reports") {
 			value = ""
@@ -372,15 +386,19 @@ func cmdConfig(args []string) error {
 			return err
 		}
 		cfg, _ := config.Load(path)
+		recordChanges(path, before, "blackbox config set")
 		fmt.Printf("Reports will now be saved in %s (existing reports were not moved).\n", cfg.ReportsDir())
 		return nil
 	}
-	if value == "none" && (key == "send_to" || key == "inbox" || key == "share_user") {
+	// "none" clears a setting that can be empty (L5).
+	if strings.EqualFold(value, "none") && (key == "send_to" || key == "inbox" || key == "share_user" ||
+		key == "exclude_users" || key == "exclude_processes" || key == "working_hours") {
 		value = ""
 	}
 	if err := config.SetValue(path, key, value); err != nil {
 		return err
 	}
+	recordChanges(path, before, "blackbox config set")
 	if key == "send_to" || key == "inbox" || key == "share_user" {
 		if err := install.ApplyLAN(path, printf); err != nil {
 			return err
@@ -390,10 +408,58 @@ func cmdConfig(args []string) error {
 	return nil
 }
 
+// recordChanges has Blackbox record the settings it just changed, in its
+// spool and in the system log (A15). A setting that was refused or left
+// as it was is not recorded.
+func recordChanges(path string, before map[string]string, program string) {
+	cfg, err := config.Load(path)
+	if err != nil {
+		return
+	}
+	for _, c := range selfaudit.Changes(before, config.RawValues(path), program) {
+		if err := selfaudit.Record(cfg.DataDir, c, time.Now()); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: the change to %s was saved, but recording it failed: %v\n", c.Setting, err)
+		}
+	}
+}
+
 // savedText confirms a setting change. Settings are read at the start of
 // every run, scheduled or by hand, so a change applies from the next one.
 func savedText(key, value string) string {
-	return fmt.Sprintf("Saved %s = %s. It applies from the next collection or report, including one you run now with \"blackbox report\".", key, value)
+	const applies = "It applies from the next collection or report, including one you run now with \"blackbox report\"."
+	if value == "" {
+		return fmt.Sprintf("Cleared %s. %s", key, applies) // E1: not "Saved exclude_users = ."
+	}
+	return fmt.Sprintf("Saved %s = %s. %s", key, value, applies)
+}
+
+// retentionFloor is a year: AU-11 audit record retention, the period sites
+// usually set, and how far back an assessor looks.
+const retentionFloor = 365
+
+// confirmRetention asks before reports are kept less than a year (A9):
+// shortening retention deletes reports and their original logs at the
+// next scheduled report.
+func confirmRetention(key, value string, yes, interactive bool, in io.Reader) error {
+	if key != "retention_days" {
+		return nil
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || n <= 0 || n >= retentionFloor || yes {
+		return nil // invalid values are refused by the settings check
+	}
+	warn := fmt.Sprintf("retention_days = %d keeps reports, and the original logs saved with them, for less than a year (%d days). "+
+		"At the next scheduled report, every report older than %d days is deleted for good.", n, retentionFloor, n)
+	if !interactive {
+		return fmt.Errorf("%s\nTo do this anyway, add --yes: blackbox config set retention_days %d --yes", warn, n)
+	}
+	fmt.Println(warn)
+	fmt.Print("Type yes to keep them for only ", n, " days: ")
+	line, _ := bufio.NewReader(in).ReadString('\n')
+	if strings.TrimSpace(strings.ToLower(line)) != "yes" {
+		return fmt.Errorf("not changed")
+	}
+	return nil
 }
 
 func cmdStatus(args []string) error {
@@ -410,6 +476,10 @@ func cmdStatus(args []string) error {
 	err = newApp(cfg, nil).Status(os.Stdout)
 	if errors.Is(err, os.ErrPermission) {
 		return fmt.Errorf("%w\nBlackbox's data folder can only be read by administrators: run this from an elevated Command Prompt (Windows) or with sudo (Linux)", err)
+	}
+	var na *app.NeedsAttention
+	if errors.As(err, &na) {
+		os.Exit(4) // the status says what; lets scripts and monitoring notice (L10)
 	}
 	return err
 }
@@ -470,6 +540,7 @@ func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	var c common
 	c.register(fs)
+	noDeliver := fs.Bool("no-deliver", false, "make the data ready to send, but leave delivery to blackbox-send.service")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -480,6 +551,7 @@ func cmdRun(args []string) error {
 	logf, closeLog := openLog(cfg.DataDir)
 	defer closeLog()
 	a := newApp(cfg, logf)
+	a.NoDeliver = *noDeliver
 	logf("run started (blackbox %s)", version)
 	install.RemoveOld() // programs replaced by an upgrade, once nothing runs them
 	dir, err := a.Scheduled()
@@ -565,7 +637,7 @@ func cmdReport(args []string) error {
 	var dir string
 	switch {
 	case !in.Empty():
-		dir, err = a.ReportFromFiles(in, *out)
+		dir, err = a.ReportFromFiles(in, *out, from, to) // the period applies to files too (R9)
 	case !from.IsZero():
 		dir, err = a.ReportRange(from, to)
 	default:
@@ -603,17 +675,31 @@ func cmdCheck(args []string) error {
 		if locked {
 			next = "reboot (the loaded rules are locked with -e 2)"
 		}
-		fmt.Fprintf(os.Stderr, "To install: blackbox check --audit-rules --missing | sudo install -m 0600 /dev/stdin %s, then %s.\n", check.RulesFile, next)
-		if n := check.RulesOnlyInAuditRules(); n > 0 {
-			fmt.Fprintf(os.Stderr, "\nCAUTION: /etc/audit/audit.rules has %d rules that are not in /etc/audit/rules.d (Ubuntu's usg fix\n"+
-				"writes audit.rules directly). augenrules rebuilds audit.rules from rules.d, so adding a file there\n"+
-				"would remove them, at the next augenrules --load or reboot. Keep them first:\n"+
-				"  sudo install -m 0600 /etc/audit/audit.rules /etc/audit/rules.d/50-existing.rules\n", n)
+		how := fmt.Sprintf("blackbox check --audit-rules --missing | sudo install -m 0600 /dev/stdin %s", check.RulesFile)
+		for _, f := range check.OldRulesFilesPresent() {
+			how += "; sudo rm " + f // an earlier version's file: rules in both would stop auditctl
+		}
+		fmt.Fprintf(os.Stderr, "To install: %s, then %s.\n", how, next)
+		if only := check.RulesOnlyInAuditRules(); len(only) > 0 {
+			// Only the rules rules.d lacks, so nothing is loaded twice (I2).
+			fmt.Fprintf(os.Stderr, "\nCAUTION: /etc/audit/audit.rules has %d rule(s) that no file in /etc/audit/rules.d holds (a tool\n"+
+				"wrote audit.rules without its rules.d file). augenrules rebuilds audit.rules from rules.d, so they would\n"+
+				"be dropped at the next augenrules --load or reboot. To keep them, save just these as\n"+
+				"/etc/audit/rules.d/50-existing.rules (mode 0600) first:\n\n", len(only))
+			for _, l := range only {
+				fmt.Fprintln(os.Stderr, "  "+l)
+			}
 		}
 		return nil
 	}
 	if *rules {
-		fmt.Print(check.AuditRules)
+		// On Linux, rules for files this system doesn't have are left
+		// out: auditctl refuses them, and the rest would not load.
+		var exists func(string) bool
+		if runtime.GOOS == "linux" {
+			exists = func(p string) bool { _, err := os.Stat(p); return err == nil }
+		}
+		fmt.Print(check.RulesForThisSystem(check.AuditRules, exists))
 		return nil
 	}
 	if !check.Supported {

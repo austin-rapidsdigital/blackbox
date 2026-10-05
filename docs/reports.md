@@ -49,6 +49,10 @@ listed as Interim, and does not change the schedule. On a collector it
 covers every system's collected events; only the collector's own logs can
 be read further back.
 
+With exported log files (`--xml`, `--evtx`, `--audit`, `--syslog`), the
+same options keep only the events in that period:
+`blackbox report --audit audit.log --from 2026-09-01 --to 2026-09-15`.
+
 If you change `report_at`, the next report ends at the new time and
 covers the time since the last report (so it may be shorter or longer
 than usual once).
@@ -79,7 +83,7 @@ each report's `summary.json`.
 | Possible password guessing | High | 5 or more failed logons for one account on one computer within 15 minutes |
 | One source tried several accounts | High | Failures for 3 or more accounts from one address within 15 minutes |
 | Same account failing on several computers | High | Failed logons for one account on 3 or more computers within 30 minutes (a collector sees every computer) |
-| Possible covering of tracks | High | An account created, someone added to a privileged group, or sudo rules changed, then within 24 hours on the same computer a log cleared or altered, auditing stopped, an audit rule added or removed, or anti-malware turned off, by a person |
+| Possible covering of tracks | High | An account created, someone added to a privileged group, or sudo rules changed, then within 24 hours on the same computer a log cleared or altered, auditing stopped, an audit rule added, removed or refused, auditing on an object changed, anti-malware turned off or an exclusion added, the firewall stopped, or Blackbox stopped, removed or its exclusions or retention changed, by a person |
 | Account created and deleted within a day | High | The same account created and deleted on one computer within 24 hours |
 | Auditing was switched off | High | The audit service stopped by a person, with how long it stayed off |
 | Successful logon after failures | Medium | 3 or more failures, then a success, within 30 minutes |
@@ -115,12 +119,70 @@ even when it is recorded twice (two audit login records, or the same
 line read from two logs). The audit service stopping during a planned
 restart or shutdown (`reboot`, `shutdown`, `systemctl poweroff`, or a
 shutdown record within minutes) is shown as routine, not as auditing
-being switched off.
+being switched off. When `systemctl stop auditd` (or `service auditd
+stop`, `pkill auditd`) was run just before, the stop is shown as done by
+the person who ran it: systemd sends the signal, so auditd's own record
+names no one.
+
+**Refused audit changes (Linux).** With the rules locked (`-e 2`, as the
+STIG requires) the kernel refuses `auditctl -e 0`, `-D` and rule changes,
+and records the refusal. Those rows say "tried to turn off auditing;
+refused because the audit rules are locked … Auditing stayed on" (High
+for turning auditing off, Medium for rule changes). They are never shown
+as auditing being off.
+
+**SSH failed logons (Linux).** OpenSSH 9.8 and later split the server
+into `sshd`, `sshd-session` and `sshd-auth`; they are all treated as
+`sshd`, so one attempt is one row. For a name that doesn't exist, sshd
+records only "(invalid user)": the name tried is taken from the password
+check of the same attempt, and every try says "the user name does not
+exist", not "wrong password". Attempts from the computer itself (`::1`,
+`127.0.0.1`) are shown as from `localhost`, so several accounts tried
+from it is still detected.
+
+**Login scripts (Linux).** At each SSH sign-in, `pam_motd` runs the login
+message scripts in `/etc/update-motd.d` as root, and a root login shell
+(`sudo -i`, `su -`) runs `/etc/profile.d` and the `.bashrc` scripts.
+Each is one Info row ("The login message scripts ran as root when jsmith
+logged on"), not a "ran as root" row per command. Only commands run as
+root in that session before it starts (login message), or the usual
+profile commands (`locale-check`, `id`, `dircolors` and so on) in the
+first 3 seconds of a root shell, are folded in; anything else the person
+runs is listed as usual. A change to the scripts themselves is a file
+change, reported when the audit rules watch those folders.
+
+**Mounts (Linux).** A disk mounted from the command line (`/dev/…`,
+`UUID=`, `LABEL=`) is removable media (Medium). Memory and system
+filesystems (`tmpfs`, `proc`, `overlay` …), bind and move mounts and
+remounts are not; network shares (`nfs`, `cifs`, `sshfs`) are Low,
+"mounted a network share".
+
+**Auditing off at collection (Linux).** Each collection checks that the
+audit service is running (`systemctl is-active auditd`) and that kernel
+auditing is on (`auditctl -s`). If not, the computer is red: "Auditing
+off" on Systems, an "Auditing is off" card on Audit health, a line in
+`blackbox status` (also in a collector's list of systems) and a red
+status icon with a notification.
 
 **Computer accounts.** An account whose name ends in `$` is treated as a
 computer account, and its routine activity is left out, only when it is
 this computer's own account or comes from a domain. A local account named
 like one (for example `helper$`) is always shown.
+
+**Windows' own housekeeping.** The firewall rules Windows registers for
+its built-in app packages (`@{Microsoft.…}`, changed by the Windows
+Firewall service) are one Info row per computer and day with the counts;
+rules changed by people keep their own rows. PowerShell module code that
+Windows generates (CDXML modules such as the firewall's
+`Get-NetFirewallRule`, in every part of a long script) is not flagged.
+OpenSSH for Windows' per-connection account `VIRTUAL USERS\sshd_<pid>` is
+not a person. An account "renamed" to its own name and a new account
+joining its default primary group (None) during Windows setup are left
+out. Events recorded under a computer's name from before setup renamed
+it are shown on that computer, with a "Recorded under its former name"
+detail. On Linux, the temporary account files `groupadd` and the other
+account tools write (`/etc/group+` and so on) and Blackbox's own writes
+in its data folder are not rows of their own; the account change is.
 
 **Hidden PowerShell.** PowerShell started with two or more of a hidden
 window, a bypassed execution policy, no prompts (`-NonInteractive`) and an
@@ -131,6 +193,15 @@ High however it is written, including with the program's path in quotes.
 **Process starts.** Programs started with administrator rights are
 listed. Programs a standard user starts are not, to keep reports
 readable; their logons and anything they change still are.
+
+**Nothing dropped silently.** A Windows Security-log event Blackbox has
+no translation for is listed on Other security as "Security event <ID>";
+the very frequent ones are counted instead. Audit health lists them all
+with their counts, and marks the audit subcategories whose events are
+only counted. On Linux, a record of any keyed audit rule Blackbox has no
+translation for (your site's own rules included) is an Info row naming
+the rule. See the [Windows](windows.md#what-blackbox-reads) and
+[Linux](linux.md#set-up-auditd) guides.
 
 **Exclusions.** `exclude_users` and `exclude_processes` leave out routine
 activity only. Failed logons against an excluded account, changes to it,
@@ -181,6 +252,43 @@ reports after `retention_days`.
 Expect a few MB a day per Windows computer (much less for Linux),
 compressed. It depends on how busy the Security log is.
 
+## STIG compliance (SCAP)
+
+An assessor asks two things: is what the STIG audits reviewed, and is the
+system configured to the STIG? The report answers the second from the
+SCAP scans you already run, DISA SCC on Windows or OpenSCAP on Linux.
+Blackbox **reads** their results; it never runs a scan, and never changes
+a setting.
+
+**Where results come from.** Put the result files (SCC's
+`*_XCCDF-Results_*.xml`, or OpenSCAP's `--results` or `--results-arf`
+files) in the `scap` folder in Blackbox's data folder, or set
+`scap_results` to the folder your scanner writes to (subfolders are
+searched, so SCC's `Sessions\<date>\Results\SCAP\XML` layout works).
+A sender sends its own results to the collector with its events, once
+each. The files are copied, never moved or changed.
+
+**What the report shows.** Once any scan is found (or `scap_results` is
+set), Audit health has a **STIG compliance (SCAP)** table: for each
+computer and benchmark, the version and profile, when it was scanned,
+the score, pass and fail counts, open CAT I, II and III findings, and
+what changed since the previous scan (newly open, fixed, score). A scan
+older than `scap_max_age_days` (30 by default) is marked **Stale**, and a
+computer in the report with no scan says **No scan found**.
+
+- CAT comes from each rule's severity: high is CAT I, medium CAT II, low
+  CAT III. Open means `fail` or `error`, as STIG Viewer and SCC count
+  them.
+- **Overview:** open CAT I findings are a red line in the checklist;
+  computers with no scan, or a stale one, are amber.
+- **Systems:** each computer's header adds "SCAP 94% · 1 CAT I".
+- **Report folder:** each result shown is copied into `scap/` and listed
+  in `manifest.sha256`, so the report proves which scan it showed.
+  `scap-open-rules.csv` lists every open rule (computer, benchmark, CAT,
+  Vuln ID, STIG ID, rule ID, title, scan time) for a POA&M; the Export
+  menu offers it. `summary.json` has each computer's score and open
+  findings.
+
 ## Is the audit trail complete?
 
 The Overview flags a report as incomplete when:
@@ -205,9 +313,18 @@ Object Access > Audit Removable Storage).
 The **Antivirus** column shows Microsoft Defender on each Windows system:
 the security intelligence (definitions) version, the date that version was
 created, and whether real-time protection is on. Definitions created more
-than 7 days ago, or protection turned off, show as a gap. The Systems page
+than 30 days ago, or protection turned off, show as a gap. The Systems page
 lists the version and its date for each system. It is read once a day with
 `Get-MpComputerStatus`.
+
+On Linux the same column shows **ClamAV**: the daily database version and
+when it was built (from `clamscan --version`), and whether its scanner
+service (`clamav-daemon`, or `clamd@scan` on Alma) is running. Definitions
+built more than 30 days ago, or no definitions loaded, show as a gap, just
+as for Defender; the service not running is a warning (ClamAV then only
+scans when asked). A system without ClamAV says so and is not counted as
+a gap. Blackbox only reads this; it never updates definitions or starts
+the service.
 
 ## Output files
 
@@ -229,7 +346,9 @@ The report also checks each data file as it loads it: if one was changed,
 
 `blackbox verify` also fails if a file the manifest lists is missing, if a
 file was added to the folder afterwards, or if the manifest no longer
-lists `report.html` or `summary.json`.
+lists a file the report needs: `report.html`, `summary.json`,
+`events.zip`, or any data file `report.html` loads. Each problem is one
+line.
 
 **What this proves, and what it doesn't.** The manifest is not signed, so
 it finds accidental damage, a copy that went wrong, and careless edits.

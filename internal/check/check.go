@@ -204,6 +204,9 @@ var enabledLogs = []struct {
 	// Script Block Logging (a STIG setting, checked with the registry)
 	// writes here; the log itself is not a STIG item.
 	{"PowerShell logging", "Microsoft-Windows-PowerShell/Operational", false, "Audit & System Integrity, Other Security Events: PowerShell script logging details (on by default)"},
+	{"Print logging", "Microsoft-Windows-PrintService/Operational", false, "Other Security Events: documents printed, by whom and on which printer (optional, off by default)"},
+	{"Remote Desktop logging", "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational", false, "Logon Activity: Remote Desktop sessions with the client address (on by default)"},
+	{"Firewall logging", "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall", false, "Audit & System Integrity: who changed firewall rules and settings (on by default)"},
 }
 
 // EvaluateLogs checks log sizes and that the USB-related and PowerShell

@@ -1,0 +1,250 @@
+// Programs and changes made with administrator rights: process starts
+// (including hidden PowerShell and audit tampering), services, scheduled
+// tasks, audit policy and time changes.
+
+package winevt
+
+import (
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/casea1/blackbox/internal/event"
+)
+
+// auditTamper are command fragments that clear logs or weaken auditing.
+var auditTamper = []string{
+	"wevtutil cl", "wevtutil.exe cl", "clear-eventlog", "clear-winevent", "remove-eventlog",
+	"auditpol /clear", "auditpol /remove", "auditpol.exe /clear", "auditpol.exe /remove",
+	"auditpol /set", "auditpol.exe /set", "vssadmin delete shadows", "vssadmin.exe delete shadows",
+	"bcdedit /set", "bcdedit.exe /set", "fsutil usn deletejournal",
+}
+
+var (
+	psHidden = regexp.MustCompile(`(^|\s)[-/]w[a-z]*\s+(hidden|1)\b`)
+	psBypass = regexp.MustCompile(`(^|\s)[-/](ex[a-z]*|ep)\s+(bypass|unrestricted)\b`)
+	psNonInt = regexp.MustCompile(`(^|\s)[-/]noni[a-z]*\b`)
+)
+
+// hiddenPowerShell counts the ways a PowerShell command line keeps itself
+// out of sight: a hidden window, bypassing the execution policy, no
+// prompts, an encoded command. PowerShell accepts any prefix of a
+// parameter name (-w, -win, -WindowStyle).
+func hiddenPowerShell(proc, cmd, decoded string) int {
+	b := strings.ToLower(filepath.Base(strings.ReplaceAll(proc, `\`, "/")))
+	if b != "powershell.exe" && b != "pwsh.exe" {
+		return 0
+	}
+	c := strings.ToLower(cmd)
+	n := 0
+	for _, re := range []*regexp.Regexp{psHidden, psBypass, psNonInt} {
+		if re.MatchString(c) {
+			n++
+		}
+	}
+	if decoded != "" {
+		n++
+	}
+	return n
+}
+
+func (t *Translator) processCreated(r *Raw) *event.Event {
+	elev := r.Get("TokenElevationType")
+	label := r.Get("MandatoryLabel")
+	// %%1937 = elevated via UAC. %%1936 ("default") is also used for
+	// standard users, so it only counts when the integrity label is High.
+	elevated := elev == "%%1937" || label == "S-1-16-12288" || label == "S-1-16-16384"
+	if !elevated || t.ignoredAccount(r, "Subject") {
+		return nil
+	}
+	user := t.subject(r)
+	proc := r.Get("NewProcessName")
+	cmd := r.Get("CommandLine")
+	e := &event.Event{Category: event.CatPrivileged, Severity: event.SevLow, Action: "elevated_process",
+		User: user, Process: proc, Command: cmd}
+	shown := cmd
+	if shown == "" {
+		shown = proc
+	}
+	// PowerShell run with -EncodedCommand (as remote management tools do)
+	// hides the real command in base64: show it, and check it for tampering.
+	decoded := decodePowerShell(cmd)
+	if decoded != "" {
+		shown = proc + " (encoded command): " + decoded
+	}
+	e.Summary = fmt.Sprintf("%s ran with administrator rights: %s", user, shown)
+	// Quotes removed: PowerShell records "C:\...\wevtutil.exe" cl Security.
+	lc := strings.Join(strings.Fields(strings.ReplaceAll(strings.ToLower(cmd+" "+decoded), `"`, "")), " ")
+	if n := hiddenPowerShell(proc, cmd, decoded); n >= 2 {
+		e.Severity, e.Action = event.SevMedium, "hidden_powershell"
+		e.Summary = fmt.Sprintf("%s ran PowerShell hidden from view and around the script policy: %s", user, shown)
+		e.AddDetail("Why flagged", "A hidden window, bypassing the execution policy, no prompts and an encoded command are how scripts are run unseen; this run used "+fmt.Sprint(n)+" of them together.")
+	}
+	for _, frag := range auditTamper {
+		if strings.Contains(lc, frag) {
+			e.Severity = event.SevHigh
+			e.Action = "audit_tamper_command"
+			e.Summary = fmt.Sprintf("%s ran a command that can clear logs or weaken auditing: %s", user, shown)
+			break
+		}
+	}
+	if action, sev, what, ok := event.BlackboxChange(cmd + " " + decoded); ok && e.Action != "audit_tamper_command" {
+		e.Action, e.Severity, e.Category = action, sev, event.CatIntegrity
+		e.Summary = fmt.Sprintf("%s %s: %s", user, what, shown)
+	}
+	e.AddDetail("Program", proc)
+	e.AddDetail("Command line", cmd)
+	e.AddDetail("PowerShell command (decoded)", decoded)
+	e.AddDetail("Started by", r.Get("ParentProcessName"))
+	e.AddDetail("Elevation", expandTokens(elev))
+	if cmd == "" {
+		e.AddDetail("Note", "Command-line auditing is off, so only the program name is known.")
+	}
+	return e
+}
+
+func (t *Translator) serviceInstalled(r *Raw, name, path, account, by string) *event.Event {
+	e := &event.Event{Category: event.CatOther, Severity: event.SevMedium, Action: "service_installed",
+		User: by, Target: name, Process: path, Priority: 1,
+		// 7045 names the service by its display name and 4697 by its
+		// service name: the program path is what they share.
+		DedupeKey: "svc|" + strings.ToLower(strings.Trim(strings.TrimSpace(path), `"`))}
+	e.Summary = fmt.Sprintf("A new service was installed: %s (%s)", name, path)
+	if by != "" {
+		e.Summary += " by " + by
+	}
+	e.Summary += "."
+	e.AddDetail("Service name", name)
+	e.AddDetail("Program", path)
+	e.AddDetail("Runs as", account)
+	return e
+}
+
+func (t *Translator) scheduledTask(r *Raw) *event.Event {
+	task := r.Get("TaskName")
+	if blackboxTask(task) {
+		return t.blackboxTask(r, task)
+	}
+	if t.ignoredAccount(r, "Subject") && r.EventID != 4698 {
+		return nil // Windows updates its own tasks constantly
+	}
+	user := t.subject(r)
+	verbs := map[int]string{4698: "created", 4699: "deleted", 4700: "enabled", 4701: "disabled", 4702: "updated"}
+	sev := event.SevLow
+	if r.EventID == 4698 {
+		sev = event.SevMedium
+	}
+	e := &event.Event{Category: event.CatOther, Severity: sev, Action: "scheduled_task_" + verbs[r.EventID],
+		User: user, Target: task,
+		Summary: fmt.Sprintf("Scheduled task %s was %s by %s.", task, verbs[r.EventID], orUnknown(user))}
+	e.AddDetail("Task", task)
+	if cmd := taskCommand(r.Get("TaskContent")); cmd != "" {
+		e.AddDetail("Runs", cmd)
+	}
+	return e
+}
+
+// taskCommand pulls <Command> and <Arguments> out of a task definition.
+// blackboxTask reports Blackbox's own scheduled tasks.
+func blackboxTask(name string) bool {
+	n := strings.ToLower(strings.TrimPrefix(name, `\`))
+	return n == "blackbox audit collection" || n == "blackbox status"
+}
+
+// blackboxTask is a change to Blackbox's own scheduled task (A5): deleted
+// or disabled stops collection. Created or updated is an install or
+// upgrade.
+func (t *Translator) blackboxTask(r *Raw, task string) *event.Event {
+	user := t.subject(r)
+	e := &event.Event{Category: event.CatIntegrity, User: user, Target: task}
+	switch r.EventID {
+	case 4699, 4701:
+		e.Action, e.Severity = "blackbox_stopped", event.SevHigh
+		verb := map[int]string{4699: "deleted", 4701: "disabled"}[r.EventID]
+		e.Summary = fmt.Sprintf("Blackbox's scheduled task %s was %s by %s — events are no longer collected.", task, verb, orUnknown(user))
+		if strings.EqualFold(strings.TrimPrefix(task, `\`), "Blackbox Status") {
+			e.Severity = event.SevMedium
+			e.Summary = fmt.Sprintf("Blackbox's status icon task was %s by %s.", verb, orUnknown(user))
+		}
+	case 4700:
+		e.Action, e.Severity = "blackbox_task_changed", event.SevLow
+		e.Summary = fmt.Sprintf("Blackbox's scheduled task %s was enabled by %s.", task, orUnknown(user))
+	default:
+		e.Action, e.Severity = "blackbox_task_changed", event.SevMedium
+		verb := map[int]string{4698: "created", 4702: "updated"}[r.EventID]
+		e.Summary = fmt.Sprintf("Blackbox's scheduled task %s was %s by %s (an install, upgrade or settings change).", task, verb, orUnknown(user))
+		e.DedupeKey = "bbtask|" + strings.ToLower(task)
+	}
+	e.AddDetail("Task", task)
+	if cmd := taskCommand(r.Get("TaskContent")); cmd != "" {
+		e.AddDetail("Runs", cmd)
+	}
+	return e
+}
+
+func taskCommand(xmlText string) string {
+	get := func(tag string) string {
+		i := strings.Index(xmlText, "<"+tag+">")
+		j := strings.Index(xmlText, "</"+tag+">")
+		if i < 0 || j < i {
+			return ""
+		}
+		return strings.TrimSpace(xmlText[i+len(tag)+2 : j])
+	}
+	return strings.TrimSpace(get("Command") + " " + get("Arguments"))
+}
+
+func (t *Translator) auditPolicyChanged(r *Raw) *event.Event {
+	user := t.subject(r)
+	sub := AuditSubcategories[strings.ToUpper(r.Get("SubcategoryGuid"))]
+	if sub == "" {
+		sub = expandTokens(r.Get("SubcategoryId"))
+	}
+	changes := expandTokens(r.Get("AuditPolicyChanges"))
+	sev := event.SevHigh
+	by := user
+	// Group Policy applies audit policy as SYSTEM, so a change by SYSTEM
+	// that turns auditing on is routine. One that turns it off stays
+	// High: anyone running auditpol as SYSTEM looks the same.
+	if t.ignoredAccount(r, "Subject") && !strings.Contains(strings.ToLower(changes), "removed") {
+		sev = event.SevMedium
+		by = "the system (usually Group Policy)"
+	} else if t.ignoredAccount(r, "Subject") {
+		by = "the system (Group Policy, or someone running a command as SYSTEM)"
+	}
+	e := &event.Event{Category: event.CatIntegrity, Severity: sev, Action: "audit_policy_changed",
+		User: user, Target: sub,
+		Summary: fmt.Sprintf("Audit policy for \"%s\" was changed by %s: %s.", sub, by, strings.ToLower(changes))}
+	e.AddDetail("Category", expandTokens(r.Get("CategoryId")))
+	e.AddDetail("Subcategory", sub)
+	e.AddDetail("Change", changes)
+	return e
+}
+
+func (t *Translator) timeChanged(r *Raw) *event.Event {
+	prev, err1 := time.Parse(time.RFC3339Nano, r.Get("PreviousTime"))
+	next, err2 := time.Parse(time.RFC3339Nano, r.Get("NewTime"))
+	svc := t.ignoredAccount(r, "Subject")
+	var delta time.Duration
+	if err1 == nil && err2 == nil {
+		delta = next.Sub(prev)
+		// Routine clock sync by the Windows Time service.
+		if svc && delta.Abs() < 5*time.Minute {
+			return nil
+		}
+	}
+	user := t.subject(r)
+	e := &event.Event{Category: event.CatIntegrity, Severity: event.SevMedium, Action: "time_changed",
+		User: user, Process: r.Get("ProcessName")}
+	if err1 == nil && err2 == nil {
+		e.Summary = fmt.Sprintf("System time was changed by %s, moving the clock %s %s.", orUnknown(user), roundDur(delta.Abs()), map[bool]string{true: "forward", false: "back"}[delta >= 0])
+	} else {
+		e.Summary = fmt.Sprintf("System time was changed by %s.", orUnknown(user))
+	}
+	e.AddDetail("Previous time", r.Get("PreviousTime"))
+	e.AddDetail("New time", r.Get("NewTime"))
+	e.AddDetail("Process", r.Get("ProcessName"))
+	return e
+}

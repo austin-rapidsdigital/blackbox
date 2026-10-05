@@ -298,7 +298,7 @@
     var q = function (s) {
       s = String(s == null ? '' : s);
       if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
-      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     };
     var kind = (this.page.KindLabel || 'kind').toLowerCase();
     var lines = ['time,system,person,target,source,what happened,' + kind + ',severity,event id,log,process,command,outcome'];

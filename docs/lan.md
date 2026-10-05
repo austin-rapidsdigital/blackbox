@@ -106,10 +106,18 @@ VM does not have to be on at a particular time:
 **On the collector** (a Windows PC or Windows Server):
 
 1. Run `Blackbox-Setup-<version>.exe` and choose **This is the collector**.
-2. Answer **yes** to "Share it on the network". Setup then:
-   - shares `C:\BlackboxInbox` as `\\COLLECTOR\BlackboxInbox`
+2. Answer **yes** to "Share it on the network", and enter the account
+   (or accounts) the other computers deliver as. Setup then:
+   - shares `C:\BlackboxInbox` as `\\COLLECTOR\BlackboxInbox`, encrypted,
+     with offline caching off (no copies of batches in client caches)
    - gives the local group **Blackbox Senders** permission to write to
-     it (and nobody else)
+     it (and nobody else), and adds those accounts to it
+   - checks that Windows Firewall lets file sharing in. Windows Server 2025
+     ships **File and Printer Sharing (SMB-In)** turned off; setup and
+     `blackbox status` say so, but Blackbox never changes the firewall.
+     Allowing it is your decision: for example
+     `Enable-NetFirewallRule -DisplayGroup "File and Printer Sharing"`, or
+     better, a rule for TCP 445 from the senders' addresses only.
 
 Senders sign in to the share with an account on the collector. Choose how:
 
@@ -183,14 +191,40 @@ The data simply waits until the mount is back.
    mount the inbox at boot. For example, in `/etc/fstab`:
 
    ```
-   bbsend@COLLECTOR:/C:/BlackboxInbox  /mnt/blackbox-inbox  fuse.sshfs  _netdev,reconnect,IdentityFile=/root/.ssh/blackbox,ServerAliveInterval=15  0 0
+   bbsend@COLLECTOR:/C:/BlackboxInbox  /mnt/blackbox-inbox  fuse.sshfs  _netdev,nofail,reconnect,IdentityFile=/root/.ssh/blackbox,ServerAliveInterval=15  0 0
    ```
+
+   `nofail` lets the computer start when the collector is down. You can
+   add `x-systemd.automount` as well.
 
 4. Run `sudo ./install.sh`, choose **Send to a collector**, and enter
    `/mnt/blackbox-inbox`.
 
-The installer and CI test VirtualBox shared folders and SMB shares. An
-SFTP mount goes through the same checks, but its setup is yours.
+For a folder like this, collection and delivery are separate (L8):
+
+- `blackbox.service` collects and queues, and does not name the folder.
+  A collector that is down, or a dead mount ("Transport endpoint is not
+  connected"), never stops collection.
+- `blackbox-send.service` delivers after each run. It runs `mount` for
+  the folder first, so a mount that failed at boot, or dropped, is tried
+  again at every run, as Blackbox does for an SMB share.
+- If delivery fails, the data waits; see
+  [When the collector can't be reached](#when-the-collector-cant-be-reached).
+
+The installer and CI test VirtualBox shared folders, SMB shares and a
+folder sender. An SFTP mount goes through the same checks, but its setup
+is yours.
+
+**FIPS mode.** SMB from Linux fails under FIPS (see above), so SFTP is
+the route there:
+
+- Use an ECDSA or RSA key. FIPS OpenSSH refuses ed25519:
+  `ssh-keygen -t ecdsa -b 384 -f /root/.ssh/blackbox`.
+- Pin the collector's host key by connecting once with `ssh`:
+  `sudo ssh -i /root/.ssh/blackbox bbsend@COLLECTOR exit`, then answer
+  "yes" after checking the fingerprint. `ssh-keyscan` aborts under FIPS.
+- A later option for domain-joined senders is SMB with Kerberos
+  (`sec=krb5`) and a machine keytab, which needs no NTLM.
 
 ## Day to day
 
@@ -240,6 +274,41 @@ current settings as the defaults. From a script, run
 `blackbox config set send_to \\NEWCOLLECTOR\BlackboxInbox` as an
 administrator. The share password is read from `BLACKBOX_SHARE_PASSWORD`.
 
+## When the collector can't be reached
+
+A sender keeps everything until the collector has it.
+
+- **What is kept, and where.** After each collection, new events become
+  numbered batches in the outbox: `/var/lib/blackbox/outbox` on Linux,
+  `C:\ProgramData\Blackbox\outbox` on Windows. The day's original logs
+  and the latest SCAP results wait there too.
+- **For how long.** Until they are delivered. Nothing in the outbox is
+  ever deleted to make room, however long the collector is away.
+- **What you see.**
+  - `blackbox status` gives the number waiting, when the oldest was
+    queued, and why the last delivery failed. On Linux the reason is in
+    the mount's own words, for example "nothing is mounted there; share
+    bbsend@COLLECTOR:/C:/BlackboxInbox; last mount error: ssh: connect
+    to host COLLECTOR port 22: No route to host".
+  - After 24 hours, status says **NOT SENT**, and `blackbox status` exits
+    with code 4, so monitoring can notice. It does the same when the data
+    folder's disk has less than 1 GB or 5% free.
+- **Sending now.** When the collector is back, the next scheduled run
+  sends everything, oldest first. To send at once, run `blackbox send` as
+  an administrator or root. The collector skips anything it already has,
+  and reports a gap only for batches that never arrive.
+
+In a re-test, 114 batches and 2 log archives queued over 27 hours were
+delivered in 47 seconds, with nothing rejected.
+
+## SCAP scan results
+
+A sender also sends its own SCAP scan results (see
+[STIG compliance](reports.md#stig-compliance-scap)) to the collector, each
+file once, compressed, next to its batches. The collector keeps them in
+`scap-received` in its data folder, and its reports show every
+computer's latest scan.
+
 ## What the report shows
 
 The report points these out, both on its Overview and Audit health pages
@@ -260,7 +329,8 @@ Run `blackbox status` on the sender first: it shows the last error.
 
 | Symptom | Likely cause |
 |---|---|
-| "collector inbox not available" | The share or shared folder is not reachable. Check the collector is on, the VM's shared folder is set up with Auto-mount, and the Linux mount: `systemctl status var-lib-blackbox-collector.mount` |
+| "collector inbox not available" | The share or shared folder is not reachable. The message says why, in the mount's own words. Check the collector is on, the VM's shared folder is set up with Auto-mount, and the Linux mount: `systemctl status var-lib-blackbox-collector.mount` (SMB) or `systemctl status blackbox-send.service` (a folder) |
+| Other computers can't reach `\\COLLECTOR\BlackboxInbox` | Windows Firewall blocks file sharing in (status says **FIREWALL**). See Scenario 3 |
 | "is not a Blackbox inbox" | The folder is reachable, but the collector has not been set up yet, or the path is wrong. Run the installer on the collector first |
 | Access denied on a Windows sender | The account is not in **Blackbox Senders** on the collector, or its password changed. Run the installer on the sender again to update it |
 | The VM cannot write to `/media/sf_BlackboxInbox` | The Windows account that runs VirtualBox is not in **Blackbox Senders**, or has not signed in again since it was added |

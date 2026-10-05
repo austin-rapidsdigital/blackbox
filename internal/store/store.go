@@ -70,6 +70,14 @@ type State struct {
 	Senders map[string]*SenderState `json:"senders,omitempty"` // by sender ID
 	Systems map[string]*System      `json:"systems,omitempty"` // by SystemKey(host)
 	Pending *PendingImport          `json:"pending_import,omitempty"`
+
+	// RemovedReports are report folders deleted under retention_days since
+	// the last scheduled report, which lists them (A9).
+	RemovedReports []string `json:"removed_reports,omitempty"`
+
+	// ScapSent are the SCAP result files (by SHA-256) a sender has queued
+	// for its collector, so each goes once.
+	ScapSent map[string]time.Time `json:"scap_sent,omitempty"`
 }
 
 // Gap records events lost before they could be collected.
@@ -106,6 +114,9 @@ type Run struct {
 	Duration float64      `json:"duration_seconds"`
 	Received time.Time    `json:"received,omitzero"` // when it arrived from another system (collector only)
 	Channels []ChannelRun `json:"channels"`
+	// AuditOff says, in plain words, that auditing was not running when
+	// this collection ran (Linux: auditd stopped, or kernel auditing off).
+	AuditOff string `json:"audit_off,omitempty"`
 }
 
 // Store is an opened data directory.

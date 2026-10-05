@@ -17,7 +17,7 @@ const DefenderQuery = "Get-MpComputerStatus | Select-Object AMServiceEnabled,Ant
 	"AntivirusSignatureVersion,AntivirusSignatureLastUpdated,AMProductVersion | ConvertTo-Json -Compress"
 
 // DefenderMaxAge is how old the definitions may be.
-const DefenderMaxAge = 7 * 24 * time.Hour
+const DefenderMaxAge = 30 * 24 * time.Hour
 
 const gpDefender = gpAdmin + " > Windows Components > Microsoft Defender Antivirus"
 
@@ -58,7 +58,7 @@ func (d *psDate) UnmarshalJSON(b []byte) error {
 
 // EvaluateDefender reads Get-MpComputerStatus output (see DefenderQuery).
 func EvaluateDefender(jsonText string, err error, now time.Time) []Result {
-	defs := Result{Area: "Antivirus", Item: "Defender security intelligence", Want: "Version created within the last 7 days",
+	defs := Result{Area: "Antivirus", Item: "Defender security intelligence", Want: "Version created within the last 30 days",
 		Affects: "Antivirus definitions", Fix: "Import the latest security intelligence update (mpam-fe.exe) from your update source onto this system. " +
 			"Group Policy: " + gpDefender + " > Security Intelligence Updates > Define file shares for downloading security intelligence updates"}
 	if err != nil || strings.TrimSpace(jsonText) == "" {

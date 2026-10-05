@@ -2,6 +2,15 @@
 
 Supports Ubuntu 22.04 and 24.04, and AlmaLinux 8.10.
 
+**Ubuntu 26.04 is not supported yet.** Blackbox already handles what
+changes there: OpenSSH 10's `sshd-session` and `sshd-auth`, the GNU
+tools renamed `gnurm`, `gnucp` and so on (shown by their usual names),
+and sudo-rs, which writes no audit record of the commands it runs
+(`blackbox check` flags it, and Blackbox reads sudo's journal lines
+instead, with or without a terminal). A sudo-rs command refused because
+the person is not in sudoers is logged nowhere. It is not yet tested on 26.04 in CI, so use it there at your
+own risk until it is listed here.
+
 No other software is needed. Blackbox is a single self-contained program:
 there is no Go or other runtime to install.
 
@@ -83,7 +92,7 @@ Blackbox includes a rules file that covers everything the report needs:
 
 ```sh
 sudo apt install auditd                 # Ubuntu (AlmaLinux: sudo dnf install audit)
-sudo blackbox check --audit-rules | sudo tee /etc/audit/rules.d/99-blackbox.rules
+sudo blackbox check --audit-rules | sudo tee /etc/audit/rules.d/zz-blackbox.rules
 sudo augenrules --load
 sudo blackbox check                     # lists anything still missing
 ```
@@ -92,13 +101,62 @@ Review the rules against your site's STIG checklist before using them. The
 last rule (`-e 2`) locks the rules until the next reboot, as the STIG
 requires.
 
+What the rules record, beyond logons and sudo (each is a report row):
+
+| Rules (key) | In the report |
+|---|---|
+| `perm_access` (EACCES and EPERM) | A person refused access to a file (Medium) |
+| `perm_mod` (chmod, chown, setxattr) | Permission and owner changes: setuid or setgid set High, files under `/etc`, `/usr`, `/var/log` and other system folders Medium, the rest Low; `setcap` High |
+| `delete` | Files deleted or renamed by a person (Low; system folders Medium), one row per folder |
+| `logon_config` | Changes to PAM and `/etc/security` (High), `sshd_config` and the login message scripts (Medium) |
+| `scheduled_jobs`, `systemd_units` | Cron jobs and systemd services or timers created or changed (Medium) |
+| `blackbox` | Changes to Blackbox's settings, data, program or timer by anything other than Blackbox (High) |
+| `privileged-*`, `modules`, `perm_chng` | The STIG's privileged programs, `kmod`, `setfacl`, `chacl` |
+| `session`, `logins` | utmp, wtmp, btmp, lastlog and faillock |
+
+Files written by the package manager (`dpkg`, `rpm`, `dnf`, `apt`) are
+not listed: the `sudo apt …` command that ran it is. Any other keyed rule,
+including your site's own, is still a row: "jsmith: the audit rule
+"my_rule" recorded openat on /srv/plan.txt".
+
+Files and folders are watched with `-a always,exit -F path=` (or `dir=`)
+rules, not `-w`, as the current STIGs write them. `--missing` treats the
+two as the same rule, so a baseline loaded with `-w` is not duplicated.
+
+**Watching Blackbox itself (AU-9).** Besides the `blackbox` rules above,
+commands that change Blackbox are reported High whoever runs them:
+`blackbox config set` for `exclude_users`, `exclude_processes`,
+`retention_days`, `report_dir`, `send_to` or `inbox` (other settings
+Medium), `systemctl stop`, `disable` or `mask` of `blackbox.timer`,
+`blackbox uninstall`, and deleting Blackbox's files.
+
+Blackbox also **records its own changes** (A15): when `blackbox config
+set`, setup or an upgrade actually writes a setting, it adds a row of its
+own saying who (the user who ran sudo, or the login user), which setting, and the value before and after,
+High for `exclude_users`, `exclude_processes`, `retention_days`,
+`report_dir`, `send_to`, `inbox` and `scap_results` (others Medium). It
+writes the same record to syslog/the journal with the ident `blackbox` (`journalctl -t blackbox`), so a copy exists outside its own folder.
+Installing, upgrading and removing Blackbox are recorded the same way. A
+`config set` command line with no matching record (refused, answered
+"no", failed, or the value was already set) is shown as "tried to change
+… (not applied)".
+
+**Changes with no one logged on.** Configuration management (Ansible or
+Salt run through `systemd-run`) has no login session, so its changes name
+no one. Changes to PAM, `/etc/security`, the SSH server settings,
+`/etc/audit` and systemd units made that way are shown at Low ("… were
+changed with no one logged on"). The tool's own log says who started it.
+Software updates are left out: their sudo command is the record. A
+program writing its own log that the STIG watches (sudo's
+`/var/log/sudo.log`, the logon records) is not a row of its own.
+
 **On a STIG-hardened system** (for example, one built with Ubuntu's USG
 or an Ansible STIG role), most of these rules are already loaded under
 other key names. Install only the ones that are missing, so nothing is
 recorded twice:
 
 ```sh
-sudo blackbox check --audit-rules --missing | sudo install -m 0600 /dev/stdin /etc/audit/rules.d/99-blackbox.rules
+sudo blackbox check --audit-rules --missing | sudo install -m 0600 /dev/stdin /etc/audit/rules.d/zz-blackbox.rules
 sudo augenrules --load
 ```
 
@@ -107,21 +165,47 @@ ignores key names, and leaves out watches on files that do not exist. If
 the loaded rules are locked (`-e 2`), the new ones take effect at the next
 reboot, and `blackbox check` says so.
 
-> **Ubuntu USG (`usg fix`) writes `/etc/audit/audit.rules` directly.**
-> `augenrules` rebuilds that file from `rules.d`, so adding any file to
-> `rules.d` would drop the STIG rules at the next `augenrules --load` or
-> reboot. `--missing` warns when this applies. Keep the existing rules
-> first:
->
-> ```sh
-> sudo install -m 0600 /etc/audit/audit.rules /etc/audit/rules.d/50-existing.rules
-> ```
+The file is named `zz-blackbox.rules` so it sorts after a STIG baseline's
+own files (`augenrules` reads `rules.d` in `ls -v` order). Where a rule is
+in both, the STIG's key is the one recorded, which `ausearch -k` and other
+tools expect. Earlier versions used `99-blackbox.rules`: `--missing` reads
+it as Blackbox's own and tells you to remove it when you save the new
+file, since `auditctl` stops loading at a duplicate rule. On a merged-/usr
+system, `/sbin/modprobe` and `/usr/sbin/modprobe` are one file, and
+`--missing` treats rules on either as the same.
+
+> **Rules only in `/etc/audit/audit.rules`.** `augenrules` rebuilds
+> `audit.rules` from `rules.d`. Rules that a tool wrote to `audit.rules`
+> without a matching `rules.d` file would be dropped at the next
+> `augenrules --load` or reboot. (Upstream SCAP Security Guide writes both
+> files, so this is rare.) `--missing` lists exactly those rules, if any;
+> save just those as `/etc/audit/rules.d/50-existing.rules` (mode 0600)
+> before adding Blackbox's file. Don't copy all of `audit.rules`: the rules
+> already in `rules.d` would then be loaded twice, and `auditctl` stops at
+> the first duplicate.
 
 `blackbox check` also looks for:
 
-- `audit=1` on the kernel command line
+- `audit=1` and `audit_backlog_limit=8192` on the kernel command line.
+  If they are in GRUB's settings but the running kernel doesn't have
+  them yet, it says "takes effect at the next boot".
 - the ENRICHED log format, which records names instead of user ID numbers
 - a large enough audit backlog
+- what auditd does as its disk fills (`auditd.conf`): `space_left_action`
+  must tell someone (email, exec or syslog), `admin_space_left_action`
+  single or halt, and `disk_full_action` and `disk_error_action` anything
+  but SUSPEND or IGNORE, which stop recording without anyone knowing;
+  `action_mail_acct` set
+- the audit log readable only by root (log 0600 or 0640, folder 0750)
+- time synchronisation: chrony or systemd-timesyncd running (AU-8)
+- sudo-rs, which records no audit events of sudo commands, and does not
+  log a refused command anywhere
+- ClamAV, when installed: definitions built within the last 30 days, and
+  its scanner service running (as Defender is checked on Windows). A
+  scanner running in a container counts as running; a masked `clamd`
+  unit (turned off on purpose) is shown for information, without
+  advice to enable it. On a FIPS host, a note says ClamAV's engine is not
+  FIPS 140 validated
 - a system log that survives reboots
 
 ## Where things are

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<arf:asset-report-collection xmlns:arf="http://scap.nist.gov/schema/asset-reporting-format/1.1" xmlns:core="http://scap.nist.gov/schema/reporting-core/1.1" xmlns:ai="http://scap.nist.gov/schema/asset-identification/1.1">
+  <arf:report-requests>
+    <arf:report-request id="collection1">
+      <arf:content>
+        <ds:data-stream-collection xmlns:ds="http://scap.nist.gov/schema/scap/source/1.2" id="scap_org.open-scap_collection_from_xccdf_ssg-ubuntu2204-xccdf.xml">
+          <ds:component id="scap_org.open-scap_comp_ssg-ubuntu2204-xccdf.xml">
+            <Benchmark xmlns="http://checklists.nist.gov/xccdf/1.2" id="xccdf_org.ssgproject.content_benchmark_UBUNTU2204" resolved="1">
+              <status>draft</status>
+              <title>Guide to the Secure Configuration of Ubuntu 22.04</title>
+              <version>0.1.74</version>
+              <Profile id="xccdf_org.ssgproject.content_profile_stig"><title>Canonical Ubuntu 22.04 LTS Security Technical Implementation Guide (STIG) V2R3</title></Profile>
+              <Group id="xccdf_org.ssgproject.content_group_auditing">
+                <title>System Accounting with auditd</title>
+                <Rule id="xccdf_org.ssgproject.content_rule_service_auditd_enabled" severity="medium"><title>Enable auditd Service</title><ident system="https://public.cyber.mil/stigs/srg-stig-tools/">UBTU-22-653010</ident></Rule>
+                <Rule id="xccdf_org.ssgproject.content_rule_grub2_audit_argument" severity="low"><title>Enable Auditing for Processes Which Start Prior to the Audit Daemon</title></Rule>
+                <Rule id="xccdf_org.ssgproject.content_rule_no_empty_passwords" severity="high"><title>Prevent Login to Accounts With Empty Password</title></Rule>
+              </Group>
+            </Benchmark>
+          </ds:component>
+        </ds:data-stream-collection>
+      </arf:content>
+    </arf:report-request>
+  </arf:report-requests>
+  <arf:reports>
+    <arf:report id="xccdf1">
+      <arf:content>
+        <TestResult xmlns="http://checklists.nist.gov/xccdf/1.2" id="xccdf_org.open-scap_testresult_xccdf_org.ssgproject.content_profile_stig" start-time="2026-09-30T02:00:00+00:00" end-time="2026-09-30T02:03:10+00:00" version="0.1.74" test-system="cpe:/a:redhat:openscap:1.3.6">
+          <benchmark href="#scap_org.open-scap_comp_ssg-ubuntu2204-xccdf.xml" id="xccdf_org.ssgproject.content_benchmark_UBUNTU2204"/>
+          <title>OSCAP Scan Result</title>
+          <profile idref="xccdf_org.ssgproject.content_profile_stig"/>
+          <target>ubu-01.lab.example</target>
+          <target-facts><fact name="urn:xccdf:fact:asset:identifier:fqdn" type="string">ubu-01.lab.example</fact><fact name="urn:xccdf:fact:asset:identifier:host_name" type="string">ubu-01</fact></target-facts>
+          <rule-result idref="xccdf_org.ssgproject.content_rule_service_auditd_enabled" role="full" time="2026-09-30T02:01:00+00:00" severity="medium" weight="1.000000"><result>pass</result></rule-result>
+          <rule-result idref="xccdf_org.ssgproject.content_rule_grub2_audit_argument" role="full" time="2026-09-30T02:01:00+00:00" severity="low" weight="1.000000"><result>fail</result></rule-result>
+          <rule-result idref="xccdf_org.ssgproject.content_rule_no_empty_passwords" role="full" time="2026-09-30T02:01:00+00:00" severity="high" weight="1.000000"><result>pass</result></rule-result>
+          <score system="urn:xccdf:scoring:default" maximum="100.000000">66.666664</score>
+        </TestResult>
+      </arf:content>
+    </arf:report>
+  </arf:reports>
+</arf:asset-report-collection>

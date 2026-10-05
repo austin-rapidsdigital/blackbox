@@ -193,6 +193,8 @@ func TestEverySettingRoundTrips(t *testing.T) {
 		{"send_to", abs("inbox #2"), func(c *Config) string { return c.SendTo }},
 		{"inbox", abs("inbox"), func(c *Config) string { return c.Inbox }},
 		{"share_user", "bbsend", func(c *Config) string { return c.ShareUser }},
+		{"scap_results", abs("SCC #1"), func(c *Config) string { return c.ScapResults }},
+		{"scap_max_age_days", "45", func(c *Config) string { return strconv.Itoa(c.ScapMaxAgeDays) }},
 	}
 	seen := map[string]bool{}
 	for _, tc := range cases {
@@ -218,5 +220,18 @@ func TestEverySettingRoundTrips(t *testing.T) {
 	}
 	if err := SetValue(filepath.Join(t.TempDir(), "c"), "site_name", `A "b" #2`); err == nil {
 		t.Error("a value with both a quote and \" #\" should be refused")
+	}
+}
+
+// §6: SCAP results are read from the data folder by default, from a
+// chosen folder, or not at all.
+func TestScapDir(t *testing.T) {
+	c := Default()
+	if c.ScapDir() != filepath.Join(c.DataDir, "scap") || c.ScapMaxAgeDays != 30 {
+		t.Errorf("default: %q %d", c.ScapDir(), c.ScapMaxAgeDays)
+	}
+	c.ScapResults = "none"
+	if c.ScapDir() != "" {
+		t.Errorf("none: %q", c.ScapDir())
 	}
 }

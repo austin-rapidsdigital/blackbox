@@ -254,3 +254,27 @@ func copyInto(src, dir, name string) error {
 	}
 	return nil
 }
+
+// OldestQueued is when the oldest item still waiting in the outbox (a
+// batch, log archive or SCAP result) was queued, and false when nothing
+// is waiting (L10).
+func OldestQueued(st *store.Store) (time.Time, bool) {
+	entries, err := os.ReadDir(OutboxDir(st))
+	if err != nil {
+		return time.Time{}, false
+	}
+	var oldest time.Time
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || strings.HasPrefix(n, ".") {
+			continue
+		}
+		if !strings.HasSuffix(n, batchExt) && !strings.HasSuffix(n, archiveExt) && !strings.HasSuffix(n, scapExt) {
+			continue
+		}
+		if fi, err := e.Info(); err == nil && (oldest.IsZero() || fi.ModTime().Before(oldest)) {
+			oldest = fi.ModTime()
+		}
+	}
+	return oldest, !oldest.IsZero()
+}

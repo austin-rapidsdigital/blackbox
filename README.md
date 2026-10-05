@@ -173,6 +173,39 @@ go test ./...
 VERSION=0.2.0 scripts/build.sh    # packages in dist/
 ```
 
+## Verifying a release
+
+Each release has a `SHA256SUMS` file. After copying the downloads to the
+air-gapped system, check them:
+
+```sh
+sha256sum -c SHA256SUMS            # Linux
+```
+
+```powershell
+Get-FileHash Blackbox-Setup-<version>.exe -Algorithm SHA256   # Windows: compare with SHA256SUMS
+```
+
+When a release also has `SHA256SUMS.asc`, the checksums are signed: check
+the signature on a connected machine with the project's release key,
+before copying anything across:
+
+```sh
+gpg --import blackbox-release-key.asc     # the key published below
+gpg --verify SHA256SUMS.asc SHA256SUMS
+```
+
+**Release key:** not published yet. Releases are signed once the
+maintainer adds the key to the repository's secrets; its fingerprint
+and public key will be listed here, so it can be checked against a copy
+from a second source.
+
+When the release is code-signed, `Blackbox-Setup-<version>.exe` and the
+`blackbox.exe` and `blackboxw.exe` it installs carry an Authenticode
+signature (Properties > Digital Signatures). `blackbox-<version>.spdx.json`
+is the software bill of materials (SPDX 2.3): Blackbox and the Go
+standard library, nothing else.
+
 ## License
 
 Copyright 2026 Austin Case. Licensed under the [Apache License, Version 2.0](LICENSE).

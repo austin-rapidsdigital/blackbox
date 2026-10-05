@@ -169,7 +169,7 @@ var pageSpecs = map[string]pageSpec{
 			switch {
 			case has(e.Action, "log_cleared", "log_tampered", "audit_tamper"):
 				return "Log cleared"
-			case has(e.Action, "audit_policy", "audit_disabled", "audit_enabled", "audit_locked", "audit_rules"):
+			case has(e.Action, "audit_policy", "audit_disabled", "audit_enabled", "audit_locked", "audit_rules", "blackbox_config", "object_audit"):
 				return "Audit policy changed"
 			}
 			return "Logging stopped"
@@ -192,15 +192,17 @@ var pageSpecs = map[string]pageSpec{
 		cols: []Column{{"Time", "time"}, {"System", "host"}, {"Person", "user"}, {"Script", "cmd"}, {"Kind", "kind"}, {"Severity", "sev"}},
 	},
 	"other": {
-		kinds: []pageKind{{"Services and tasks", colAccent}, {"Malware and antivirus", colBad}, {"Kernel and access control", colKind3}, {"System", colKind2}},
+		kinds: []pageKind{{"Services and tasks", colAccent}, {"Malware and antivirus", colBad}, {"Kernel and access control", colKind3}, {"System", colKind2}, {"Not translated", colKind4}},
 		kindOf: func(e *event.Event) string {
 			switch {
 			case has(e.Action, "service_", "scheduled_task"):
 				return "Services and tasks"
 			case has(e.Action, "malware", "av_"):
 				return "Malware and antivirus"
-			case has(e.Action, "module_", "mac_", "selinux", "apparmor", "promiscuous"):
+			case has(e.Action, "module_", "mac_", "selinux", "apparmor", "promiscuous", "file_"):
 				return "Kernel and access control"
+			case e.Action == "other_security":
+				return "Not translated"
 			}
 			return "System"
 		},

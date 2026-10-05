@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cdf:Benchmark xmlns:cdf="http://checklists.nist.gov/xccdf/1.2" xmlns:dc="http://purl.org/dc/elements/1.1/" id="xccdf_mil.disa.stig_benchmark_MS_Windows_11_STIG" resolved="1" xml:lang="en">
+  <cdf:status date="2026-07-23">accepted</cdf:status>
+  <cdf:title>Microsoft Windows 11 Security Technical Implementation Guide</cdf:title>
+  <cdf:description>This STIG is synthetic test data for Blackbox.</cdf:description>
+  <cdf:plain-text id="release-info">Release: 8 Benchmark Date: 23 Jul 2026</cdf:plain-text>
+  <cdf:version>2</cdf:version>
+  <cdf:Profile id="xccdf_mil.disa.stig_profile_MAC-1_Classified"><cdf:title>I - Mission Critical Classified</cdf:title><cdf:select idref="xccdf_mil.disa.stig_group_V-253254" selected="true"/></cdf:Profile>
+  <cdf:Group id="xccdf_mil.disa.stig_group_V-253254"><cdf:title>SRG-OS-000480-GPOS-00227</cdf:title>
+    <cdf:Rule id="xccdf_mil.disa.stig_rule_SV-253254r991589_rule" severity="high" weight="10.0"><cdf:version>WN11-00-000005</cdf:version><cdf:title>Domain-joined systems must use Windows 11 Enterprise Edition 64-bit.</cdf:title><cdf:ident system="http://cyber.mil/cci">CCI-000366</cdf:ident></cdf:Rule>
+  </cdf:Group>
+  <cdf:Group id="xccdf_mil.disa.stig_group_V-253256"><cdf:title>SRG-OS-000480-GPOS-00227</cdf:title>
+    <cdf:Rule id="xccdf_mil.disa.stig_rule_SV-253256r958478_rule" severity="medium" weight="10.0"><cdf:version>WN11-00-000015</cdf:version><cdf:title>Local volumes must be formatted using NTFS.</cdf:title><cdf:ident system="http://cyber.mil/cci">CCI-000366</cdf:ident></cdf:Rule>
+  </cdf:Group>
+  <cdf:Group id="xccdf_mil.disa.stig_group_V-253260"><cdf:title>SRG-OS-000480-GPOS-00227</cdf:title>
+    <cdf:Rule id="xccdf_mil.disa.stig_rule_SV-253260r958480_rule" severity="medium" weight="10.0"><cdf:version>WN11-00-000040</cdf:version><cdf:title>Systems must have BitLocker enabled.</cdf:title><cdf:ident system="http://cyber.mil/cci">CCI-000366</cdf:ident></cdf:Rule>
+  </cdf:Group>
+  <cdf:Group id="xccdf_mil.disa.stig_group_V-253283"><cdf:title>SRG-OS-000480-GPOS-00227</cdf:title>
+    <cdf:Rule id="xccdf_mil.disa.stig_rule_SV-253283r958552_rule" severity="medium" weight="10.0"><cdf:version>WN11-AU-000005</cdf:version><cdf:title>The system must be configured to audit Account Logon - Credential Validation failures.</cdf:title><cdf:ident system="http://cyber.mil/cci">CCI-000366</cdf:ident></cdf:Rule>
+  </cdf:Group>
+  <cdf:Group id="xccdf_mil.disa.stig_group_V-253300"><cdf:title>SRG-OS-000480-GPOS-00227</cdf:title>
+    <cdf:Rule id="xccdf_mil.disa.stig_rule_SV-253300r958840_rule" severity="low" weight="10.0"><cdf:version>WN11-CC-000005</cdf:version><cdf:title>Camera access from the lock screen must be disabled.</cdf:title><cdf:ident system="http://cyber.mil/cci">CCI-000366</cdf:ident></cdf:Rule>
+  </cdf:Group>
+  <cdf:TestResult id="xccdf_mil.disa.stig_testresult_scap_mil.disa_comp_WS-07" start-time="2026-09-29T10:00:00" end-time="2026-09-29T10:05:00" version="1" test-system="cpe:/a:spawar:scc:5.10">
+    <cdf:benchmark href="#xccdf_mil.disa.stig_benchmark_MS_Windows_11_STIG" id="xccdf_mil.disa.stig_benchmark_MS_Windows_11_STIG"/>
+    <cdf:title>SCAP Compliance Checker - 5.10</cdf:title>
+    <cdf:profile idref="xccdf_mil.disa.stig_profile_MAC-1_Classified"/>
+    <cdf:target>WS-07</cdf:target>
+    <cdf:target-address>10.1.1.7</cdf:target-address>
+    <cdf:target-facts><cdf:fact name="urn:scap:fact:asset:identifier:fqdn" type="string">WS-07.corp.example</cdf:fact><cdf:fact name="urn:scap:fact:asset:identifier:host_name" type="string">WS-07</cdf:fact></cdf:target-facts>
+    <cdf:rule-result idref="xccdf_mil.disa.stig_rule_SV-253254r991589_rule" severity="high" time="2026-09-29T10:04:00" version="WN11-00-000005" weight="10.0"><cdf:result>fail</cdf:result></cdf:rule-result>
+    <cdf:rule-result idref="xccdf_mil.disa.stig_rule_SV-253256r958478_rule" severity="medium" time="2026-09-29T10:04:00" version="WN11-00-000015" weight="10.0"><cdf:result>pass</cdf:result></cdf:rule-result>
+    <cdf:rule-result idref="xccdf_mil.disa.stig_rule_SV-253260r958480_rule" severity="medium" time="2026-09-29T10:04:00" version="WN11-00-000040" weight="10.0"><cdf:result>pass</cdf:result></cdf:rule-result>
+    <cdf:rule-result idref="xccdf_mil.disa.stig_rule_SV-253283r958552_rule" severity="medium" time="2026-09-29T10:04:00" version="WN11-AU-000005" weight="10.0"><cdf:result>fail</cdf:result></cdf:rule-result>
+    <cdf:rule-result idref="xccdf_mil.disa.stig_rule_SV-253300r958840_rule" severity="low" time="2026-09-29T10:04:00" version="WN11-CC-000005" weight="10.0"><cdf:result>fail</cdf:result></cdf:rule-result>
+    <cdf:score system="urn:xccdf:scoring:spp" maximum="100">40.00</cdf:score>
+  </cdf:TestResult>
+</cdf:Benchmark>

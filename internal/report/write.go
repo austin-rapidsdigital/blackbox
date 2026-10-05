@@ -40,6 +40,8 @@ type Summary struct {
 	Lost        uint64         `json:"events_lost"`
 	LogClears   int            `json:"log_clears"`
 	AuditOff    int            `json:"audit_off_periods,omitempty"`
+	Removed     []string       `json:"removed_reports,omitempty"` // deleted under retention_days since the last report
+	Scap        []ScapSummary  `json:"scap,omitempty"`            // STIG compliance from the latest SCAP scans
 	Version     string         `json:"blackbox_version"`
 	Source      string         `json:"source"`
 	Systems     []SystemStatus `json:"systems,omitempty"`
@@ -117,6 +119,8 @@ func (r *Report) summary() Summary {
 		s.Lost += g.Lost
 	}
 	s.AuditOff = len(r.Health.AuditOff)
+	s.Removed = r.Removed
+	s.Scap = r.scapSummary()
 	if r.ShowSystems() {
 		for _, sys := range r.SystemRows {
 			st := SystemStatus{Name: sys.Name, Status: sys.Status, LastRun: sys.LastRun, Events: sys.Events, High: sys.High, Explanation: sys.StatusMsg}
@@ -152,6 +156,11 @@ func (r *Report) Write(dir string) error {
 		st.Contents, _ = archive.Contents(dst)
 		r.archiveState[a.Name] = st
 	}
+	// The SCAP results shown, copied in first so the page can link them.
+	scapSums, err := r.scapFiles(dir)
+	if err != nil {
+		return err
+	}
 	pages, data, err := r.buildData()
 	if err != nil {
 		return fmt.Errorf("event data: %w", err)
@@ -176,8 +185,14 @@ func (r *Report) Write(dir string) error {
 	for _, f := range data {
 		contents["data/"+f.Name] = f.Body
 	}
+	if len(scapSums) > 0 {
+		contents["scap-open-rules.csv"] = r.scapCSV()
+	}
 
 	sums := map[string]string{}
+	for name, sum := range scapSums {
+		sums[name] = sum
+	}
 	for _, a := range r.Archives {
 		if a.Path != "" {
 			sums[a.Name] = a.SHA256
@@ -319,8 +334,9 @@ func Verify(dir string) ([]string, error) {
 		}
 		n++
 		listed[name] = true
-		// Files are in the report folder, or (event data) in its data folder.
-		base := strings.TrimPrefix(name, "data/")
+		// Files are in the report folder, or in its data (event data) or
+		// scap (scan results) folder.
+		base := strings.TrimPrefix(strings.TrimPrefix(name, "data/"), "scap/")
 		if strings.ContainsAny(base, `/\`) || base == ".." || base == "." || base == "" {
 			problems = append(problems, fmt.Sprintf("%s: unexpected path in manifest", name))
 			continue
@@ -340,25 +356,68 @@ func Verify(dir string) ([]string, error) {
 	if n == 0 {
 		return nil, fmt.Errorf("manifest.sha256 lists no files")
 	}
-	// Every report lists its page and its summary; a manifest without
-	// them was cut down.
-	for _, name := range []string{"report.html", "summary.json"} {
-		if !listed[name] {
-			problems = append(problems, fmt.Sprintf("%s: not in the manifest", name))
+	// Every file the report needs must be listed: its page, its summary,
+	// and (V1) the event data the page loads and events.zip. A manifest
+	// without them was cut down or replaced.
+	reported := map[string]bool{}
+	for _, name := range neededFiles(dir) {
+		if listed[name] {
+			continue
+		}
+		reported[name] = true
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			// One line for it, not also "added after the report" (V2).
+			problems = append(problems, fmt.Sprintf("%s: not in the manifest, though the report needs it (the manifest was cut down or replaced)", name))
+		} else {
+			problems = append(problems, fmt.Sprintf("%s: missing, and not in the manifest (the report needs it)", name))
 		}
 	}
 	// A file the manifest doesn't list was added (or renamed) afterwards.
-	for _, sub := range []string{"", "data"} {
+	for _, sub := range []string{"", "data", "scap"} {
 		entries, _ := os.ReadDir(filepath.Join(dir, sub))
 		for _, e := range entries {
 			name := path.Join(sub, e.Name())
-			if e.IsDir() || listed[name] || name == "manifest.sha256" || ignoredFile[strings.ToLower(e.Name())] {
+			if e.IsDir() || listed[name] || reported[name] || name == "manifest.sha256" || ignoredFile[strings.ToLower(e.Name())] {
 				continue
 			}
 			problems = append(problems, fmt.Sprintf("%s: not in the manifest (added after the report was produced)", name))
 		}
 	}
 	return problems, nil
+}
+
+// neededFiles are the files a report can't do without: report.html,
+// summary.json, and, for a report that loads its events from data files,
+// every one of them and events.zip.
+func neededFiles(dir string) []string {
+	need := []string{"report.html", "summary.json"}
+	b, err := os.ReadFile(filepath.Join(dir, "report.html"))
+	if err != nil {
+		return need
+	}
+	const open = `<script type="application/json" id="bb-meta">`
+	i := bytes.Index(b, []byte(open))
+	if i < 0 {
+		return need // a report from before data files
+	}
+	rest := b[i+len(open):]
+	j := bytes.Index(rest, []byte("</script>"))
+	if j < 0 {
+		return need
+	}
+	var meta struct {
+		Sums map[string]string `json:"sums"`
+	}
+	if json.Unmarshal(rest[:j], &meta) != nil {
+		return need
+	}
+	need = append(need, "events.zip")
+	var data []string
+	for name := range meta.Sums {
+		data = append(data, "data/"+name)
+	}
+	sort.Strings(data)
+	return append(need, data...)
 }
 
 // ignoredFile are files Windows and macOS add to folders by themselves.
@@ -551,6 +610,16 @@ func fileSHA256(path string) (string, error) {
 // came from (the data folder, Administrators and SYSTEM only), while a new
 // file takes the report folder's, like the rest of the report.
 func copyIn(src, dst string) (string, error) {
+	sum, err := copyFile(src, dst)
+	if err != nil {
+		return "", err
+	}
+	return sum, os.Remove(src)
+}
+
+// copyFile copies src to dst, leaving src as it is, and returns the
+// copy's SHA-256.
+func copyFile(src, dst string) (string, error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return "", err
@@ -579,8 +648,7 @@ func copyIn(src, dst string) (string, error) {
 	if err := os.Rename(part, dst); err != nil {
 		return "", err
 	}
-	in.Close()
-	return hex.EncodeToString(h.Sum(nil)), os.Remove(src)
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // archiveState is what Write found about one original-log zip.

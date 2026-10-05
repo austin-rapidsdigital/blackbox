@@ -1,6 +1,8 @@
 package report
 
 import (
+	"github.com/casea1/blackbox/internal/winevt"
+
 	"fmt"
 	"sort"
 	"strings"
@@ -36,7 +38,7 @@ func healthColumn(res check.Result) string {
 		return ""
 	case area == "antivirus":
 		return "Antivirus"
-	case area == "event log size", has("audit log space", "audit backlog"):
+	case area == "event log size", has("audit log space", "audit backlog", "space_left", "disk_full", "disk_error", "action_mail"):
 		return "Log size"
 	case has("powershell"):
 		return "PowerShell logging"
@@ -44,7 +46,7 @@ func healthColumn(res check.Result) string {
 		return "Removable storage"
 	case has("process creation", "command line", "commands run as root"):
 		return "Process creation"
-	case has("sensitive privilege", "raised privileges"):
+	case has("sensitive privilege", "raised privileges", "sudo records"):
 		return "Privilege use"
 	case has("policy change", "force audit policy", "sudoers", "audit configuration", "rules locked"):
 		return "Policy change"
@@ -75,6 +77,7 @@ type HealthRow struct {
 // SettingLine is one line of a system's settings table.
 type SettingLine struct {
 	Check, STIG, Want, Have, Result, Class, Fix string
+	Note                                        string // how the report covers it, when it doesn't review it
 }
 
 // GapCard is one gap on the Audit health page.
@@ -92,6 +95,36 @@ type HealthPage struct {
 	Gaps    []GapCard
 	Single  string // a report of one system opens its table directly
 	Checked int
+	Other   []OtherRow // Security-log events Blackbox doesn't translate
+	Scap    []ScapRow  // STIG compliance from SCAP scans
+}
+
+// OtherRow is one Security-log event ID Blackbox has no translation for,
+// with how many were read in this period.
+type OtherRow struct {
+	ID     int
+	Name   string
+	Count  int
+	Listed bool   // shown as "Security event <ID>" rows; otherwise only counted
+	Href   string // the rows, in Search
+}
+
+// otherEvents lists the Security-log events read in this period that the
+// report doesn't translate, busiest first (A1).
+func (r *Report) otherEvents() []OtherRow {
+	var out []OtherRow
+	for _, v := range r.Health.Volume {
+		if v.Channel != "Security" || v.EventID == 0 || winevt.Reviewed[v.EventID] {
+			continue
+		}
+		o := OtherRow{ID: v.EventID, Name: orDash(winevt.EventNames[v.EventID]), Count: v.Count, Listed: !winevt.Counted[v.EventID]}
+		if o.Listed {
+			o.Href = searchLink("page", "other", "text", fmt.Sprintf("Security event %d", v.EventID))
+		}
+		out = append(out, o)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Count > out[j].Count })
+	return out
 }
 
 // HealthGroup is a group of rows in the grid.
@@ -116,7 +149,7 @@ func (r *Report) healthPage() *HealthPage {
 			return nil
 		}
 	}
-	hp := &HealthPage{Cols: healthCols}
+	hp := &HealthPage{Cols: healthCols, Other: r.otherEvents(), Scap: r.scapTable}
 	cleared := map[string][]*Row{}
 	for _, row := range r.rows {
 		if row.Action == "log_cleared" {
@@ -261,6 +294,10 @@ func (r *Report) healthPage() *HealthPage {
 				Explain: fmt.Sprintf("Cleared%s on %s%s. Events from before then are only in the original-log archive.", times(n),
 					cleared[h][0].Time.In(r.Location).Format("2 Jan 15:04"), by)}, s.Name)
 		}
+		if s.AuditOff != "" {
+			addGap("auditoff", GapCard{Title: "Auditing is off", Level: "bad",
+				Explain: "At the last collection auditing was not running (the audit service stopped, or kernel auditing switched off), so nothing was being recorded. Start it with systemctl start auditd, and auditctl -e 1 if kernel auditing is off. The system's own page says which."}, s.Name)
+		}
 		if s.Status == "silent" {
 			addGap("silent", GapCard{Title: "No data received", Level: "bad",
 				Explain: "No collection arrived in this period. Check the system is on and can reach the collector."}, s.Name)
@@ -306,6 +343,14 @@ func (r *Report) healthPage() *HealthPage {
 					continue
 				}
 				l := SettingLine{Check: res.Item, STIG: res.STIG, Want: orDash(res.Want), Have: orDash(res.Have), Fix: res.Fix}
+				if res.Area == "Audit policy" {
+					switch winevt.SubcategoryReviewed(res.Item) {
+					case "counted":
+						l.Note = "Not reviewed: Blackbox only counts these events (see Other Security-log events below). The original logs are in the archive."
+					case "other":
+						l.Note = "Not translated: these events are listed only as \"Security event <ID>\" rows on Other security."
+					}
+				}
 				switch res.Status {
 				case check.Pass:
 					l.Result, l.Class = "Matches", "ok"

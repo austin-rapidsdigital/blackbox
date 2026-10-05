@@ -13,8 +13,16 @@ import (
 //go:embed blackbox-audit.rules
 var AuditRules string
 
-// RulesFile is where the recommended rules are meant to be saved.
-const RulesFile = "/etc/audit/rules.d/99-blackbox.rules"
+// RulesFile is where the recommended rules are meant to be saved. It sorts
+// after a STIG baseline's own files (augenrules reads rules.d in
+// "ls -v" order: actions.rules, privileged.rules …), so where a rule is in
+// both, the STIG's key is the one recorded (I1).
+const RulesFile = "/etc/audit/rules.d/zz-blackbox.rules"
+
+// OldRulesFiles are where earlier versions saved the rules. They are read
+// as Blackbox's own, and the file should be removed when RulesFile is
+// saved: auditctl stops loading at a duplicate rule.
+var OldRulesFiles = []string{"/etc/audit/rules.d/99-blackbox.rules"}
 
 // rulesFix lists only the rules that are not already loaded (see
 // MissingRules), so a STIG baseline's own rules are never duplicated.
@@ -81,6 +89,20 @@ var linuxRuleReqs = []ruleReq{
 	{"System time changes", "Audit & System Integrity", false,
 		func(r []string) bool { return anyRule(r, "settimeofday") || anyRule(r, "clock_settime") }},
 	{"Audit configuration watched (/etc/audit)", "Audit & System Integrity", false, watches("/etc/audit/")},
+	{"Unsuccessful file access (EACCES and EPERM)", "Other Security Events (files a person was refused)", true,
+		func(r []string) bool { return anyRule(r, "EACCES") && anyRule(r, "EPERM") }},
+	{"Permission and ownership changes (chmod, chown, setxattr)", "Other Security Events (setuid and permission changes)", true,
+		func(r []string) bool { return anyRule(r, "chmod") && anyRule(r, "chown") && anyRule(r, "setxattr") }},
+	{"Logon records watched (utmp, wtmp, btmp)", "Logon Activity", true,
+		func(r []string) bool {
+			return (watches("/var/run/utmp")(r) || watches("/run/utmp")(r)) && watches("/var/log/wtmp")(r) && watches("/var/log/btmp")(r)
+		}},
+	{"Module and ACL tools (kmod, setfacl, chacl)", "Other Security Events", true,
+		func(r []string) bool {
+			return (watches("/usr/bin/kmod")(r) || watches("/bin/kmod")(r)) && (watches("/usr/bin/setfacl")(r) || watches("/bin/setfacl")(r)) &&
+				(watches("/usr/bin/chacl")(r) || watches("/bin/chacl")(r))
+		}},
+	{"Blackbox's own files watched (/etc/blackbox)", "Audit & System Integrity (changes to Blackbox's settings)", false, watches("/etc/blackbox/")},
 }
 
 // EvaluateAuditRules compares `auditctl -l` and `auditctl -s` output with
@@ -180,14 +202,4 @@ func EvaluateAuditdConf(conf map[string]string) []Result {
 var cmdlineAuditRE = regexp.MustCompile(`(^|\s)audit=1(\s|$)`)
 
 // EvaluateCmdline checks that auditing starts at boot, before auditd.
-func EvaluateCmdline(cmdline string) Result {
-	r := Result{Area: "Boot", Item: "audit=1 on the kernel command line", Want: "Present",
-		Affects: "Activity during boot, before the audit service starts"}
-	if cmdlineAuditRE.MatchString(cmdline) {
-		r.Status, r.Have = Pass, "Present"
-	} else {
-		r.Status, r.Have = Fail, "Missing"
-		r.Fix = `add audit=1 to GRUB_CMDLINE_LINUX in /etc/default/grub, then run update-grub (Ubuntu) or grub2-mkconfig -o /boot/grub2/grub.cfg (Alma)`
-	}
-	return r
-}
+func EvaluateCmdline(cmdline string) Result { return EvaluateBoot(cmdline, "")[0] }

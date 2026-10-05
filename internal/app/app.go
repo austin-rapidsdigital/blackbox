@@ -3,6 +3,9 @@
 package app
 
 import (
+	"errors"
+	"github.com/casea1/blackbox/internal/scap"
+
 	"fmt"
 	"os"
 	"path/filepath"
@@ -35,6 +38,13 @@ type App struct {
 	LiveLogs func(host string, from, to time.Time) ([]*event.Event, []string, error)
 	// BootTime is when this computer last started (tests replace it).
 	BootTime func() time.Time
+	// QuietSend leaves the send result out of the log, for a caller that
+	// says it in its own words (setup), so it isn't printed twice (L4).
+	QuietSend bool
+	// NoDeliver makes the data ready to send but leaves delivery to
+	// blackbox-send.service (Linux, a folder the site mounted), so a
+	// delivery problem never stops collection (L8).
+	NoDeliver bool
 }
 
 func (a *App) now() time.Time {
@@ -64,6 +74,31 @@ func (a *App) ReportsDir() string { return a.Cfg.ReportsDir() }
 // logs (this computer's own, and those received from senders) until a
 // report takes them into its folder.
 func (a *App) pendingLogsDir() string { return filepath.Join(a.Cfg.DataDir, "archives") }
+
+// scapReceivedDir is where a collector keeps the SCAP results senders
+// deliver, by computer.
+func (a *App) scapReceivedDir() string { return filepath.Join(a.Cfg.DataDir, "scap-received") }
+
+// scapScans reads the SCAP results to show in a report: from the
+// scap_results folder and, on a collector, those senders delivered.
+func (a *App) scapScans() []*scap.Scan {
+	dir := a.Cfg.ScapDir()
+	if dir == "" {
+		return nil
+	}
+	if dir == filepath.Join(a.Cfg.DataDir, "scap") {
+		os.MkdirAll(dir, 0o750) // the default folder, ready for results
+	}
+	found, notes := scap.Find(dir, a.scapReceivedDir())
+	for _, n := range notes {
+		a.logf("SCAP results: %s", n)
+	}
+	out := make([]*scap.Scan, 0, len(found))
+	for _, s := range found {
+		out = append(out, s)
+	}
+	return out
+}
 
 // legacyLogsDir is where version 0.4 kept the daily archives; any left
 // there go into the next report too.
@@ -226,12 +261,15 @@ func (a *App) receive(st *store.Store) {
 			return
 		}
 	}
-	res, err := lan.Import(st, a.Cfg.Inbox, a.pendingLogsDir(), a.now(), a.Logf)
+	res, err := lan.Import(st, a.Cfg.Inbox, lan.Dirs{Archives: a.pendingLogsDir(), Scap: a.scapReceivedDir()}, a.now(), a.Logf)
 	if err != nil {
 		a.logf("receiving from %s: %v", a.Cfg.Inbox, err)
 	}
 	if res.Batches > 0 {
 		a.logf("received %d batch%s (%d records) from other systems", res.Batches, map[bool]string{true: "es"}[res.Batches != 1], res.Records)
+	}
+	if res.Scap > 0 {
+		a.logf("received %d SCAP scan result(s) from other systems", res.Scap)
 	}
 	if res.Archives > 0 {
 		a.logf("received %d log archive(s) from other systems", res.Archives)
@@ -243,6 +281,7 @@ type SendResult struct {
 	Made, Delivered, Waiting int
 	ArchivesDelivered        int
 	ArchivesWaiting          int
+	ScapDelivered            int
 	Err                      error
 }
 
@@ -253,6 +292,28 @@ func (a *App) send(st *store.Store) SendResult {
 	var r SendResult
 	host := collect.LocalHost()
 	r.Made, r.Err = lan.Export(st, host, a.Version, a.now())
+	// This computer's latest SCAP results go to the collector too.
+	if dir := a.Cfg.ScapDir(); dir != "" && r.Err == nil {
+		found, _ := scap.Find(dir)
+		var files []string
+		for _, s := range found {
+			if store.SystemKey(s.Latest.Host) != store.SystemKey(host) {
+				continue
+			}
+			files = append(files, s.Latest.File)
+			if s.Previous != nil {
+				files = append(files, s.Previous.File)
+			}
+		}
+		if _, err := lan.QueueScap(st, files, a.now()); err != nil {
+			a.logf("queueing SCAP results: %v", err)
+		}
+	}
+	if r.Err == nil && a.NoDeliver {
+		r.Waiting = lan.Queued(st)
+		r.ArchivesWaiting = lan.QueuedArchives(st)
+		return r
+	}
 	if r.Err == nil {
 		dest, err := share.Destination(a.Cfg)
 		if err != nil {
@@ -261,6 +322,13 @@ func (a *App) send(st *store.Store) SendResult {
 			r.Delivered, r.Err = lan.Deliver(st, dest, host)
 			if r.Err == nil {
 				r.ArchivesDelivered, r.Err = lan.DeliverArchives(st, dest)
+			}
+			if r.Err == nil {
+				r.ScapDelivered, r.Err = lan.DeliverScap(st, dest)
+			}
+			if errors.Is(r.Err, lan.ErrNoInbox) {
+				// Why, in the mount's own words (L6).
+				r.Err = fmt.Errorf("%w (%s)", r.Err, share.Why(a.Cfg, dest))
 			}
 		}
 	}
@@ -277,12 +345,36 @@ func (a *App) send(st *store.Store) SendResult {
 		st.Save()
 	}
 	switch {
+	case a.QuietSend:
 	case r.Err != nil:
 		a.logf("could not send to the collector: %v; %d batch(es) waiting, will retry next run", r.Err, r.Waiting)
-	case r.Delivered > 0 || r.ArchivesDelivered > 0:
-		a.logf("sent %d batch(es) and %d log archive(s) to the collector", r.Delivered, r.ArchivesDelivered)
+	case r.Delivered > 0 || r.ArchivesDelivered > 0 || r.ScapDelivered > 0:
+		a.logf("sent %s to the collector", sentText(r)) // SC2: SCAP results counted too
 	}
 	return r
+}
+
+// sentText is "3 batches, 1 log archive and 2 SCAP results".
+func sentText(r SendResult) string {
+	var parts []string
+	for _, p := range []struct {
+		n          int
+		one, other string
+	}{{r.Delivered, "batch", "batches"}, {r.ArchivesDelivered, "log archive", "log archives"}, {r.ScapDelivered, "SCAP result", "SCAP results"}} {
+		switch {
+		case p.n == 1:
+			parts = append(parts, "1 "+p.one)
+		case p.n > 1:
+			parts = append(parts, fmt.Sprintf("%d %s", p.n, p.other))
+		}
+	}
+	switch len(parts) {
+	case 0:
+		return "nothing"
+	case 1:
+		return parts[0]
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
 }
 
 // Scheduled is what the scheduled task runs: collect (and receive, on a
@@ -410,7 +502,11 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 	}
 	sort.Slice(sets, func(i, j int) bool { return strings.ToLower(sets[i].Host) < strings.ToLower(sets[j].Host) })
 
+	scans := a.scapScans()
 	r := report.Build(events, runs, report.Options{
+		// The STIG compliance table shows once SCAP is in use: a folder
+		// chosen in the settings, or any scan found.
+		Scap: scans, ScapEnabled: len(scans) > 0 || (a.Cfg.ScapResults != "" && a.Cfg.ScapDir() != ""), ScapMaxAgeDays: a.Cfg.ScapMaxAgeDays,
 		Site:        a.Cfg.SiteName,
 		WindowStart: prevEnd, WindowEnd: end, Generated: generated, Version: a.Version,
 		Source: "Live collection", Location: a.loc(), InReportsDir: true, Interim: !advance, Period: a.Cfg.ReportEvery,
@@ -421,8 +517,12 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		WorkingHours: a.Cfg.WorkingHours,
 		Archives:     logs, ArchivesKept: advance,
 		Systems: systemsFor(st, prevEnd), Collector: a.Cfg.Inbox != "",
-		LANWarnings: lanWarnings(st, prevGen, generated, a.loc()),
+		LANWarnings:   append(lanWarnings(st, prevGen, generated, a.loc()), a.inboxWarnings()...),
+		RetentionDays: a.Cfg.RetentionDays,
 	})
+	if advance {
+		r.Removed = st.State.RemovedReports
+	}
 	if len(r.Hosts) == 0 {
 		r.Hosts = []string{collect.LocalHost()}
 	}
@@ -452,8 +552,14 @@ func (a *App) report(st *store.Store, end time.Time, advance bool) (string, erro
 		if err := st.Prune(a.Cfg.RetentionDays, generated); err != nil {
 			a.logf("pruning old data: %v", err)
 		}
-		if err := pruneReports(a.ReportsDir(), a.Cfg.RetentionDays, generated); err != nil {
+		removed, err := pruneReports(a.ReportsDir(), a.Cfg.RetentionDays, generated)
+		if err != nil {
 			a.logf("pruning old reports: %v", err)
+		}
+		// Listed in the next scheduled report; this one listed the last.
+		st.State.RemovedReports = removed
+		if err := st.Save(); err != nil {
+			a.logf("noting removed reports: %v", err)
 		}
 		for _, d := range []string{a.pendingLogsDir(), a.legacyLogsDir()} {
 			if err := archive.Prune(d, a.Cfg.RetentionDays, generated); err != nil {
@@ -505,6 +611,17 @@ func systemsFor(st *store.Store, start time.Time) []report.SystemInfo {
 
 // lanWarnings describes problems noticed receiving from other computers
 // since the previous report.
+// inboxWarnings says which files in the inbox can't be read (L9).
+func (a *App) inboxWarnings() []string {
+	if a.Cfg.Inbox == "" {
+		return nil
+	}
+	if bad := lan.Unreadable(a.Cfg.Inbox); len(bad) > 0 {
+		return []string{unreadableText(bad) + ". Their events are not in this report; fix the file permissions so the next run imports them."}
+	}
+	return nil
+}
+
 func lanWarnings(st *store.Store, since, until time.Time, loc *time.Location) []string {
 	var out []string
 	ids := make([]string, 0, len(st.State.Senders))
@@ -576,14 +693,15 @@ func DueWindowEnd(every string, at config.ReportAt, lastEnd, now time.Time, loc 
 	return time.Time{}, false
 }
 
-func pruneReports(dir string, days int, now time.Time) error {
+func pruneReports(dir string, days int, now time.Time) ([]string, error) {
 	if days <= 0 {
-		return nil
+		return nil, nil
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var removed []string
 	cut := now.AddDate(0, 0, -days)
 	for _, e := range entries {
 		if !e.IsDir() {
@@ -597,10 +715,11 @@ func pruneReports(dir string, days int, now time.Time) error {
 			continue // only remove folders Blackbox created
 		}
 		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
-			return err
+			return removed, err
 		}
+		removed = append(removed, e.Name())
 	}
-	return nil
+	return removed, nil
 }
 
 // Inputs are exported log files for a one-off report.
@@ -619,7 +738,10 @@ func (in Inputs) Empty() bool {
 }
 
 // ReportFromFiles builds a one-off report from exported logs.
-func (a *App) ReportFromFiles(in Inputs, outDir string) (string, error) {
+//
+// from and to (zero for no limit) keep only the events in that period
+// (report --from/--to/--days, R9).
+func (a *App) ReportFromFiles(in Inputs, outDir string, from, to time.Time) (string, error) {
 	now := a.now()
 	var events []*event.Event
 	var runs []*store.Run
@@ -657,19 +779,31 @@ func (a *App) ReportFromFiles(in Inputs, outDir string) (string, error) {
 			names = append(names, filepath.Base(p))
 		}
 	}
-	end := now
-	if len(events) > 0 {
-		last := events[0].Time
+	if !from.IsZero() || !to.IsZero() {
+		kept := events[:0]
 		for _, e := range events {
-			if e.Time.After(last) {
-				last = e.Time
+			if (from.IsZero() || !e.Time.Before(from)) && (to.IsZero() || e.Time.Before(to)) {
+				kept = append(kept, e)
 			}
 		}
-		end = last
+		events = kept
+	}
+	end := to
+	if end.IsZero() {
+		end = now
+		if len(events) > 0 {
+			last := events[0].Time
+			for _, e := range events {
+				if e.Time.After(last) {
+					last = e.Time
+				}
+			}
+			end = last
+		}
 	}
 	r := report.Build(events, runs, report.Options{
-		Site:      a.Cfg.SiteName,
-		WindowEnd: end, Generated: now, Version: a.Version,
+		Site:        a.Cfg.SiteName,
+		WindowStart: from, WindowEnd: end, Generated: now, Version: a.Version,
 		Source: "Exported log file" + plural(len(names)) + ": " + strings.Join(names, ", "), Location: a.loc(),
 		ExcludeUsers: a.Cfg.ExcludeUsers, ExcludeProcesses: a.Cfg.ExcludeProcesses,
 	})

@@ -90,32 +90,32 @@ v0.10.2 listed a fix for every ID in the first work list (`worker-prompt.md`); v
 
 **Not fixed, or only partly:**
 
-| # | Result in v0.10.4 | Status |
-|---|---|---|
-| U5 | **Worse.** 3 wrong passwords for the existing user `bbuser` gave 8 rows, 5 of them "the user name does not exist" (it does). The guessing detection counts 8. The spray of admin/oracle/postgres still gives 2-4 rows per name and two "(unknown user name)" rows. | Confirmed |
-| U8 | Still "The audit service (auditd) was stopped by root" right after "claude ran a command that can stop or weaken auditing: systemctl stop auditd". | Confirmed |
-| O1 | `check` flags sudo-rs, but no "used sudo" rows come from the journal: `sudo -u bbuser true` and the other sudo-rs commands at 23:57 produced nothing in the collector's report from the live collection. | Confirmed |
-| A5 (Windows) | `blackbox config set exclude_users bbtest` (and back) on the Windows collector left no row in its report, and Audit health has no Windows line saying whether Blackbox's own folder and settings are audited (Linux has "Blackbox's own files watched"). On a default Windows install, changes to Blackbox are invisible and nothing says so. | Confirmed |
-| L9 | (from L1) An unreadable inbox file is logged as "set aside in `C:\BlackboxInbox\rejected`" but stays in the inbox (`rejected\` is empty; `reject()` ignores the `os.Rename` error). Status says "Inbox: OK; 1 batch waiting" and it is retried every run. Only say "set aside" if the move worked; otherwise say "1 file can't be read (access denied)" in status and the report. | Confirmed (minor) |
-| A10 | Release still NotSigned and no `SHA256SUMS.asc` (signing secrets not set). SPDX SBOM attached and listed in SHA256SUMS. | Confirmed |
+| # | Result in v0.10.4 | Status | Fixed in |
+|---|---|---|---|
+| U5 | **Worse.** 3 wrong passwords for the existing user `bbuser` gave 8 rows, 5 of them "the user name does not exist" (it does). The guessing detection counts 8. The spray of admin/oracle/postgres still gives 2-4 rows per name and two "(unknown user name)" rows. | Confirmed | 0.11.0 (#38) |
+| U8 | Still "The audit service (auditd) was stopped by root" right after "claude ran a command that can stop or weaken auditing: systemctl stop auditd". | Confirmed | 0.11.0 (#38) |
+| O1 | `check` flags sudo-rs, but no "used sudo" rows come from the journal: `sudo -u bbuser true` and the other sudo-rs commands at 23:57 produced nothing in the collector's report from the live collection. | Confirmed | 0.11.0 (#38) |
+| A5 (Windows) | `blackbox config set exclude_users bbtest` (and back) on the Windows collector left no row in its report, and Audit health has no Windows line saying whether Blackbox's own folder and settings are audited (Linux has "Blackbox's own files watched"). On a default Windows install, changes to Blackbox are invisible and nothing says so. | Confirmed | 0.11.0 (#38, A15) |
+| L9 | (from L1) An unreadable inbox file is logged as "set aside in `C:\BlackboxInbox\rejected`" but stays in the inbox (`rejected\` is empty; `reject()` ignores the `os.Rename` error). Status says "Inbox: OK; 1 batch waiting" and it is retried every run. Only say "set aside" if the move worked; otherwise say "1 file can't be read (access denied)" in status and the report. | Confirmed (minor) | 0.11.0 (#38) |
+| A10 | Release still NotSigned and no `SHA256SUMS.asc` (signing secrets not set). SPDX SBOM attached and listed in SHA256SUMS. | Confirmed | Owner action: add the signing secrets |
 
 **New in v0.10.4:**
 
-| # | Finding | Status |
-|---|---|---|
-| A13 | **The firewall log (A7) adds a lot of noise and grows the phantom system.** A fresh server gave 74 Low "A Windows Firewall rule was added by NT SERVICE\mpssvc: @{Microsoft.AAD.BrokerPlugin…}" (rules Windows registers for built-in app packages), 32 Medium "rule deleted" (2052) and 17 "changed" (2099). A person's change (enabling SMB-In) is lost among them. Collapse or leave out rule changes made by `NT SERVICE\mpssvc` for app packages (`@{…}` names) and keep changes made by people. These events also carry the pre-OOBE computer name, so the phantom system (W1) now has 74 rows and the report is named "3-systems". | Confirmed |
-| A14 | **The A3 rules report routine admin tools as file changes.** `groupadd` now also gives Medium "deleted or renamed /etc/group+, /etc/group, /etc/group" (shadow-utils writes a temp file and renames it over) and two Low "changed the owner/permissions of a file (using groupadd)". A hand-run `blackbox run` gives 9 Low "changed the permissions of /var/lib/blackbox/.state.json.tmp-…" rows (Blackbox's own atomic writes). Fold shadow-utils' temp-file rename into the account/group change, and leave out Blackbox's own writes under its data folder when the program is Blackbox itself. | Confirmed |
-| A15 | **A refused setting change is reported as made.** `blackbox config set retention_days 30`, answered "n" (A9 refused it), still gives High "claude changed Blackbox's retention_days setting". The row comes from the command line, not the change. Say "tried to change" unless the settings file was written, or have Blackbox record its own accepted changes. | Confirmed |
-| U15 | "The audit service on ubuntu-server was off for 0 minutes (23:57:19 to 23:57:20)": say "less than a minute". | Confirmed (minor) |
+| # | Finding | Status | Fixed in |
+|---|---|---|---|
+| A13 | **The firewall log (A7) adds a lot of noise and grows the phantom system.** A fresh server gave 74 Low "A Windows Firewall rule was added by NT SERVICE\mpssvc: @{Microsoft.AAD.BrokerPlugin…}" (rules Windows registers for built-in app packages), 32 Medium "rule deleted" (2052) and 17 "changed" (2099). A person's change (enabling SMB-In) is lost among them. Collapse or leave out rule changes made by `NT SERVICE\mpssvc` for app packages (`@{…}` names) and keep changes made by people. These events also carry the pre-OOBE computer name, so the phantom system (W1) now has 74 rows and the report is named "3-systems". | Confirmed | 0.11.0 (#39) |
+| A14 | **The A3 rules report routine admin tools as file changes.** `groupadd` now also gives Medium "deleted or renamed /etc/group+, /etc/group, /etc/group" (shadow-utils writes a temp file and renames it over) and two Low "changed the owner/permissions of a file (using groupadd)". A hand-run `blackbox run` gives 9 Low "changed the permissions of /var/lib/blackbox/.state.json.tmp-…" rows (Blackbox's own atomic writes). Fold shadow-utils' temp-file rename into the account/group change, and leave out Blackbox's own writes under its data folder when the program is Blackbox itself. | Confirmed | 0.11.0 (#39) |
+| A15 | **A refused setting change is reported as made.** `blackbox config set retention_days 30`, answered "n" (A9 refused it), still gives High "claude changed Blackbox's retention_days setting". The row comes from the command line, not the change. Say "tried to change" unless the settings file was written, or have Blackbox record its own accepted changes. | Confirmed | 0.11.0 (#38) |
+| U15 | "The audit service on ubuntu-server was off for 0 minutes (23:57:19 to 23:57:20)": say "less than a minute". | Confirmed (minor) | 0.11.0 (#38) |
 
 **SCAP results (the first list's §6), tested live:** an OpenSCAP 1.4.3 STIG scan of the Ubuntu sender (SSG 0.1.81, 240 rules: 61 pass, 144 fail) placed in `/var/lib/blackbox/scap` went to the collector with the next batch and appeared in its report: the "STIG compliance (SCAP)" table (benchmark, profile "…STIG V1R1", score 63%, open CAT I 7 / II 133 / III 4, which add up to the 144 fails), "SCAP 63% · 7 CAT I" on Systems, "Open CAT I findings" in the Overview, "SCAP: no scan found" for the Windows collector, `scap-open-rules.csv` for a POA&M, and the results file copied into the report folder and listed in the manifest. Evidence: `v0.10.4/scap-summary.json`, `v0.10.4/scap-open-rules.csv`.
 
-| # | Finding | Status |
-|---|---|---|
-| SC1 | **OpenSCAP results have no STIG ID or Vuln ID in the POA&M CSV.** All 144 rows have empty `vuln_id` and `stig_id`. SCC puts the STIG ID in `rule-result@version`; OpenSCAP with SSG content doesn't, but the results file embeds the Benchmark, whose `<Rule>` has `<reference href="https://www.cyber.mil/stigs/downloads/…">UBTU-24-300028</reference>` (and the SRG ID). Read the STIG ID (and SRG/CCI where present) from the embedded Rule by `idref`, and show the STIG ID in the table and CSV. An ISSO's POA&M is keyed on it. | Confirmed |
-| SC2 | The sender's log says "sent 1 batch(es) and 0 log archive(s)" when it also delivered SCAP results (`DeliverScap`'s count is discarded). Say "and 1 SCAP result". | Confirmed (minor) |
-| R10 | **The printed summary still ends with ISSO / Date / ISSM signature lines** (`<div class="pt-lines">`), and the Export menu describes it as "a clean printable summary with blank ISSO and ISSM lines". This goes against design.md ("no signature or review section"); A8 fixed the spec text, not the page. **Owner decision (5 Oct): remove the lines and the menu wording.** | Confirmed |
-| SC3 | **The report doesn't show which SCAP rules are open.** The STIG compliance table has counts only (Open CAT I 7, CAT II 133, CAT III 4) and they can't be clicked; the system page shows just "SCAP 63% · 7 CAT I" in its header. The only way to see that the 7 CAT I include the GRUB password and empty SSH passwords is the CSV. Make each count open a list of that system's open rules (CAT I first; STIG ID, title, rule ID), and add a "STIG compliance (SCAP)" row to each system's Health list. **Owner asked for this (5 Oct).** | Confirmed |
+| # | Finding | Status | Fixed in |
+|---|---|---|---|
+| SC1 | **OpenSCAP results have no STIG ID or Vuln ID in the POA&M CSV.** All 144 rows have empty `vuln_id` and `stig_id`. SCC puts the STIG ID in `rule-result@version`; OpenSCAP with SSG content doesn't, but the results file embeds the Benchmark, whose `<Rule>` has `<reference href="https://www.cyber.mil/stigs/downloads/…">UBTU-24-300028</reference>` (and the SRG ID). Read the STIG ID (and SRG/CCI where present) from the embedded Rule by `idref`, and show the STIG ID in the table and CSV. An ISSO's POA&M is keyed on it. | Confirmed | 0.11.0 (#41) |
+| SC2 | The sender's log says "sent 1 batch(es) and 0 log archive(s)" when it also delivered SCAP results (`DeliverScap`'s count is discarded). Say "and 1 SCAP result". | Confirmed (minor) | 0.11.0 (#40) |
+| R10 | **The printed summary still ends with ISSO / Date / ISSM signature lines** (`<div class="pt-lines">`), against the owner decision in design.md ("no signature or review section"); the Export menu also described it as "a clean printable summary with blank ISSO and ISSM lines". A8 fixed the spec text, not the page. **Owner decision (5 Oct): remove the lines and the menu wording.** | Confirmed | 0.11.0 (#38) |
+| SC3 | **The report doesn't show which SCAP rules are open.** The STIG compliance table has counts only (Open CAT I 7, CAT II 133, CAT III 4) and they can't be clicked; the system page shows just "SCAP 63% · 7 CAT I" in its header. The only way to see that the 7 CAT I include the GRUB password and empty SSH passwords is the CSV. Make each count open a list of that system's open rules (CAT I first; STIG ID, title, rule ID), and add a "STIG compliance (SCAP)" row to each system's Health list. **Owner asked for this (5 Oct); for the next work list.** | Confirmed | |
 
 **Root causes found in the code (0.10.4):**
 - **O1:** `sudoRE` (`translate_syslog.go:244`) requires `TTY=…`; sudo-rs writes `claude :  PWD=/home/claude ; USER=root ; COMMAND=…` with no TTY field when there is no terminal (all 29 sudo-rs lines since 20:00 lacked it). The journal fallback added in 0.10.2 is selected correctly but never matches. Lines in `v0.10.4/o1-sudo-rs-journal.log`.
@@ -125,6 +125,24 @@ v0.10.2 listed a fix for every ID in the first work list (`worker-prompt.md`); v
 - **L9:** `reject()` (`receive.go:195`) ignores the `os.Rename` error and always says "was set aside".
 
 U13 is unchanged and shows twice more (`sh -c "rm -rf /tmp/rl9; ls /var/log/audit"` and the tester's report command are High "can stop or weaken auditing"). Still open from before and not in the first work list: N2, L6, L7, **L8** (the sandbox `ReadWritePaths` is unchanged), W1-W4, S11-S13, N3, U13, U14, R9.
+
+**Fixed in 0.11.0, from the second work list (`worker-prompt-2.md`):** the
+items still open from before and the STIG-image review.
+
+| # | Fixed in |
+|---|---|
+| U13, U14, R9 | 0.11.0 (#38, #41) |
+| N2 | 0.11.0 (#40): reported in setup and status; enabling it is the owner's decision (design.md §13b) |
+| L6, L7, L8, L10, S11, S12, S13, N3 | 0.11.0 (#40) |
+| L11 | Proposal for the owner (design.md §13b), not implemented |
+| W1, W2, W3, W4 | 0.11.0 (#39) |
+| I1, I2, I3, I4, I5, I7 | 0.11.0 (#41) |
+| I6 | 0.11.0 (#40, lan.md) |
+
+Still needs a live check this rig can't do: the L8 outage on the SFTP route
+and a dead CIFS hard mount on the SMB route, SMB delivery between two
+machines, a Windows sender, and 4826 from a real boot-configuration change.
+
 
 ## ISSO / ISSM review: audit coverage (AU-2, AU-6, AU-12)
 

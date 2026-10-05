@@ -2,6 +2,11 @@ package app
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -94,5 +99,123 @@ func TestStandaloneShowsOnlyItself(t *testing.T) {
 	a.Cfg.Inbox = t.TempDir()
 	if h, _ := a.Health(); h.AuditGaps["claude-code"] != 1 || len(h.Quiet) != 1 {
 		t.Errorf("a collector should show its sender: gaps %v, quiet %v", h.AuditGaps, h.Quiet)
+	}
+}
+
+// L3: the last collection found auditing off: status says so, for this
+// computer and in a collector's list of systems.
+func TestAuditOffInStatus(t *testing.T) {
+	st, _ := store.Open(t.TempDir())
+	now := time.Date(2026, 10, 2, 15, 0, 0, 0, time.UTC)
+	st.State.LastCollect = now.Add(-10 * time.Minute)
+	st.NoteSystem("ubu7", "linux", "0.10.1", "ubu7", now.Add(-time.Hour), now.Add(-time.Hour), now.Add(-time.Hour))
+	st.Save()
+	why := "the audit service (auditd) is not running (systemctl is-active auditd: inactive)"
+	st.AppendRun(&store.Run{Time: now.Add(-10 * time.Minute), Host: collect.LocalHost(), OS: "linux", AuditOff: why})
+	st.AppendRun(&store.Run{Time: now.Add(-time.Hour), Host: "ubu7", OS: "linux", AuditOff: why})
+	a := &App{Cfg: &config.Config{DataDir: st.Dir, Inbox: t.TempDir(), ReportEvery: "weekly", ReportAt: config.DefaultReportAt, CollectEvery: time.Hour},
+		Now: func() time.Time { return now }, Loc: time.UTC}
+	var b bytes.Buffer
+	a.Status(&b)
+	if !strings.Contains(b.String(), "AUDITING OFF:") || !strings.Contains(b.String(), "14:00   AUDITING OFF") {
+		t.Errorf("status:\n%s", b.String())
+	}
+	h, _ := a.Health()
+	if len(h.AuditOff) != 2 {
+		t.Errorf("health: %v", h.AuditOff)
+	}
+}
+
+// A9: pruning says which reports it removed, so the next report can list
+// them; only report folders (with a manifest) are removed.
+func TestPruneReportsSaysWhat(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 10, 2, 15, 0, 0, 0, time.UTC)
+	for _, n := range []string{"old", "new", "notreport"} {
+		os.MkdirAll(filepath.Join(dir, n), 0o750)
+		if n != "notreport" {
+			os.WriteFile(filepath.Join(dir, n, "manifest.sha256"), []byte("x"), 0o640)
+		}
+	}
+	old := now.AddDate(0, 0, -40)
+	os.Chtimes(filepath.Join(dir, "old"), old, old)
+	os.Chtimes(filepath.Join(dir, "notreport"), old, old)
+	removed, err := pruneReports(dir, 30, now)
+	if err != nil || len(removed) != 1 || removed[0] != "old" {
+		t.Errorf("removed %v %v", removed, err)
+	}
+}
+
+// L10: data waiting more than a day to be sent is pointed out, with the
+// oldest item's age, and status says it needs attention (exit code 4).
+func TestWaitingTooLong(t *testing.T) {
+	st, _ := store.Open(t.TempDir())
+	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	st.State.Send = &store.SendState{ID: "ab12", LastAttempt: now.Add(-time.Hour), LastError: "collector inbox not available: /mnt/blackbox-inbox (nothing is mounted there)"}
+	st.Save()
+	out := filepath.Join(st.Dir, "outbox")
+	os.MkdirAll(out, 0o700)
+	for i, age := range []time.Duration{50 * time.Hour, time.Hour} {
+		f := filepath.Join(out, fmt.Sprintf("%08d.bbx", i+1))
+		os.WriteFile(f, []byte("x"), 0o600)
+		os.Chtimes(f, now.Add(-age), now.Add(-age))
+	}
+	a := &App{Cfg: &config.Config{DataDir: st.Dir, SendTo: "/mnt/blackbox-inbox", ReportEvery: "weekly"}, Now: func() time.Time { return now }, Loc: time.UTC}
+	var b bytes.Buffer
+	err := a.Status(&b)
+	var na *NeedsAttention
+	if !errors.As(err, &na) {
+		t.Errorf("status error: %v", err)
+	}
+	for _, want := range []string{"2 batches; the oldest waiting since 2026-10-03 10:00", "NOT SENT:", "never deleted", "blackbox send"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("status missing %q:\n%s", want, b.String())
+		}
+	}
+	if h, _ := a.Health(); !h.WaitingSince.Equal(now.Add(-50 * time.Hour)) {
+		t.Errorf("health waiting since %v", h.WaitingSince)
+	}
+}
+
+// SC2: the sender's log counts SCAP results with the batches.
+func TestSentText(t *testing.T) {
+	for r, want := range map[SendResult]string{
+		{Delivered: 1, ScapDelivered: 2}:                       "1 batch and 2 SCAP results",
+		{Delivered: 3, ArchivesDelivered: 1, ScapDelivered: 1}: "3 batches, 1 log archive and 1 SCAP result",
+		{ScapDelivered: 1}:                                     "1 SCAP result",
+	} {
+		if got := sentText(r); got != want {
+			t.Errorf("sentText(%+v) = %q, want %q", r, got, want)
+		}
+	}
+}
+
+// R9: --from/--to/--days apply to exported log files too.
+func TestReportFromFilesRange(t *testing.T) {
+	a := &App{Cfg: &config.Config{DataDir: t.TempDir()}, Now: func() time.Time { return time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC) }, Loc: time.UTC}
+	in := Inputs{Audit: []string{"../../testdata/linux/ubuntu-audit.log"}}
+	count := func(from, to time.Time) int {
+		t.Helper()
+		dir, err := a.ReportFromFiles(in, filepath.Join(t.TempDir(), "r"), from, to)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := os.ReadFile(filepath.Join(dir, "summary.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var s struct{ Events int }
+		json.Unmarshal(b, &s)
+		return s.Events
+	}
+	all := count(time.Time{}, time.Time{})
+	if all == 0 {
+		t.Fatal("no events in the sample log")
+	}
+	if n := count(time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC), time.Time{}); n != 0 {
+		t.Errorf("from 2030: %d events, want 0", n)
+	}
+	if n := count(time.Date(2026, 9, 28, 17, 0, 0, 0, time.UTC), time.Date(2026, 9, 28, 18, 0, 0, 0, time.UTC)); n == 0 || n >= all {
+		t.Errorf("one hour: %d of %d events", n, all)
 	}
 }

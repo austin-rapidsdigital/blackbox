@@ -6,7 +6,7 @@ file:
 
 - lines starting with `#` are comments
 - lists are comma-separated
-- changes take effect at the next scheduled run
+- changes take effect at the next collection or report, including one you run now with `blackbox report`
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -15,9 +15,11 @@ file:
 | `report_at` | `Wednesday 00:00` | When each report period ends and the report is produced. Weekly: a day and time; `Wednesday 00:00` covers each week up to Tuesday night, so a fresh report is ready on Wednesday morning. Daily and monthly: a time such as `06:00` (monthly periods end on the 1st) |
 | `report_dir` | *(blank = default)* | Folder for reports. Any full path Blackbox can write to, including one you have locked down |
 | `collect_every` | `1h` | How often events are collected. To change it, run the installer again, which updates the schedule |
-| `retention_days` | `0` | Days to keep reports and collected events; `0` keeps them forever |
+| `retention_days` | `0` | Days to keep reports and collected events; `0` keeps them forever. A report folder holds the original logs (the daily archives) for its period, so they are deleted with it. Below 365 days, `config set` asks you to type `yes` (or add `--yes` in a script), since a year is the usual retention (AU-11). The next scheduled report lists the reports that were removed |
 | `exclude_users` | *(none)* | Accounts whose routine activity is left out of reports, e.g. `svc_backup, CORP\svc_scanner`. Failed logons against them, changes to them and anything Medium or above are always shown (see [Exclusions](reports.md#detections)) |
 | `exclude_processes` | *(none)* | Programs to leave out, by name or full path, e.g. `scan.exe` |
+| `scap_results` | *(blank)* | SCAP scan results to show each computer's STIG compliance ([STIG compliance](reports.md#stig-compliance-scap)). Blank reads the `scap` folder in the data folder; set a folder (for example SCC's results folder) to read that instead, including its subfolders, or `none` to turn this off. Blackbox only reads results; it never runs a scan |
+| `scap_max_age_days` | `30` | A scan older than this is marked stale |
 | `working_hours` | *(blank)* | When administrator activity is expected, e.g. `Mon-Fri 06:00-18:00`, `Daily 07:00-19:00` or `Mon-Fri 22:00-06:00` (a night shift). Activity outside these hours is shown under [Detections](reports.md#detections). Blank turns the check off |
 | `data_dir` | platform default | Where reports and collected events are stored |
 | `send_to` | *(blank)* | The collector's inbox this computer sends to: `\\COLLECTOR\BlackboxInbox` (Windows), `//COLLECTOR/BlackboxInbox` or `/media/sf_BlackboxInbox` (Linux). When set, this computer makes no reports of its own. See [lan.md](lan.md) |
@@ -40,7 +42,10 @@ blackbox config set working_hours "Mon-Fri 06:00-18:00"
   the service write there.
 - For `send_to` and `inbox`, it sets up the share, mount or inbox folder.
   A new share password is read from `BLACKBOX_SHARE_PASSWORD`.
-- `none` clears a LAN setting.
+- `none` clears a LAN setting, `exclude_users`, `exclude_processes` or
+  `working_hours` ("Cleared exclude_users.").
+- `retention_days` below 365 asks you to confirm by typing `yes`; in a
+  script, add `--yes`.
 
 Run `blackbox config` to see the current settings, and `blackbox status` to
 see whether everything is working.

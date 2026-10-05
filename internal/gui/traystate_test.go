@@ -183,3 +183,20 @@ func TestNextReportWording(t *testing.T) {
 		t.Errorf("status %q, want it to end %q", v.Status, want)
 	}
 }
+
+// L3: auditing off is red, with its own line and notification.
+func TestAuditOffIsRed(t *testing.T) {
+	h := healthy()
+	h.AuditOff = map[string]string{"ubu7": "the audit service (auditd) is not running"}
+	v := classify(h, nil, trayNow)
+	if v.State != stateStopped || v.Down || len(v.Items) != 1 || v.Items[0] != "Auditing is off on ubu7" {
+		t.Errorf("view: %+v", v)
+	}
+	ns, m := notices(trayMemory{Seen: true}, h, v, "0.10.2", trayNow)
+	if len(ns) != 1 || !strings.Contains(ns[0].Text, "Auditing is off on ubu7") || m.Off["ubu7"] == "" {
+		t.Errorf("notices: %+v", ns)
+	}
+	if ns, _ = notices(m, h, v, "0.10.2", trayNow); len(ns) != 0 {
+		t.Errorf("notified twice: %+v", ns)
+	}
+}

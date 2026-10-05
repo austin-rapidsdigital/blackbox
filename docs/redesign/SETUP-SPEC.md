@@ -10,14 +10,14 @@ Agreed with the product owner on 2 Oct 2026. It follows the same rules as `SPEC.
 | Built with | **Go only, standard library.** The window and the tray are plain Windows controls drawn through the Windows API. No C#, no Inno Setup, no second codebase. |
 | Which computers get the tray | **Collector or standalone computers only.** It is never installed on a sender. |
 | Who sees the tray | **Members of the local Administrators group only.** |
-| Code signing | **None.** No application control (AppLocker/WDAC) blocks unsigned programs where Blackbox runs. |
+| Code signing | **Optional.** No application control (AppLocker/WDAC) blocks unsigned programs where Blackbox runs. When a certificate is set in the release workflow's secrets, the release signs the setup file and the console program it carries (A10, 3 Oct 2026); without one it is unsigned. |
 | Linux | **Unchanged:** `sudo ./install.sh` or `sudo ./blackbox install`, with no window. |
 
 ## Files
 
 The release publishes `Blackbox-Setup-<version>.exe` in place of the Windows zip, alongside the Linux tarballs and `SHA256SUMS`.
 
-The setup file is `blackbox.exe` with its Windows subsystem set to "windowed", so double-clicking it opens no console. Setup installs two copies of the same program:
+The setup file is `blackbox.exe` with its Windows subsystem set to "windowed", so double-clicking it opens no console. A release's setup file also carries the console `blackbox.exe` (signed, when the release is), which it installs unchanged; it installs itself as `blackboxw.exe` (A10). Setup installs two copies of the same program:
 
 | File | Kind | Used for |
 |---|---|---|
@@ -110,8 +110,8 @@ The tray reads the same status as `blackbox status` directly, once a minute.
 | Icon | Means |
 |---|---|
 | Logo, green dot | Collecting on schedule; nothing needs attention |
-| Logo, amber dot | Something to look at: audit settings to fix, Defender intelligence out of date, events lost because a log filled up before it was collected, files set aside in the inbox, or a sender that has gone quiet |
-| Logo, red dot | Collection has stopped (no run for twice the interval plus 15 minutes) or the last run failed |
+| Logo, amber dot | Something to look at: audit settings to fix, antivirus definitions out of date (Defender, or ClamAV on Linux), events lost because a log filled up before it was collected, files set aside in the inbox, or a sender that has gone quiet |
+| Logo, red dot | Collection has stopped (no run for twice the interval plus 15 minutes), the last run failed, or the last collection found auditing off on a system (owner request, 3 Oct 2026, L3) |
 | Logo, grey | Status can't be read |
 
 The tooltip gives the state in a few words, e.g. "Blackbox: collecting · last 14:05".
@@ -140,6 +140,7 @@ Each is shown once per occurrence, remembered per person in `HKCU\Software\Black
 
 - a scheduled report is ready ("Weekly report ready: 2 detections, 1 high");
 - collection has stopped, or the last run failed;
+- auditing is off on a system (auditd stopped, or kernel auditing off);
 - a sender has gone quiet (collector);
 - audit settings went from matching the STIG to not matching;
 - events were lost because a log filled up before it was collected (once per report period);

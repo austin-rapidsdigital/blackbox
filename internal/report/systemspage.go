@@ -129,6 +129,9 @@ func (r *Report) systemsPage() *SystemsPage {
 		if r.Collector && s.Via == "" && strings.EqualFold(s.Name, r.collectorName()) {
 			v.Line += " · collector"
 		}
+		if l := r.scapLine(s.Name); l != "" {
+			v.Line += " · " + l
+		}
 
 		// Detections on this computer.
 		high, med := 0, 0
@@ -143,7 +146,7 @@ func (r *Report) systemsPage() *SystemsPage {
 			}
 		}
 		switch {
-		case s.Status == "silent" || len(cleared[h]) > 0 || high > 0:
+		case s.Status == "silent" || s.AuditOff != "" || len(cleared[h]) > 0 || high > 0:
 			v.Level, v.Status = "bad", "Needs attention"
 		case s.Status == "warn" || med > 0:
 			v.Level, v.Status = "warn", "Worth a look"
@@ -152,6 +155,8 @@ func (r *Report) systemsPage() *SystemsPage {
 		}
 		if s.Status == "silent" {
 			v.Status = "Silent"
+		} else if s.AuditOff != "" {
+			v.Status = "Auditing off"
 		}
 
 		// Five facts.
@@ -422,14 +427,22 @@ func (r *Report) systemHealth(s SystemRow, cleared []*Row, on int) []CheckLine {
 
 	if s.Checks != nil {
 		for _, res := range s.Checks.Results {
-			if res.Area != "Antivirus" || !strings.HasPrefix(res.Item, "Defender security") {
+			product := ""
+			switch {
+			case res.Area != "Antivirus":
+			case strings.HasPrefix(res.Item, "Defender security"):
+				product = "Defender "
+			case res.Item == "ClamAV definitions":
+				product = "ClamAV "
+			}
+			if product == "" || res.Status == check.Info {
 				continue
 			}
 			lv := map[check.Status]string{check.Pass: "ok", check.Fail: "bad"}[res.Status]
 			if lv == "" {
 				lv = "warn"
 			}
-			lines = append(lines, CheckLine{Level: lv, Icon: "shield", Title: "Antivirus definitions current", What: "Defender " + res.Have})
+			lines = append(lines, CheckLine{Level: lv, Icon: "shield", Title: "Antivirus definitions current", What: product + res.Have})
 		}
 	}
 

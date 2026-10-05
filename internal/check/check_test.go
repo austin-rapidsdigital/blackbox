@@ -2,6 +2,7 @@ package check
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -197,6 +198,17 @@ var usgLoaded = strings.Join([]string{
 	"-a always,exit -F arch=b32 -S delete_module -F auid>=1000 -F auid!=-1 -F key=module_chng",
 	"-a always,exit -S all -F path=/usr/bin/mount -F perm=x -F auid>=1000 -F auid!=-1 -F key=privileged-mount",
 	"-w /var/log/lastlog -p wa -k logins",
+	"-w /var/run/utmp -p wa -k logins",
+	"-w /var/log/wtmp -p wa -k logins",
+	"-w /var/log/btmp -p wa -k logins",
+	"-a always,exit -F arch=b64 -S creat,open,openat,open_by_handle_at,truncate,ftruncate -F exit=-EPERM -F auid>=1000 -F auid!=-1 -F key=perm_access",
+	"-a always,exit -F arch=b64 -S creat,open,openat,open_by_handle_at,truncate,ftruncate -F exit=-EACCES -F auid>=1000 -F auid!=-1 -F key=perm_access",
+	"-a always,exit -F arch=b64 -S chown,fchown,fchownat,lchown -F auid>=1000 -F auid!=-1 -F key=perm_chng",
+	"-a always,exit -F arch=b64 -S chmod,fchmod,fchmodat -F auid>=1000 -F auid!=-1 -F key=perm_chng",
+	"-a always,exit -F arch=b64 -S setxattr,fsetxattr,lsetxattr,removexattr,fremovexattr,lremovexattr -F auid>=1000 -F auid!=-1 -F key=perm_chng",
+	"-a always,exit -S all -F path=/usr/bin/kmod -F perm=x -F auid>=1000 -F auid!=-1 -F key=modules",
+	"-a always,exit -S all -F path=/usr/bin/setfacl -F perm=x -F auid>=1000 -F auid!=-1 -F key=perm_chng",
+	"-a always,exit -S all -F path=/usr/bin/chacl -F perm=x -F auid>=1000 -F auid!=-1 -F key=perm_chng",
 }, "\n")
 
 func TestSTIGHardenedRulesPass(t *testing.T) {
@@ -228,16 +240,25 @@ func TestLockedRulesSayReboot(t *testing.T) {
 
 func TestMissingRulesAddsOnlyGaps(t *testing.T) {
 	exists := func(p string) bool { return p != "/var/run/faillock" }
+	// auditctl -l lists a path rule with -S all and key= (A12).
+	if m := MissingRules("-a always,exit -F path=/etc/shadow -F perm=wa -k identity", "-a always,exit -S all -F path=/etc/shadow -F perm=wa -F key=x", nil); len(m) != 0 {
+		t.Errorf("listed path rule not recognised: %v", m)
+	}
+	if m := MissingRules("-a always,exit -F dir=/etc/cron.d/ -F perm=wa -k jobs", "-w /etc/cron.d -p wa -k cron", nil); len(m) != 0 {
+		t.Errorf("-w on a folder doesn't cover dir=: %v", m)
+	}
 	missing := MissingRules(AuditRules, usgLoaded, exists)
 	joined := strings.Join(missing, "\n")
 	// Already loaded under the STIG's own keys: not added again.
-	for _, dup := range []string{"-w /etc/passwd ", "-w /etc/sudoers ", "-w /etc/sudoers.d/", "uid!=euid", "init_module", "-w /var/log/lastlog"} {
+	// A12: the baseline's "-w" watches cover the recommended "path=" and
+	// "dir=" rules.
+	for _, dup := range []string{"path=/etc/passwd ", "path=/etc/sudoers ", "dir=/etc/sudoers.d/", "uid!=euid", "init_module", "path=/var/log/lastlog"} {
 		if strings.Contains(joined, dup) {
 			t.Errorf("rule already loaded would be added again: %s", dup)
 		}
 	}
 	// Not loaded: added.
-	for _, want := range []string{"-S mount,umount2", "clock_settime", "-w /etc/audit/", "-k root_commands", "-k log_tamper"} {
+	for _, want := range []string{"-S mount,umount2", "clock_settime", "dir=/etc/audit/", "-k root_commands", "-k blackbox", "-k scheduled_jobs", "-k log_tamper"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing rule not added: %s\n%s", want, joined)
 		}
@@ -254,12 +275,41 @@ func TestMissingRulesAddsOnlyGaps(t *testing.T) {
 
 func TestNotInRulesDFindsRulesAugenrulesWouldDrop(t *testing.T) {
 	auditRules := "-D\n-b 8192\n-w /etc/sudoers -p wa -k actions\n-a always,exit -F arch=b64 -S execve -F euid=0 -k rootcmd\n-e 2\n"
-	if n := NotInRulesD(auditRules, nil); n != 2 {
-		t.Errorf("empty rules.d: %d, want 2", n)
+	if got := NotInRulesD(auditRules, nil); len(got) != 2 || got[0] != "-w /etc/sudoers -p wa -k actions" {
+		t.Errorf("empty rules.d: %q, want 2", got)
 	}
 	d := []string{"-w /etc/sudoers/ -p aw -k other_key\n", "-a always,exit -F arch=b64 -S execve -F euid=0\n"}
-	if n := NotInRulesD(auditRules, d); n != 0 {
-		t.Errorf("all in rules.d: %d, want 0", n)
+	if got := NotInRulesD(auditRules, d); len(got) != 0 {
+		t.Errorf("all in rules.d: %q, want none", got)
+	}
+	// I2: only the rule rules.d lacks, not all of audit.rules.
+	if got := NotInRulesD(auditRules, d[:1]); len(got) != 1 || !strings.Contains(got[0], "execve") {
+		t.Errorf("one missing: %q", got)
+	}
+}
+
+// I5: on a merged-/usr system, a rule on /sbin/modprobe is the rule on
+// /usr/sbin/modprobe; --missing does not propose it again.
+func TestMergedUsrPaths(t *testing.T) {
+	defer func(v bool) { MergedUsr = v }(MergedUsr)
+	rec := "-a always,exit -F path=/usr/sbin/modprobe -F perm=x -F auid>=1000 -F auid!=unset -k modules\n-w /usr/sbin/fdisk -p x -k fdisk\n"
+	loaded := "-a always,exit -S all -F path=/sbin/modprobe -F perm=x -F auid>=1000 -F auid!=-1 -F key=stig\n-w /sbin/fdisk -p x -k stig\n"
+	MergedUsr = true
+	if got := MissingRules(rec, loaded, nil); len(got) != 0 {
+		t.Errorf("merged /usr: proposed %q", got)
+	}
+	MergedUsr = false
+	if got := MissingRules(rec, loaded, nil); len(got) != 2 {
+		t.Errorf("separate /usr: proposed %q", got)
+	}
+}
+
+// I1: the rules file sorts after a STIG baseline's own files.
+func TestRulesFileSortsLast(t *testing.T) {
+	for _, stig := range []string{"actions.rules", "privileged.rules", "time-change.rules", "99-finalize.rules", "audit_rules_usergroup_modification.rules"} {
+		if !(stig < filepath.Base(RulesFile)) {
+			t.Errorf("%s sorts after %s", stig, RulesFile)
+		}
 	}
 }
 
@@ -297,9 +347,13 @@ func TestDefender(t *testing.T) {
 	if len(rs) != 2 || rs[0].Status != Pass || !strings.Contains(rs[0].Have, "1.419.231.0 · version created on 1 Oct 2026") || rs[1].Status != Pass {
 		t.Errorf("fresh definitions: %+v", rs)
 	}
-	old := strings.Replace(strings.Replace(fresh, "1790848800000", "1789639200000", 1), `"RealTimeProtectionEnabled":true`, `"RealTimeProtectionEnabled":false`, 1)
+	// Up to 30 days old is current; older is a gap.
+	if rs := EvaluateDefender(strings.Replace(fresh, "1790848800000", "1789639200000", 1), nil, now); rs[0].Status != Pass || !strings.Contains(rs[0].Have, "15 days old") {
+		t.Errorf("15-day-old definitions: %+v", rs[0])
+	}
+	old := strings.Replace(strings.Replace(fresh, "1790848800000", "1788256800000", 1), `"RealTimeProtectionEnabled":true`, `"RealTimeProtectionEnabled":false`, 1)
 	rs = EvaluateDefender(old, nil, now)
-	if rs[0].Status != Fail || !strings.Contains(rs[0].Have, "15 days old") || !strings.Contains(rs[0].Fix, "Security Intelligence Updates") {
+	if rs[0].Status != Fail || !strings.Contains(rs[0].Have, "31 days old") || !strings.Contains(rs[0].Fix, "Security Intelligence Updates") {
 		t.Errorf("old definitions: %+v", rs[0])
 	}
 	if rs[1].Status != Fail || !strings.Contains(rs[1].Fix, "Real-time Protection > Turn off real-time protection: Disabled") {
@@ -311,5 +365,112 @@ func TestDefender(t *testing.T) {
 	}
 	if rs := EvaluateDefender("", errors.New("not installed"), now); len(rs) != 1 || rs[0].Status != Warn {
 		t.Errorf("no Defender: %+v", rs)
+	}
+}
+
+// A6: what auditd does as its disk fills, who it tells, log permissions.
+func TestAuditdActions(t *testing.T) {
+	status := func(rs []Result) map[string]Status {
+		m := map[string]Status{}
+		for _, r := range rs {
+			m[r.Item] = r.Status
+		}
+		return m
+	}
+	good := status(EvaluateAuditdActions(ParseAuditdConf("space_left_action = email\nadmin_space_left_action = single\ndisk_full_action = HALT\ndisk_error_action = SYSLOG\naction_mail_acct = root\n")))
+	for k, v := range good {
+		if v != Pass {
+			t.Errorf("good %s = %s", k, v)
+		}
+	}
+	bad := status(EvaluateAuditdActions(ParseAuditdConf("space_left_action = ignore\nadmin_space_left_action = SUSPEND\ndisk_full_action = SUSPEND\ndisk_error_action = ignore\naction_mail_acct =\n")))
+	for _, k := range []string{"space_left_action", "admin_space_left_action", "disk_full_action", "disk_error_action", "action_mail_acct"} {
+		if bad[k] != Fail {
+			t.Errorf("bad %s = %s", k, bad[k])
+		}
+	}
+	if r := EvaluateAuditLogPerms(0o600, 0o750, nil, nil); r.Status != Pass {
+		t.Errorf("0600/0750: %s", r.Status)
+	}
+	if r := EvaluateAuditLogPerms(0o644, 0o755, nil, nil); r.Status != Fail {
+		t.Errorf("0644/0755: %s", r.Status)
+	}
+}
+
+// A6: time synchronisation, Linux and Windows.
+func TestTimeSync(t *testing.T) {
+	if r := EvaluateTimeSync(map[string]string{"chronyd": "active"}); r.Status != Pass {
+		t.Errorf("chrony: %+v", r)
+	}
+	if r := EvaluateTimeSync(map[string]string{"chronyd": "inactive", "systemd-timesyncd": "inactive"}); r.Status != Fail {
+		t.Errorf("none: %+v", r)
+	}
+	if r := EvaluateW32Time("STATE              : 4  RUNNING", "NT5DS"); r.Status != Pass {
+		t.Errorf("w32time: %+v", r)
+	}
+	if r := EvaluateW32Time("STATE              : 1  STOPPED", "NTP"); r.Status != Fail {
+		t.Errorf("stopped: %+v", r)
+	}
+	if r := EvaluateW32Time("STATE              : 4  RUNNING", "NoSync"); r.Status != Fail {
+		t.Errorf("nosync: %+v", r)
+	}
+}
+
+// A11: set in GRUB but not in the running kernel takes effect at the
+// next boot.
+func TestBootSettingsPendingReboot(t *testing.T) {
+	grub := "GRUB_DEFAULT=0\nGRUB_CMDLINE_LINUX=\"audit=1 audit_backlog_limit=8192\"\n"
+	rs := EvaluateBoot("BOOT_IMAGE=/vmlinuz ro quiet", grub)
+	if rs[0].Status != Warn || !strings.Contains(rs[0].Have, "next boot") || rs[1].Status != Warn || !strings.Contains(rs[1].Have, "next boot") {
+		t.Errorf("pending: %+v", rs)
+	}
+	rs = EvaluateBoot("ro audit=1 audit_backlog_limit=8192", grub)
+	if rs[0].Status != Pass || rs[1].Status != Pass {
+		t.Errorf("running: %+v", rs)
+	}
+	if rs = EvaluateBoot("ro quiet", ""); rs[0].Status != Fail {
+		t.Errorf("missing: %+v", rs)
+	}
+}
+
+// O1: sudo-rs writes no audit records of its commands.
+func TestSudoRs(t *testing.T) {
+	if r := EvaluateSudo("sudo-rs 0.2.8\n"); r.Status != Warn {
+		t.Errorf("sudo-rs: %+v", r)
+	}
+	if r := EvaluateSudo("Sudo version 1.9.15p5\nSudoers policy plugin version 1.9.15p5\n"); r.Status != Pass || r.Have != "Sudo version 1.9.15p5" {
+		t.Errorf("sudo: %+v", r)
+	}
+}
+
+// Rules on files a system doesn't have are left out of --audit-rules:
+// auditctl refuses them and the rest would not load.
+func TestRulesForThisSystem(t *testing.T) {
+	out := RulesForThisSystem(AuditRules, func(p string) bool { return p != "/usr/sbin/semanage" && p != "/etc/cron.hourly" })
+	if strings.Contains(out, "-F path=/usr/sbin/semanage") || strings.Contains(out, "-F dir=/etc/cron.hourly/") {
+		t.Error("rule on a missing file kept")
+	}
+	if !strings.Contains(out, "## Left out: /usr/sbin/semanage is not on this system.") || !strings.Contains(out, "-F path=/etc/passwd") {
+		t.Errorf("output:\n%s", out)
+	}
+	if RulesForThisSystem(AuditRules, nil) != AuditRules {
+		t.Error("nil exists changed the rules")
+	}
+}
+
+// A5 on Windows: Blackbox's own folder has the auditing entry windows.md
+// describes.
+func TestOwnFolderAudit(t *testing.T) {
+	if r := EvaluateOwnFolderAudit("Everyone|Write, Delete, ChangePermissions, TakeOwnership, Synchronize|Success, Failure\r\n", nil); r.Status != Pass {
+		t.Errorf("with entry: %+v", r)
+	}
+	if r := EvaluateOwnFolderAudit("", nil); r.Status != Warn || r.Fix == "" {
+		t.Errorf("no entry: %+v", r)
+	}
+	if r := EvaluateOwnFolderAudit("Everyone|ReadData|Success\n", nil); r.Status != Warn {
+		t.Errorf("reads only: %+v", r)
+	}
+	if r := EvaluateOwnFolderAudit("", errors.New("exit status 1")); r.Status != Error {
+		t.Errorf("error: %+v", r)
 	}
 }

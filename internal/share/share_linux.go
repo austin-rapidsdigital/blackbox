@@ -34,3 +34,6 @@ func HaveCIFS() bool {
 	}
 	return false
 }
+
+// SMBAllowedIn is only checked on a Windows collector.
+func SMBAllowedIn() (bool, error) { return true, nil }

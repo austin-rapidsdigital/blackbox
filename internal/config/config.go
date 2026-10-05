@@ -38,17 +38,37 @@ type Config struct {
 	Inbox     string
 	ShareUser string // account for the SendTo share, when one is needed
 
+	// SCAP scan results to show with the report (docs/design.md 13a):
+	// ScapResults is the folder to read ("" = scap in the data folder,
+	// "none" = off), ScapMaxAgeDays how old a scan may be before it is
+	// pointed out as stale.
+	ScapResults    string
+	ScapMaxAgeDays int
+
 	Path string // file the config was loaded from ("" if defaults)
 }
 
 // Default returns the built-in defaults.
 func Default() *Config {
 	return &Config{
-		ReportEvery:  "weekly",
-		ReportAt:     DefaultReportAt,
-		DataDir:      DefaultDataDir(),
-		CollectEvery: time.Hour,
+		ReportEvery:    "weekly",
+		ReportAt:       DefaultReportAt,
+		DataDir:        DefaultDataDir(),
+		CollectEvery:   time.Hour,
+		ScapMaxAgeDays: 30,
 	}
+}
+
+// ScapDir is the folder SCAP results are read from, or "" when that is
+// turned off.
+func (c *Config) ScapDir() string {
+	switch strings.ToLower(strings.TrimSpace(c.ScapResults)) {
+	case "none", "off":
+		return ""
+	case "":
+		return filepath.Join(c.DataDir, "scap")
+	}
+	return c.ScapResults
 }
 
 // ReportsDir is the folder reports are written to.
@@ -194,6 +214,14 @@ func (c *Config) set(k, v string) error {
 		}
 	case "report_dir":
 		c.ReportDir = v
+	case "scap_results":
+		c.ScapResults = v
+	case "scap_max_age_days":
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return fmt.Errorf("scap_max_age_days must be a positive number of days")
+		}
+		c.ScapMaxAgeDays = n
 	case "send_to":
 		c.SendTo = v
 	case "inbox":
@@ -285,8 +313,34 @@ func exampleDir() string {
 	return "/srv/audit-reports"
 }
 
+// RawValues reads the settings in the file as written (unquoted, comments
+// removed), for recording what a change replaced. Settings not in the
+// file are "", and so is everything when the file does not exist.
+func RawValues(path string) map[string]string {
+	out := map[string]string{}
+	for _, k := range append([]string{"collect_every"}, Settable...) {
+		out[k] = ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return out
+	}
+	for _, l := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
+		t := strings.TrimSpace(l)
+		k, v, found := strings.Cut(t, "=")
+		if !found || strings.HasPrefix(t, "#") {
+			continue
+		}
+		k = strings.ToLower(strings.TrimSpace(k))
+		if _, known := out[k]; known {
+			out[k] = unquote(strings.TrimSpace(v))
+		}
+	}
+	return out
+}
+
 // Settable lists the settings `blackbox config set` may change.
-var Settable = []string{"site_name", "report_every", "report_at", "report_dir", "retention_days", "exclude_users", "exclude_processes", "working_hours", "send_to", "inbox", "share_user"}
+var Settable = []string{"site_name", "report_every", "report_at", "report_dir", "retention_days", "exclude_users", "exclude_processes", "working_hours", "send_to", "inbox", "share_user", "scap_results", "scap_max_age_days"}
 
 // SetValue changes one user-settable setting in the config file (see
 // Settable), keeping its comments and line endings.
@@ -462,6 +516,14 @@ exclude_processes =
 #   working_hours = Mon-Fri 06:00-18:00
 #   working_hours = Daily 07:00-19:00
 working_hours =
+
+# SCAP scan results (DISA SCC or OpenSCAP XCCDF/ARF files) to show each
+# computer's STIG compliance in the report. Blackbox only reads them; it
+# never runs a scan. Blank reads the "scap" folder in the data folder;
+# point it at SCC's results folder instead, or "none" to turn this off.
+# A scan older than scap_max_age_days is pointed out as stale.
+scap_results =
+scap_max_age_days = 30
 
 `
 

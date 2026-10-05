@@ -37,6 +37,7 @@ func Install(opt Options) error {
 	if !isAdmin() {
 		return errors.New("install must be run from an elevated (Run as administrator) prompt")
 	}
+	was := readBefore(config.DefaultPath(), config.DefaultDataDir())
 
 	// 1. Program files.
 	self, err := os.Executable()
@@ -98,7 +99,7 @@ func Install(opt Options) error {
 	if out, err := hidden.Command("schtasks.exe", "/Create", "/TN", TaskName, "/XML", tmp, "/F").CombinedOutput(); err != nil {
 		return fmt.Errorf("create scheduled task: %v: %s", err, strings.TrimSpace(string(out)))
 	}
-	logf("Scheduled task:      \"%s\" — collects %s as SYSTEM; %s reports", TaskName, EveryText(opt.CollectEvery), opt.ReportEvery)
+	logf("Scheduled task:      \"%s\" — collects %s as SYSTEM; %s", TaskName, EveryText(opt.CollectEvery), scheduleWhat(opt))
 
 	// 5. The status icon, for administrators on a collector or standalone computer.
 	if err := setupTray(opt.Tray && opt.SendTo == "", logf); err != nil {
@@ -111,6 +112,7 @@ func Install(opt Options) error {
 	} else {
 		logf("Programs list:       \"%s\" added to Settings > Apps and Programs and Features", brand.Name)
 	}
+	recordSetup(cfgPath, data, was, opt.Version, logf)
 	return nil
 }
 
@@ -164,6 +166,7 @@ func Uninstall(logf func(string, ...any)) error {
 	if !isAdmin() {
 		return errors.New("uninstall must be run from an elevated (Run as administrator) prompt")
 	}
+	recordRemoval(logf)
 	hidden.Command("schtasks.exe", "/End", "/TN", TaskName).Run() // stop a run in progress
 	if out, err := hidden.Command("schtasks.exe", "/Delete", "/TN", TaskName, "/F").CombinedOutput(); err != nil {
 		logf("Scheduled task: %s", strings.TrimSpace(string(out)))
@@ -237,4 +240,17 @@ func RequireAdmin() error {
 		return errors.New("run this as an administrator (right-click Command Prompt > Run as administrator, or double-click the setup file)")
 	}
 	return nil
+}
+
+// VirtualBoxInstalled reports whether Oracle VirtualBox is installed, so
+// setup suggests the VirtualBox shared folder only where there is one (S12).
+func VirtualBoxInstalled() bool {
+	for _, env := range []string{"ProgramFiles", "ProgramW6432"} {
+		if d := os.Getenv(env); d != "" {
+			if _, err := os.Stat(filepath.Join(d, "Oracle", "VirtualBox", "VBoxSVC.exe")); err == nil {
+				return true
+			}
+		}
+	}
+	return false
 }

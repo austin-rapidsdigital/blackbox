@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -12,7 +13,9 @@ import (
 	"github.com/casea1/blackbox/internal/brand"
 	"github.com/casea1/blackbox/internal/collect"
 	"github.com/casea1/blackbox/internal/config"
+	"github.com/casea1/blackbox/internal/install"
 	"github.com/casea1/blackbox/internal/lan"
+	"github.com/casea1/blackbox/internal/share"
 	"github.com/casea1/blackbox/internal/store"
 )
 
@@ -29,6 +32,7 @@ func (a *App) Status(w io.Writer) error {
 	p := func(label, format string, args ...any) {
 		fmt.Fprintf(w, "  %-17s %s\n", label, fmt.Sprintf(format, args...))
 	}
+	var attention []string // problems that make "blackbox status" exit 4 (L10)
 
 	fmt.Fprintf(w, "%s %s on %s\n\n", brand.Name, a.Version, host)
 	switch a.Cfg.Role() {
@@ -60,6 +64,12 @@ func (a *App) Status(w io.Writer) error {
 		p("Log archive:", "original logs saved up to %s (%s)", stampLocal(s.ArchivedUntil, a.loc()), where)
 	}
 
+	off := auditOffNow(st, now)
+	for h, why := range off {
+		if store.SystemKey(h) == store.SystemKey(host) {
+			p("AUDITING OFF:", "%s — nothing is being recorded. Start it with: systemctl start auditd (and auditctl -e 1 if needed)", why)
+		}
+	}
 	for _, l := range lostSince(st, s.LastWindowEnd, now) {
 		p("Events lost:", "%s", LostText(l, a.loc()))
 	}
@@ -71,18 +81,31 @@ func (a *App) Status(w io.Writer) error {
 			p("Share account:", "%s", a.Cfg.ShareUser)
 		}
 		waiting := lan.Queued(st)
+		oldest := ""
+		since := a.waitingSince(st)
+		if !since.IsZero() {
+			oldest = fmt.Sprintf("; the oldest waiting since %s (%s)", stampLocal(since, a.loc()), ago(now.Sub(since)))
+		}
 		switch snd := s.Send; {
 		case snd == nil:
 			p("Sent:", "nothing yet (sends after the next collection)")
 		case snd.LastError != "":
 			p("Last attempt:", "%s — FAILED: %s", stampLocal(snd.LastAttempt, a.loc()), snd.LastError)
-			p("Waiting to send:", "%d batch%s (kept safely here; sent when the collector can be reached)", waiting, es(waiting))
+			p("Waiting to send:", "%d batch%s%s (kept safely here; sent when the collector can be reached, or now with: blackbox send)", waiting, es(waiting), oldest)
 		default:
 			if !snd.LastDelivered.IsZero() {
 				p("Last delivered:", "%s (%s)", stampLocal(snd.LastDelivered, a.loc()), ago(now.Sub(snd.LastDelivered)))
 			}
-			p("Waiting to send:", "%d batch%s", waiting, es(waiting))
+			p("Waiting to send:", "%d batch%s%s", waiting, es(waiting), oldest)
 		}
+		if !since.IsZero() && now.Sub(since) > SendStaleAfter {
+			attention = append(attention, "data has waited more than a day to be sent")
+			p("NOT SENT:", "data has been waiting to be sent for %s. It is kept here, never deleted; check that the collector can be reached (see Last attempt), then run: blackbox send", ago(now.Sub(since)))
+		}
+	}
+	if low := lowSpace(a.Cfg.DataDir); low != "" {
+		attention = append(attention, "low disk space")
+		p("LOW DISK SPACE:", "%s. Collected and queued data is never deleted to make room; free some space.", low)
 	}
 	if a.Cfg.MakesReports() {
 		fmt.Fprintln(w)
@@ -106,7 +129,27 @@ func (a *App) Status(w io.Writer) error {
 		if list, err := filepath.Glob(filepath.Join(a.Cfg.Inbox, "*.bbx")); err == nil {
 			waiting = len(list)
 		}
+		// A shared inbox the firewall keeps closed (N2): reported, never changed.
+		if runtime.GOOS == "windows" && install.InboxShared() {
+			if open, err := share.SMBAllowedIn(); err == nil && !open {
+				attention = append(attention, "the firewall blocks delivery")
+				p("FIREWALL:", "Windows Firewall does not allow file sharing (SMB, TCP 445) in: other computers cannot deliver. "+
+					"To allow it: Enable-NetFirewallRule -DisplayGroup \"File and Printer Sharing\" (or a rule for the senders' addresses only).")
+			}
+		}
+		bad := lan.Unreadable(a.Cfg.Inbox)
+		for _, b := range bad {
+			if name, _, _ := strings.Cut(b, " ("); strings.HasSuffix(name, ".bbx") {
+				waiting-- // counted below as unreadable, not as waiting
+			}
+		}
+		if len(bad) > 0 && state == "OK" {
+			state = "PROBLEM"
+		}
 		p("Inbox:", "%s — %s; %d batch%s waiting to be imported", a.Cfg.Inbox, state, waiting, es(waiting))
+		if len(bad) > 0 {
+			p("", "%s", unreadableText(bad))
+		}
 		if rej, _ := filepath.Glob(filepath.Join(a.Cfg.Inbox, "rejected", "*")); len(rej) > 0 {
 			p("", "%d file%s set aside in %s (see blackbox.log)", len(rej), map[bool]string{true: "s"}[len(rej) != 1], filepath.Join(a.Cfg.Inbox, "rejected"))
 		}
@@ -115,8 +158,19 @@ func (a *App) Status(w io.Writer) error {
 		fmt.Fprintln(w)
 		a.writeSystems(w, st, now)
 	}
+	if len(attention) > 0 {
+		return &NeedsAttention{What: attention}
+	}
 	return nil
 }
+
+// NeedsAttention is what Status returns when something needs looking at
+// (L10): data waiting more than a day to be sent, or low disk space. The
+// status itself was written; "blackbox status" exits 4 so scripts and
+// monitoring can tell.
+type NeedsAttention struct{ What []string }
+
+func (e *NeedsAttention) Error() string { return "needs attention: " + strings.Join(e.What, "; ") }
 
 // Systems writes the table of known computers.
 func (a *App) Systems(w io.Writer) error {
@@ -143,6 +197,10 @@ func (a *App) writeSystems(w io.Writer, st *store.Store, now time.Time) {
 	}
 	fmt.Fprintf(w, "  %-20s %-8s %-18s %-18s %s\n", "NAME", "OS", "LAST COLLECTION", "LAST RECEIVED", "NOTE")
 	self := store.SystemKey(collect.LocalHost())
+	off := map[string]bool{}
+	for h := range auditOffNow(st, now) {
+		off[store.SystemKey(h)] = true
+	}
 	for _, s := range list {
 		recv := stampLocal(s.LastReceived, a.loc())
 		note := ""
@@ -159,6 +217,9 @@ func (a *App) writeSystems(w io.Writer, st *store.Store, now time.Time) {
 			// Earlier than the silence above: a sender whose deliveries
 			// are refused (or that is switched off) shows here first.
 			note = strings.TrimSpace(note + "  no batch since " + stampLocal(s.LastReceived, a.loc()))
+		}
+		if off[store.SystemKey(s.Name)] {
+			note = strings.TrimSpace("AUDITING OFF  " + note)
 		}
 		fmt.Fprintf(w, "  %-20s %-8s %-18s %-18s %s\n", s.Name, s.OS, stampLocal(s.LastRun, a.loc()), recv, note)
 	}
@@ -271,4 +332,14 @@ func es(n int) string {
 func Exists(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, "state.json"))
 	return err == nil
+}
+
+// unreadableText says which inbox files can't be read (L9): "1 file in
+// the inbox can't be read (access denied): name".
+func unreadableText(bad []string) string {
+	if len(bad) == 1 {
+		name, why, _ := strings.Cut(bad[0], " (")
+		return fmt.Sprintf("1 file in the inbox can't be read (%s): %s", strings.TrimSuffix(why, ")"), name)
+	}
+	return fmt.Sprintf("%d files in the inbox can't be read: %s", len(bad), strings.Join(bad, ", "))
 }
