@@ -1,0 +1,153 @@
+# Test activity, v0.10.1 (times UTC)
+20:15:45  ubuntu-server: logged in on tty2, downloaded v0.10.1 tarball, SHA256 OK, 'blackbox version' = 0.10.1
+20:15:45  ubuntu-server: queued apt install auditd cifs-utils (waiting on first-boot apt upgrade lock)
+20:17:48  local (claude-code): blackbox 0.10.1 linux binary, 'report --xml' on synthetic Security events (scratchpad gen.py):
+          8 formula-like user names (= + - @ tab CR space =cmd|), 5 failed logons for Administrator in 0.72 s from 10.6.6.6,
+          13 failed logons for 9 accounts in 0.9 s from 10.7.7.7
+20:17:48  result: events.csv prefixes ' on all 8 (R1 OK); 5 rows not merged; High "Possible password guessing" and High
+          "One source tried several accounts" (D1 OK). Detail text says "between 18:17:02 and 18:17:02".
+20:21:03  local: report --config d3.conf (exclude_users = bbtest) on 6+6 failed logons (bbtest, OTHERDOMAIN\bbtest) + 1 routine 4624 -> 2 High guessing, routine one excluded and disclosed (D3 OK)
+20:21:03  local: report on bbhid$ create/add-admin/4624/4672/remove/delete, WS-TEST$ logon, 3 hidden PowerShell 4688s, wevtutil/auditpol 4688s -> D2, D4, D9 OK
+          (first run used Audit Failure keyword on every event by mistake; "the attempt failed" text was correct for that input; re-run with correct keywords)
+20:29:07  local: report --xml gap.xml, 21 Security events Blackbox doesn't translate (4704 4705 4946 4950 4612 4739 4713 4826 4611 4614 4622 5038 5145 5140 4800 4801 4673 4907 4657 4670 4765) -> 0 events in report (A1)
+20:29:07  local: report --audit stig-audit.log (perm_access EACCES on /etc/shadow, perm_mod fchmodat/fchownat, rename into /etc/cron.d) -> 1 of 4 kept (chown on sudoers.d) (A3)
+20:49:43  ubuntu-server: first apt install gave up waiting for the first-boot 'apt upgrade' lock; upgrade (187 pkgs, new kernel 7.0.0-38) still in dracut
+20:49:43  ubuntu-server: typed scripts/ubuntu-prep.sh as ~/prep.sh (23 lines); queued to run when apt/dpkg exit, output to ~/prep.log
+21:09:38  ubuntu-server: first-boot apt upgrade finished; prep.sh ran: auditd 1:4.1.2, cifs-utils, smbclient, sshpass installed;
+          /etc/audit/rules.d/99-blackbox.rules (blackbox check --audit-rules) + 50-stig-extra.rules loaded, 38 rules, enabled 2 (locked);
+          auditctl printed "Old style watch rules are slower" for every -w rule (Blackbox's file uses -w)
+21:09:38  ubuntu-server: 'blackbox check' (before reboot): 16 pass, 1 FAIL (audit=1 missing; it is in /etc/default/grub, pending reboot), 1 INFO (40 MB audit log space)
+21:09:38  ubuntu-server: auditd.conf defaults: space_left_action=SYSLOG, admin_space_left_action=SUSPEND, disk_full_action=SUSPEND, disk_error_action=SUSPEND (STIG wants notify/halt); check says nothing (A6 confirmed)
+21:09:38  ubuntu-server: sudo reboot (new kernel 7.0.0-38, audit=1)
+21:18:14  ubuntu-server: back after reboot: kernel 7.0.0-38, cmdline has audit=1 audit_backlog_limit=8192, auditctl enabled 2, lost 0, 38 rules, auditd+ssh active
+21:18:14  ubuntu-server: 'blackbox check --all': 17 pass, 0 need attention (shots/ubu-01-check-after-reboot.jpg) although disk_full_action=SUSPEND (A6)
+21:21:39  ubuntu-server: sudo ./install.sh (collector not up yet): role 2 Send to a collector; empty inbox -> re-asked; '\\10.203.0.2\BlackboxInbox' accepted and normalised to //10.203.0.2/BlackboxInbox;
+          account bbsend; test password with '#', ',' and '=' (not echoed); check -> "not reachable ... mount error(113)"; "Use it anyway?" y; collect every 15 minutes
+21:21:39  ubuntu-server: install 0.10.1 OK; "Scheduled: blackbox.timer - collects every 15 minutes as root; weekly reports" (sender makes no reports);
+          check 17 pass; first collection audit.log 4755 lines -> 393 events, syslog 3844 lines -> 0; 1 batch waiting; error names /var/lib/blackbox/collector, printed twice (shots/ubu-03)
+21:24:48  ubuntu-server: activity set 1 (scripts/ubuntu-activity-1.sh, typed as ~/a1.sh)
+21:24:53    created bbuser (kept; test password)
+21:24:54    created bbtemp
+21:24:55    added bbtemp to sudo
+21:24:56    removed bbtemp from sudo
+21:24:57    locked bbtemp (usermod -L)
+21:24:58    unlock refused by usermod (bbtemp has no password) [DID NOT HAPPEN]
+21:24:59    deleted bbtemp (created+deleted within 6 s)
+21:25:01    created group bbgroup, added bbuser
+21:25:03    /etc/ssh/sshd_config.d/01-bbtest.conf PasswordAuthentication yes (cloud image had it off); ssh reloaded
+21:25:0x-21:25:48  6 wrong ssh passwords for bbuser from localhost
+21:25:48-21:26:16  ssh spray: admin oracle test guest ubuntu postgres (unknown accounts), 1 try each
+21:26:49    1 successful ssh logon + logoff as bbuser (C4: expect 1 row)
+21:26:49    bbuser: sudo -S with wrong password (not in sudoers)
+21:26:49-21:28:15  bbuser: sshpass su root hung, Ctrl+C [MAY NOT HAVE HAPPENED]
+21:28:17    claude: sudo -i bash -c 'id; cat /etc/shadow'
+21:28:18    /etc/sudoers.d/90-bbtest created (bbuser NOPASSWD systemctl)
+21:28:39    claude: su - bbuser with wrong password (interactive, Authentication failure)
+21:30:38  ubuntu-server: activity set 2 (scripts/ubuntu-activity-2.sh, typed as ~/a2.sh)
+21:30:39    bbuser: cat /etc/shadow -> permission denied (perm_access rule)
+21:30:40    chmod 777 /opt/secret/plan.txt (perm_mod)
+21:30:41    cp /bin/bash /tmp/bbsh; chmod u+s (setuid, perm_mod)
+21:30:42    /etc/cron.d/bbtest created (cron watch)
+21:30:43    sshd_config MaxAuthTries edited (sshd watch)
+21:30:44    modprobe dummy; rmmod dummy
+21:30:45    blackbox.timer run: delivery failed (CIFS -113), as expected
+21:31:24    timedatectl set-ntp false; date -s (+1 s); set-ntp true
+21:31:25    mount -t tmpfs none /mnt; umount
+21:31:26    created and deleted /var/log/bbtest.log (log_tamper)
+21:31:28    truncate -s 0 /var/log/dpkg.log (log_tamper)
+21:31:29    auditctl -e 0 (refused, locked)
+21:31:30    auditctl -D (refused)
+21:31:32    systemctl stop auditd -> SUCCEEDED (auditd inactive from here)
+21:31:33    blackbox config set exclude_users bbuser
+21:31:34    blackbox config set exclude_users none -> sets an excluded account literally named "none"
+21:31:38    systemctl stop/start blackbox.timer
+21:31:39    blackbox config set site_name "UBU #2" -> stored quoted, reads back "UBU #2" (R3 OK)
+21:31:40    sed working_hours = Mon-Fri 06:00-18:00 into blackbox.conf (direct edit)
+21:32:20  ubuntu-server: 'blackbox status': role sender, last collection 21:31, settings checked 21:21, 3 batches waiting, last attempt FAILED;
+          NOTHING about auditd being stopped (shots/ubu-04-status-auditd-stopped.jpg)
+21:32:57  ubuntu-server: systemctl start auditd (gap 21:31:32-21:32:57); config set exclude_users "" clears it ("Saved exclude_users = ."); R4 message OK
+21:34:02  ubuntu-server: sudo blackbox report --config none --audit /var/log/audit/audit.log --syslog /var/log/syslog --out /tmp/rl1 (local check of the Linux activity; 349 events, 18 high, 17 medium); rows since 21:24 listed with ~/rows.py (shots/ubu-05..08)
+21:36:47  ubuntu-server: ausearch: 0 USER_CMD and 0 USER_AUTH from sudo since boot; sudo is sudo-rs 0.2.13 (/usr/lib/cargo/bin/sudo) (shots/ubu-10)
+21:37:26  ubuntu-server: bbuser 'sudo -S id' with correct password -> "I'm sorry bbuser. I'm afraid I can't do that"; nothing logged in journal or audit.log about bbuser's attempt (shots/ubu-09)
+21:38:41  ubuntu-server: planned 'sudo reboot' (C6; blackbox-shutdown.service enabled; timer last 21:31:01 next 21:45:06)
+21:44-21:52  ubuntu-server: boot stalled: RCU stalls, kworker blocked >614 s in virtballoon_free_page_report; Umbrel memory 10.6/12.5 GB used, Windows TCG ~47% CPU. VT switch not possible (plymouth)
+21:53:11  ubuntu-server: Umbrel restart_machine (reset during the stalled boot)
+21:57:37  ubuntu-server: restart_machine had no effect (uptime kept counting); force_stop_machine + start_machine (hard power-off of a hung boot)
+22:02:08  ubuntu-server: up again (kernel boot 21:57:43, auditd DAEMON_START 21:59:45); hung boot never started auditd (no audit gap to report)
+22:03:00  ubuntu-server: journal boot -1: blackbox-shutdown.service 21:38:42-56 collected 35 audit events, delivery failed (collector down), kept in outbox, exit 1 (shots/ubu-12)
+22:03:30  ubuntu-server: local report /tmp/rl2: "21:39:02 info The audit service (auditd) stopped as part of a restart or shutdown by root (normal)" (C6 OK, shots/ubu-11); manual stop at 21:31:31 stays High
+22:14:30  windows-11: user asked to restart; storage 16.12 -> 16.03 GB (no progress), black screen ~2h50m, keypress no effect; restart_machine ignored
+22:16:00  windows-11: force_stop_machine + start_machine; firmware: "failed to load Boot0002 'UEFI Misc Device' ... Not Found", booting installer DVD (setup had not yet written a boot loader)
+22:20:30  windows-11: Windows 11 Setup window appeared, then screen black again (unattended setup copies files with a black screen). The power cycle restarted setup from the beginning; the earlier 'stall' was setup expanding files, not a hang.
+22:21-00:19  windows-11: watcher (every 150 s): stayed "running setup-delayed firstBootSetup=true" for 2 h
+00:19:50  windows-11: CPU 0% (was ~46%), storage 16.10 GB, black screen: setup idle, probably waiting for input on a screen the capture doesn't show. Left alone.
+00:20:12  ubuntu-server: auditd + blackbox.timer active; last collection 00:15; settings checked 22:01 (re-checked after the 21:57 boot: C5 OK); 15 batches waiting; log archive "saved up to 21:21 (1 waiting)"
+03:42:44  windows-11: screen 'Installing 42% - Please keep your computer on', CPU 47%, 16.31 GB (the 00:19 CPU 0% was a momentary sample)
+05:19:09  windows-11: Umbrel state 'suspended' (CPU 0, 15.92 GB); start_machine -> boots 'Windows Boot Manager' from disk (install wrote its boot files)
+05:25:05  windows-11: 'Just a moment...' (OOBE stage), 15.63 GB
+07:36:26  windows-11: still 'Just a moment...' since ~05:24 (2h+), CPU 46%, 15.66 GB, Umbrel 'setup-delayed'; not touched
+09:37:20  windows-11: still 'Just a moment...' (~4h15m), 15.65 GB flat, CPU 43%, 'setup-delayed'. Stopped watching; waiting for owner decision (shots/win-02)
+16:33:07  host: Proxmox VM 101 (umbrelOS) set to CPU type 'host' (nested=Y on Intel i5-6500T), cold-restarted; umbrelOS sees 'Intel Core i5-6500T'; ubuntu-server and windows-11 now acceleration=kvm
+16:35:56  ubuntu-server: SSH set up for testing (owner approved port forwarding): tester key in ~claude/.ssh/authorized_keys; /etc/ssh/sshd_config.d/01-bbtest.conf = PasswordAuthentication no, except Match Address 127.0.0.1,::1 (local guessing tests); Umbrel forward 192.168.1.21:40022 -> 22 (ports below 40000 refused: machine-port-outside-reserved-range)
+          From here on, SSH logons by claude from 10.203.0.1 (the Umbrel NAT address) are the tester.
+16:37:43  ubuntu-server (SSH): sudo sh -c 'blackbox report --config none --audit /var/log/audit/audit.log --syslog /var/log/syslog --from "2026-10-02 22:05" --out /tmp/rl3'; copied summary.json + events.zip back.
+          512 events 21:05:58 -> 16:37 (--from ignored, R9); idle overnight adds almost nothing; my own command flagged High as log tampering (U13); groupadd misread (U14)
+16:45:33  windows-11: old VM wedged at OOBE 'Just a moment...' under KVM too (Shift+F10 disabled); owner approved reinstall + granted machine creation; delete_machine windows-11; create_machine Windows 11 25H2 (3 cores, 4 GB, 64 GB, user claude), acceleration=kvm
+17:46:15  windows-11 (new): after 60 min under KVM: "Installing 42%", Umbrel 'setup-delayed', IP now 10.203.0.4 (was .2); sampled CPU ~72% steady, disk 16.28->16.30 GB/min: progressing slowly, not hung. Host memory 7.0/11.7 GiB.
+          Likely cause (unconfirmed): Windows 11 enables VBS/HVCI once it sees VT-x; three levels of nesting (Proxmox -> umbrelOS -> Windows hypervisor) are very slow.
+18:40:16  windows-11: Umbrel shows 'suspended' (19.0 GB) = setup's own restart; Umbrel doesn't power it back on. 18:40:40 start_machine. Watcher now restarts it on each 'suspended'.
+20:12:30  windows-11: hung after 'starting Windows Boot Manager' since ~19:15 (CPU 0%, disk flat); force_stop + start; this time Windows boot spinner appears
+20:14-21:52  windows-11 (2nd): loop every ~16 min: running (black screen) -> reboot -> 'starting Windows Boot Manager' -> Umbrel 'suspended'; watcher restarted it 5x; disk 18.3-18.9 GB, no progress
+21:53:20  windows-11: on start, OOBE error "Why did my PC restart? There's a problem that's keeping us from getting your PC ready to use"; Shift+F10 disabled; no recovery menu. Deleted (owner approved reinstall).
+23:44:23  windows-server-2025: setup DONE 23:41 (no reboot loop; 11.6 GB; IP 10.203.0.2 - same as sender's send_to); logged in as claude; Server Manager > Tools > Windows PowerShell (elevated); typing OpenSSH setup (very slow echo: post-install CPU ~74%)
+23:58:50  windows-server-2025 (WIN-498EC8UMUEL, build 10.0.26100.1, unpatched GA): SSH for the tester: sshd enabled, key in administrators_authorized_keys, firewall rule 'bbssh' TCP 22 (default rules didn't admit the Umbrel NAT on the Public profile), PasswordAuthentication no, DefaultShell powershell; Umbrel forward 192.168.1.21:40023 -> 22; password login refused. Network profile: Public.
+          From here on, SSH logons by claude from 10.203.0.1 on the server are the tester.
+00:01:18  windows-server-2025 (SSH): downloaded Blackbox-Setup-0.10.1.exe + SHA256SUMS; sha256 31868ec0...968d9a matches; Authenticode NotSigned (A10 confirmed); VersionInfo CompanyName 'Austin Case'. Created local user bbsend (New-LocalUser, SecureString).
+00:01:55  windows-server-2025 (console): elevated PowerShell: & Blackbox-Setup-0.10.1.exe -> setup window 'Welcome to Blackbox setup' (shots/win-10)
+00:01:58  windows-server-2025 (setup window): This computer -> 'This is the collector'; Reports: site BB-TEST-LAB, weekly Wednesday 00:00, C:\ProgramData\Blackbox\reports;
+          Inbox: C:\BlackboxInbox; 'Virtual machines on this PC send to it (VirtualBox)' was ticked by default with 'claude' pre-filled (no VirtualBox here) - unticked;
+          ticked 'Share it on the network'; no field for which accounts may deliver over the network (shots/win-11); 'folder does not exist, create it?' Yes;
+          Collection: every 15 minutes, status icon on; Ready to install summary (shots/win-12) -> Install
+00:03:30  windows-server-2025 (SSH): net localgroup "Blackbox Senders" bbsend /add (setup window has no field for it); share BlackboxInbox = Blackbox Senders CHANGE, caching 'Manual'; NTFS Senders M, SYSTEM/Admins F
+00:05:40  windows-server-2025: setup finished 'Blackbox is ready': STIG check 12 pass / 24 need attention (Defender intelligence 1.403.7.0 from 5 Dec 2023, 1033 days old); first collection Security 802->138, System 615->10, PowerShell 272->182;
+          first report C:\ProgramData\Blackbox\reports\2026-10-04_0005_2-systems\report.html (folder says 2 systems; nothing received yet) (shots/win-13, win-14). Firewall not touched by setup.
+00:06:20  ubuntu-server (SSH): TCP 10.203.0.2:445 -> "No route to host" (Windows firewall reject); 'sudo blackbox send' -> "collector inbox not available: /var/lib/blackbox/collector (is the shared folder connected or mounted? ...)"; 112 batches waiting
+00:06:56  windows-server-2025 (SSH): Set-NetFirewallRule 'File and Printer Sharing (SMB-In)' -Enabled True (admin step not done or mentioned by setup)
+00:07:30  env: after enabling SMB-In, 445 still "No route to host": ubuntu ARP for 10.203.0.2 FAILED, ubuntu->win:22 blocked, win->ubuntu:22 blocked. The Umbrel isolates its VMs from each other (each reaches only the gateway 10.203.0.1). Direct SMB between the VMs is impossible here.
+00:10-00:12  rig: SFTP route (docs/lan.md "Other ways to reach the inbox") because the Umbrel isolates VMs: windows sshd 'Match User bbsend' AuthorizedKeysFile bbsend_authorized_keys (root key from ubuntu), AllowTcpForwarding no; sshd AllowGroups += "blackbox senders" (image limited SSH to administrators/"openssh users"); reverse tunnel from the tester host gives ubuntu 127.0.0.1:2223 -> windows:22; ubuntu: apt install sshfs; sshfs bbsend@127.0.0.1:/C:/BlackboxInbox /mnt/blackbox-inbox (marker visible)
+00:12:42  ubuntu-server: 'sudo blackbox config set send_to /mnt/blackbox-inbox' -> "Sends to: /mnt/blackbox-inbox (reachable)", "Updated blackbox.service so it may write to /var/lib/blackbox/reports" (wording), SMB mount unit and share.cred removed; service ReadWritePaths includes -/mnt/blackbox-inbox
+00:12:45  ubuntu-server: 'sudo blackbox send' -> "sent 114 batch(es) and 2 log archive(s)" in 47 s; 0 waiting
+00:13:40  windows-server-2025: schtasks /run "Blackbox Audit Collection"; inbox drained to marker only; status: Systems (2) ubuntu-server last collection 00:12 received 00:14; inbox OK, 0 waiting
+00:16:25  windows-server-2025 (SSH): 'blackbox report' -> interim 2026-10-04_0016_2-systems_interim ("received 1 batch (67 records)"); copied first + interim reports to the tester host
+          first report hosts: WIN-498EC8UMUEL + WIN-R5L5B9EF403 (pre-OOBE computer name, 6 rows) -> "2-systems" (W1)
+          interim: 871 events (ubuntu-server 704, WIN 167); Linux detections identical to the sender-side run; 17x Medium "First use of administrator rights" for VIRTUAL USERS\sshd_<pid> (W2);
+          89x Medium 4104 "PowerShell script ... flagged as suspicious" = CDXML module fragments ($__cmdletization_*) from Get/Set-NetFirewallRule (W3); 28x Medium 4781 "renamed account X to X" during OOBE (W4); "added claude to the group None" (D7 still)
+03:47:28  ubuntu-server: replaced the manual sshfs mount with the lan.md fstab line (plus port=2223 for the rig): 'bbsend@127.0.0.1:/C:/BlackboxInbox /mnt/blackbox-inbox fuse.sshfs _netdev,reconnect,IdentityFile=/root/.ssh/blackbox,ServerAliveInterval=15,port=2223 0 0'; mount /mnt/blackbox-inbox
+03:48:42  ubuntu-server: scheduled timer runs delivered 1 batch every 15 min over the sshfs mapping 00:30-03:45 (journal 'sent 1 batch(es)'); collector imports each; sudo reboot (mapping-at-boot test)
+03:49:27  ubuntu-server: after reboot the fstab sshfs mount FAILED ("read: Connection reset by peer" - link not up yet) and stayed failed after the link came back
+03:54:29  ubuntu-server: first post-boot timer run: "collector inbox not available: /mnt/blackbox-inbox"; nothing written into the empty mount point; 2 batches queued (correct). Nothing remounts it (L7).
+03:55:13  ubuntu-server: fstab entry + x-systemd.automount,x-systemd.mount-timeout=20; start .automount; 'systemctl start blackbox.service' -> FAILED status=226/NAMESPACE "Failed to set up mount namespacing: /mnt/blackbox-inbox: Transport endpoint is not connected" (sandbox ReadWritePaths includes the send_to path); collection did not run (L8)
+03:57:04  rig: tunnel stopped (collector unreachable through the sshfs mapping)
+03:58:15  ubuntu-server: link down ~1 min: 'ls /mnt/blackbox-inbox' -> Input/output error; 'systemctl start blackbox.service' -> FAILED 226/NAMESPACE "Failed to set up mount namespacing: /mnt/blackbox-inbox: Input/output error". Collection does not run at all while the collector is unreachable (L8)
+03:59:24  rig: tunnel restarted; sshfs reconnected by itself ('reconnect'); blackbox.service run OK, "sent 1 batch(es)"
+--- v0.10.4 verification (owner asked to verify the latest release) ---
+23:56:32  ubuntu-server: v0.10.4 tarball SHA256 OK; 'sudo ./install.sh --yes' upgraded in place (settings kept, 26.04 accepted); check: A6 SUSPEND actions FAIL with fix, O1 sudo-rs WARN, new STIG rules + /etc/blackbox watch missing (host has old rules), ClamAV INFO; 25 pass / 4 fail / 2 warn; L4 wording fixed
+23:57:00-23:57:20  ubuntu-server (SSH): short activity set: 3 wrong ssh pw bbuser; spray admin/oracle/postgres; bbuser sudo refused; auditctl -e 0; tmpfs mount; rm in /var/log; 'rm -rf /tmp/x; ls /var/log/audit'; groupadd/groupdel; config set exclude_users none (L5 OK "Cleared exclude_users."); config set retention_days 30 answered n (A9 OK, refused without --yes); stop auditd -> status "AUDITING OFF" (L3 OK); start auditd
+23:57:33  ubuntu-server: report from logs (rows in v0.10.4/ubuntu-activity-rows.txt): U7 U6 U11 U12 A5/U9 fixed; U5 not (8 rows for 3 attempts, "bbuser ... user name does not exist"); U8 still "by root"; U13 U14 R9 unchanged; new noise from A3 (groupadd temp-file rename Medium, Blackbox's own .state.json.tmp chmods); refused retention change reported as "changed" (High)
+00:00:00  windows-server-2025 (console): Blackbox-Setup-0.10.4.exe (SHA256 OK, NotSigned): welcome "Blackbox 0.10.1 is installed. This will upgrade it to 0.10.4. Your current settings are kept"; settings carried over; Inbox page unchanged (no sender-accounts field, S11); "Ready to apply" / Apply (S3 OK)
+00:02:00  windows-server-2025: upgrade done: share "(members of Blackbox Senders may deliver; encrypted)" (N1); toast "Blackbox updated to 0.10.4"; STIG 16 pass / 23 need attention incl. print logging INFO (A7); "No report was produced now, so the schedule is unchanged"; still no SMB firewall step (N2)
+00:03:17  windows-server-2025 (SSH): share EncryptData True, RejectUnencryptedAccess True (N1 OK), CachingMode Manual (S13); planted fakehost_..._0000000001.bbx with SYSTEM:(DENY)(R); ubuntu 'blackbox send' -> 4 batches in the inbox; schtasks /run
+00:04:12  windows-server-2025: blackbox.log "inbox: fakehost_... was set aside in C:\BlackboxInbox\rejected: it could not be read: Access is denied" + "received 4 batches (421 records)" (L1 OK: others imported) BUT the file stayed in the inbox, rejected\ empty, status "Inbox OK; 1 batch waiting" (L9)
+00:04:45  windows-server-2025 (SSH): config set exclude_users bbtest; config set exclude_users "" ; blackbox report (as admin: the planted file was readable -> set aside "not a Blackbox batch: gzip: invalid header"); interim 2026-10-05_0005_3-systems_interim; verify OK
+          report: hosts ubuntu-server, WIN-498EC8UMUEL, WIN-R5L5B9EF403 (74 rows, W1 worse via the firewall log); 41 'First use of administrator rights' for VIRTUAL USERS\sshd_* (W2); 88 Medium 4104 (W3); 74 Low 2097 'firewall rule added by NT SERVICE\mpssvc' (app rules) + 32 Medium 2052 + 17 2099 (new A7 noise);
+          no row for the Windows config changes (A5 Windows: not audited and not flagged); Audit health "checked 4 Oct 23:56 / 5 Oct 00:04" (C5 collector OK); no 'used sudo' rows from sudo-rs (O1 journal fallback not seen)
+00:06:00  local: v0.10.4 verify: data file + line removed -> FAILED "missing, and not in the manifest (the report needs it)"; events.zip same; summary.json line removed -> one clear line (V1, V2 OK). ubuntu blackbox.service ReadWritePaths unchanged (L8 still)
+00:03:17  windows-server-2025 (SSH): share EncryptData True, RejectUnencryptedAccess True (N1 OK), CachingMode Manual (S13); planted fakehost_..._0000000001.bbx with SYSTEM:(DENY)(R); ubuntu 'blackbox send' -> 4 batches in the inbox; schtasks /run
+00:04:12  windows-server-2025: blackbox.log "inbox: fakehost_... was set aside in C:\BlackboxInbox\rejected: it could not be read: Access is denied" + "received 4 batches (421 records)" (L1 OK: others imported) BUT the file stayed in the inbox, rejected\ empty, status "Inbox OK; 1 batch waiting" (L9)
+00:04:45  windows-server-2025 (SSH): config set exclude_users bbtest; config set exclude_users "" ; blackbox report (as admin: the planted file was readable -> set aside "not a Blackbox batch: gzip: invalid header"); interim 2026-10-05_0005_3-systems_interim; verify OK
+          report: hosts ubuntu-server, WIN-498EC8UMUEL, WIN-R5L5B9EF403 (74 rows, W1 worse via the firewall log); 41 'First use of administrator rights' for VIRTUAL USERS\sshd_* (W2); 88 Medium 4104 (W3); 74 Low 2097 'firewall rule added by NT SERVICE\mpssvc' (app rules) + 32 Medium 2052 + 17 2099 (new A7 noise);
+          no row for the Windows config changes (A5 Windows: not audited and not flagged); Audit health "checked 4 Oct 23:56 / 5 Oct 00:04" (C5 collector OK); no 'used sudo' rows from sudo-rs (O1 journal fallback not seen)
+00:06:00  local: v0.10.4 verify: data file + line removed -> FAILED "missing, and not in the manifest (the report needs it)"; events.zip same; summary.json line removed -> one clear line (V1, V2 OK). ubuntu blackbox.service ReadWritePaths unchanged (L8 still)
+00:16:26  ubuntu-server: apt install openscap-scanner (1.4.3); oscap xccdf eval --profile stig with SSG 0.1.81 ssg-ubuntu2404-ds.xml (benchmark-level 24.04 CPE platform removed from the test copy so rules evaluate on 26.04) -> 240 rules: 61 pass, 144 fail, 30 notapplicable, 5 notchecked, score 62.85
+00:18:45  ubuntu-server: results copied into /var/lib/blackbox/scap; blackbox.service run -> scap_c13ecdf81a20a234_c9f4058535eaf0cb.xml.gz delivered with batch 219 (sender log says only "sent 1 batch(es) and 0 log archive(s)")
+00:20:00  windows-server-2025 (SSH): blackbox report -> "received 1 SCAP scan result(s)"; interim 2026-10-05_0020_3-systems_interim: STIG compliance (SCAP) table (ubuntu-server, SSG 0.1.81, STIG V1R1 profile, 63%, CAT I 7 / II 133 / III 4 = the 144 fails), WIN-498EC8UMUEL "SCAP: no scan found", Overview "Open CAT I findings: 7 on ubuntu-server", scap-open-rules.csv (144 rows, vuln_id and stig_id empty), results file in the report folder and manifest; printed summary still ends with ISSO / Date / ISSM lines

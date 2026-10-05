@@ -1,0 +1,20 @@
+{
+ "scap": [
+  {
+   "system": "ubuntu-server",
+   "benchmark": "Guide to the Secure Configuration of Ubuntu 24.04 0.1.81",
+   "scan_time": "2026-10-05T00:17:53Z",
+   "score": "63%",
+   "open_cat_i": 7,
+   "open_cat_ii": 133,
+   "open_cat_iii": 4
+  },
+  {
+   "system": "WIN-498EC8UMUEL",
+   "open_cat_i": 0,
+   "open_cat_ii": 0,
+   "open_cat_iii": 0,
+   "no_scan": true
+  }
+ ]
+}

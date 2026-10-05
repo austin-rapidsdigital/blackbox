@@ -1,0 +1,60 @@
+{
+  "window_start": "2026-10-04T00:10:25.634Z",
+  "window_end": "2026-10-04T23:57:33.838Z",
+  "generated": "2026-10-04T23:57:33.855951141Z",
+  "hosts": [
+    "ubuntu-server"
+  ],
+  "events": 564,
+  "high": 14,
+  "medium": 24,
+  "by_category": {
+    "account_changes": 4,
+    "audit_integrity": 7,
+    "failed_logon": 21,
+    "logon_activity": 0,
+    "other_security": 84,
+    "powershell": 0,
+    "privileged": 448,
+    "removable_media": 0
+  },
+  "events_lost": 0,
+  "log_clears": 0,
+  "audit_off_periods": 1,
+  "blackbox_version": "0.10.4",
+  "source": "Exported log files: audit.log, syslog, auth.log",
+  "detections": [
+    {
+      "severity": "high",
+      "time": "2026-10-04T23:57:00.52Z",
+      "host": "ubuntu-server",
+      "title": "Possible password guessing",
+      "detail": "8 failed logons for bbuser on ubuntu-server between 23:57:00 and 23:57:09 from localhost."
+    },
+    {
+      "severity": "high",
+      "time": "2026-10-04T23:57:00.52Z",
+      "host": "ubuntu-server",
+      "title": "One source tried several accounts",
+      "detail": "localhost tried 6 different accounts on ubuntu-server (bbuser, admin, (unknown user name), oracle, postgres, claude) with 19 failed logons between 23:57:00 and 23:57:18."
+    },
+    {
+      "severity": "high",
+      "time": "2026-10-04T23:57:19.199Z",
+      "host": "ubuntu-server",
+      "title": "Auditing was switched off",
+      "detail": "The audit service on ubuntu-server was off for 0 minutes (23:57:19 to 23:57:20). Nothing done in that time was recorded."
+    }
+  ],
+  "metrics": {
+    "account_changes": 4,
+    "detections": 3,
+    "events": 564,
+    "failed_logons": 21,
+    "high_events": 11,
+    "late_events": 0,
+    "new_usb_devices": 0,
+    "privileged_actions": 448,
+    "systems_reporting": 1
+  }
+}
