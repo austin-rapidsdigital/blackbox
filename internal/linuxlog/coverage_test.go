@@ -153,3 +153,24 @@ func TestSudoRsJournalNoTTY(t *testing.T) {
 		}
 	}
 }
+
+// A14: groupadd writes /etc/group through /etc/group+ (renamed over it,
+// then its owner and mode set), and Blackbox saves its state through a
+// temporary file: neither is a row of its own. Another program changing
+// Blackbox's data still is (A5).
+func TestRoutineFileWrites(t *testing.T) {
+	var lines []string
+	lines = append(lines, sysRec(1, "82", "yes", "0", "7ffd", "7ffe", "/usr/sbin/groupadd", "delete", "/etc/group+")...)
+	lines = append(lines, sysRec(2, "92", "yes", "0", "0", "0", "/usr/sbin/groupadd", "perm_mod", "/etc/group+")...)
+	lines = append(lines, sysRec(3, "90", "yes", "0", "1a4", "0", "/usr/sbin/groupadd", "perm_mod", "/etc/gshadow+")...)
+	lines = append(lines, sysRec(4, "90", "yes", "0", "180", "0", "/usr/local/bin/blackbox", "perm_mod", "/var/lib/blackbox/.state.json.tmp-123")...)
+	lines = append(lines, sysRec(5, "82", "yes", "0", "7ffd", "7ffe", "/usr/local/bin/blackbox", "blackbox", "/var/lib/blackbox/.state.json.tmp-123")...)
+	lines = append(lines, sysRec(6, "90", "yes", "0", "1ff", "0", "/usr/bin/chmod", "perm_mod", "/etc/group")...)
+	lines = append(lines, sysRec(7, "257", "yes", "3", "7ffd", "241", "/usr/bin/vim.basic", "blackbox", "/var/lib/blackbox/state.json")...)
+	evs := translateLines(t, Users{1001: "jsmith"}, lines...)
+	got := summaries(evs)
+	if len(evs) != 2 || !strings.Contains(got, "jsmith edited /etc/group directly (using chmod)") ||
+		!strings.Contains(got, "blackbox_files_changed: jsmith changed Blackbox's collected data: /var/lib/blackbox/state.json (using vim.basic)") {
+		t.Errorf("rows:\n%s", got)
+	}
+}

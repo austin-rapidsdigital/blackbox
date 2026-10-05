@@ -3,6 +3,7 @@ package linuxlog
 import (
 	"fmt"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -130,6 +131,30 @@ func modeArg(sc string, r *Record) (uint64, bool) {
 	return v, err == nil
 }
 
+// accountTools (translate_syscall.go) change the account files through a
+// temporary copy: /etc/group+ renamed over /etc/group, then its owner and
+// mode set. The tool's own account record is the row (A14).
+var accountFile = regexp.MustCompile(`^/etc/(passwd|shadow|group|gshadow|subuid|subgid)([+-]|\.lock|\.\d+|\.edit)?$|^/etc/n(shadow|gshadow|passwd|group)$`)
+
+// routineFileWrite is a write that is part of a change recorded better
+// elsewhere: an account tool's temporary copies of the account files, and
+// Blackbox's own writes under its data folder (its state saved through a
+// temporary file). Writes there by anything else are still reported (A5).
+func routineFileWrite(prog string, paths []string) bool {
+	if len(paths) == 0 {
+		return false
+	}
+	for _, p := range paths {
+		switch {
+		case accountTools[prog] && accountFile.MatchString(p):
+		case prog == "blackbox" && strings.HasPrefix(p, "/var/lib/blackbox/"):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // fileChange is a permission, ownership or extended-attribute change, a
 // deletion or rename, or any other record of a keyed audit rule.
 func (t *Translator) fileChange(r *Record, actor, sc string, paths []string, exe, cmd string) *event.Event {
@@ -137,6 +162,9 @@ func (t *Translator) fileChange(r *Record, actor, sc string, paths []string, exe
 	prog := base(exe)
 	if actor == "" || key == "" || packageManagers[prog] || packageManagers[r.Get("comm")] {
 		return nil // the system, or a software update (its sudo command is the record)
+	}
+	if routineFileWrite(prog, paths) || routineFileWrite(r.Get("comm"), paths) {
+		return nil // A14
 	}
 	target := firstNonEmpty(strings.Join(paths, ", "), "a file")
 	sys := false

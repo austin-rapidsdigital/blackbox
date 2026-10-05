@@ -2,6 +2,7 @@ package winevt
 
 import (
 	"encoding/base64"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -168,14 +169,18 @@ func TestFailureReason(t *testing.T) {
 
 func TestIsServiceAccount(t *testing.T) {
 	tr := NewTranslator()
-	yes := [][2]string{{"S-1-5-18", "WS-07$"}, {"S-1-5-19", "LOCAL SERVICE"}, {"S-1-5-90-0-1", "DWM-1"}}
+	yes := [][2]string{{"S-1-5-18", "WS-07$"}, {"S-1-5-19", "LOCAL SERVICE"}, {"S-1-5-90-0-1", "DWM-1"},
+		// W2: OpenSSH for Windows' per-connection virtual account.
+		{"S-1-5-111-3847866527-469524349-687026318-516638107-1125189541-6052", "sshd_6052"}, {"", "sshd_6052"}}
 	for _, a := range yes {
 		if !tr.isServiceAccount(a[0], a[1]) {
 			t.Errorf("isServiceAccount(%v) = false", a)
 		}
 	}
-	if tr.isServiceAccount("S-1-5-21-1-2-3-1001", "jsmith") {
-		t.Error("jsmith treated as a service account")
+	for _, name := range []string{"jsmith", "sshd", "sshd_admin", "sshd_"} {
+		if tr.isServiceAccount("S-1-5-21-1-2-3-1001", name) {
+			t.Errorf("%s treated as a service account", name)
+		}
 	}
 }
 
@@ -460,5 +465,45 @@ func TestAuditPolicyBySystem(t *testing.T) {
 	}
 	if e := tr.Translate(pol("%%8448, %%8450")); e == nil || e.Severity != event.SevHigh {
 		t.Errorf("auditing removed by SYSTEM: %+v", e)
+	}
+}
+
+// W3: Get-NetFirewallRule loads NetSecurity's CDXML-generated module,
+// logged as a warning in three parts; only the first names the CIM class.
+// None is a row, and a real suspicious script still is.
+func TestCDXMLModuleParts(t *testing.T) {
+	tr := NewTranslator()
+	part1 := "# Localized NetSecurity\n$__cmdletization_objectModelWrapper = Microsoft.PowerShell.Cmdletization.Cim.CimCmdletAdapter\n" +
+		"[Microsoft.PowerShell.Cmdletization.Xml]\n$ClassName = 'root/standardcimv2/MSFT_NetFirewallRule'"
+	part2 := "$__cmdletization_methodParameters = [System.Collections.Generic.List[Microsoft.PowerShell.Cmdletization.MethodParameter]]::new()\n[System.Runtime.InteropServices.Marshal]::SizeOf($x)"
+	part3 := "$__cmdletization_queryBuilder.FilterByProperty('Enabled', $Enabled)\n# GetMethod reflection helper"
+	for i, text := range []string{part1, part2, part3} {
+		if e := tr.Translate(ps(3, "{6f1c}", fmt.Sprint(i+1), "3", text)); e != nil {
+			t.Errorf("part %d: %s", i+1, e.Summary)
+		}
+	}
+	// Another script with the same words but no generated code: reported.
+	if e := tr.Translate(ps(3, "{7a2d}", "1", "1", "[System.Runtime.InteropServices.Marshal]::Copy($buf, 0, $p, 10)\nVirtualAlloc")); e == nil {
+		t.Error("suspicious script not reported")
+	}
+}
+
+// W4: Windows setup "renames" accounts to the same name and adds a new
+// account to its default primary group "None": neither is a row.
+func TestOOBEAccountNoise(t *testing.T) {
+	tr := NewTranslator()
+	raw := func(id int, data map[string]string) *Raw {
+		data["SubjectUserName"], data["SubjectUserSid"], data["SubjectDomainName"] = "SYSTEM", "S-1-5-18", "NT AUTHORITY"
+		return &Raw{Provider: "Microsoft-Windows-Security-Auditing", Channel: "Security", EventID: id, Computer: "SRV25",
+			Time: time.Date(2026, 10, 4, 9, 0, 0, 0, time.UTC), Data: data}
+	}
+	if e := tr.Translate(raw(4781, map[string]string{"OldTargetUserName": "Administrator", "NewTargetUserName": "Administrator", "TargetSid": "S-1-5-21-9-9-9-500"})); e != nil {
+		t.Errorf("same-name rename: %s", e.Summary)
+	}
+	if e := tr.Translate(raw(4781, map[string]string{"OldTargetUserName": "Administrator", "NewTargetUserName": "admin2", "TargetSid": "S-1-5-21-9-9-9-500"})); e == nil {
+		t.Error("real rename not reported")
+	}
+	if e := tr.Translate(raw(4728, map[string]string{"TargetUserName": "None", "TargetSid": "S-1-5-21-9-9-9-513", "MemberSid": "S-1-5-21-9-9-9-1001", "MemberName": "-"})); e != nil {
+		t.Errorf("primary group: %s", e.Summary)
 	}
 }

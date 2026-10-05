@@ -2,6 +2,9 @@
 // and what one record is re-read as because of another. Build applies them
 // in this order:
 //
+//  0. formerNames: events recorded under a name no collecting computer has
+//     (a new server's name before setup renamed it) are shown on the one
+//     computer that could have recorded them (W1).
 //  1. exclude: exclude_users / exclude_processes leave out routine events only
 //     (routine, excludedBy), and Windows' own PowerShell modules are dropped
 //     (dropWindowsModules).
@@ -19,6 +22,9 @@
 //     Blackbox's own record of the change it made (A15); with no record,
 //     on a computer whose Blackbox records its changes, the command
 //     changed nothing and says so ("not applied").
+//  4c. appPackageRules: firewall rules Windows itself registers for its
+//     built-in app packages ("@{Microsoft.…}", by NT SERVICE\mpssvc) are
+//     one Info row per computer and day (A13).
 //  5. attributeDevices: a USB device is attributed to whoever mounted it, or
 //     to the person at the console.
 //  6. shutdownStops: auditd stopping in a reboot or shutdown is routine.
@@ -35,6 +41,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -289,6 +296,104 @@ func sshAttempts(events []*event.Event) []*event.Event {
 		if !drop[e] {
 			out = append(out, e)
 		}
+	}
+	return out
+}
+
+// formerNames files events recorded under a computer's former name under
+// its current one (W1). Systems are the computers that collect; an event
+// whose computer is not one of them was read from the logs of a computer
+// that was since renamed. When exactly one computer of that OS collects
+// its own logs here (not delivered by another), it is that one. New
+// collections already do this (collect.OnThisComputer); this covers data
+// stored before.
+func formerNames(events []*event.Event, systems []SystemInfo) {
+	if len(systems) == 0 {
+		return
+	}
+	known := map[string]bool{}
+	local := map[string][]string{} // OS → local computers
+	for _, s := range systems {
+		known[strings.ToUpper(s.Name)] = true
+		if s.Via == "" {
+			local[s.OS] = append(local[s.OS], s.Name)
+		}
+	}
+	for _, e := range events {
+		if e.Host == "" || known[strings.ToUpper(e.Host)] || len(local[e.OS]) != 1 {
+			continue
+		}
+		e.AddDetail("Recorded under", "its former name "+e.Host)
+		e.Host = local[e.OS][0]
+	}
+}
+
+// appPackageRule is a firewall rule change Windows made for one of its app
+// packages: the rule is named by a package resource string ("@{…}"), and
+// the change was made by the firewall service or names no one.
+func appPackageRule(e *event.Event) bool {
+	if e.OS != "windows" || !strings.HasPrefix(e.Action, "firewall_rule_") || e.Action == "firewall_rules_cleared" ||
+		!strings.HasPrefix(strings.TrimSpace(e.Target), "@{") {
+		return false
+	}
+	u := strings.ToLower(e.User)
+	return u == "" || strings.HasSuffix(u, `\mpssvc`) || u == "mpssvc" || u == "system" || strings.HasSuffix(u, `\system`)
+}
+
+// appPackageRules makes the firewall rules Windows registers for its
+// built-in app packages one Info count per computer and day (A13): a
+// fresh server registers well over a hundred, and a person opening a port
+// was lost among them. Changes made by people keep their own rows.
+func (r *Report) appPackageRules(events []*event.Event) []*event.Event {
+	type group struct {
+		row                     *event.Event
+		added, changed, deleted int
+		names                   []string
+	}
+	groups := map[string]*group{}
+	out := events[:0]
+	for _, e := range events {
+		if !appPackageRule(e) {
+			out = append(out, e)
+			continue
+		}
+		day := e.Time.In(r.Location).Format("2006-01-02")
+		k := strings.ToUpper(e.Host) + "|" + day
+		g := groups[k]
+		if g == nil {
+			g = &group{row: &event.Event{Time: e.Time, Collected: e.Collected, Host: e.Host, OS: e.OS, Source: e.Source,
+				Category: event.CatIntegrity, Severity: event.SevInfo, Action: "firewall_app_rules", User: e.User,
+				Fields: map[string]string{}}}
+			groups[k] = g
+			out = append(out, g.row)
+		}
+		switch e.Action {
+		case "firewall_rule_added":
+			g.added++
+		case "firewall_rule_deleted":
+			g.deleted++
+		default:
+			g.changed++
+		}
+		if len(g.names) < 20 && !slices.Contains(g.names, e.Target) {
+			g.names = append(g.names, e.Target)
+		}
+	}
+	for _, g := range groups {
+		var parts []string
+		for _, p := range []struct {
+			n    int
+			verb string
+		}{{g.added, "added"}, {g.changed, "changed"}, {g.deleted, "deleted"}} {
+			if p.n > 0 {
+				parts = append(parts, fmt.Sprintf("%d %s", p.n, p.verb))
+			}
+		}
+		g.row.Summary = fmt.Sprintf("Windows updated the firewall rules for its built-in app packages: %s (by the Windows Firewall service).",
+			strings.Join(parts, ", "))
+		g.row.Target = fmt.Sprintf("%d app package rules", g.added+g.changed+g.deleted)
+		g.row.AddDetail("Rules (first 20)", strings.Join(g.names, "; "))
+		g.row.AddDetail("Why one row", "Windows registers these for the apps that come with it; changes made by people are listed separately.")
 	}
 	return out
 }

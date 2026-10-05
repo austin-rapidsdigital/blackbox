@@ -41,6 +41,9 @@ func (t *Translator) accountChange(r *Raw) *event.Event {
 	case 4724:
 		e.Summary = fmt.Sprintf("%s reset the password of %s.", by, target)
 	case 4781:
+		if strings.EqualFold(r.Get("OldTargetUserName"), r.Get("NewTargetUserName")) {
+			return nil // Windows setup "renames" accounts to the same name (W4)
+		}
 		e.Summary = fmt.Sprintf("%s renamed account %s to %s.", by, r.Get("OldTargetUserName"), r.Get("NewTargetUserName"))
 		e.Target = r.Get("NewTargetUserName")
 	default:
@@ -78,9 +81,10 @@ func (t *Translator) groupMembership(r *Raw) *event.Event {
 	group := r.Get("TargetUserName")
 	member := t.memberName(r.Get("MemberName"), r.Get("MemberSid"))
 	added := r.EventID == 4728 || r.EventID == 4732 || r.EventID == 4756
-	// Deleting an account also removes it from its primary group, "None"
-	// (or "Domain Users"), RID 513. That says nothing new.
-	if !added && strings.HasSuffix(r.Get("TargetSid"), "-513") {
+	// Creating or deleting an account also adds it to or removes it from
+	// its default primary group, "None" (or "Domain Users"), RID 513. That
+	// says nothing new (W4).
+	if strings.HasSuffix(r.Get("TargetSid"), "-513") {
 		return nil
 	}
 	priv := isPrivilegedGroup(group, r.Get("TargetSid"))
