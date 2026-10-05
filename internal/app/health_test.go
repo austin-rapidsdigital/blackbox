@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -186,5 +187,35 @@ func TestSentText(t *testing.T) {
 		if got := sentText(r); got != want {
 			t.Errorf("sentText(%+v) = %q, want %q", r, got, want)
 		}
+	}
+}
+
+// R9: --from/--to/--days apply to exported log files too.
+func TestReportFromFilesRange(t *testing.T) {
+	a := &App{Cfg: &config.Config{DataDir: t.TempDir()}, Now: func() time.Time { return time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC) }, Loc: time.UTC}
+	in := Inputs{Audit: []string{"../../testdata/linux/ubuntu-audit.log"}}
+	count := func(from, to time.Time) int {
+		t.Helper()
+		dir, err := a.ReportFromFiles(in, filepath.Join(t.TempDir(), "r"), from, to)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := os.ReadFile(filepath.Join(dir, "summary.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var s struct{ Events int }
+		json.Unmarshal(b, &s)
+		return s.Events
+	}
+	all := count(time.Time{}, time.Time{})
+	if all == 0 {
+		t.Fatal("no events in the sample log")
+	}
+	if n := count(time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC), time.Time{}); n != 0 {
+		t.Errorf("from 2030: %d events, want 0", n)
+	}
+	if n := count(time.Date(2026, 9, 28, 17, 0, 0, 0, time.UTC), time.Date(2026, 9, 28, 18, 0, 0, 0, time.UTC)); n == 0 || n >= all {
+		t.Errorf("one hour: %d of %d events", n, all)
 	}
 }

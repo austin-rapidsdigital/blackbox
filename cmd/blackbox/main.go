@@ -637,7 +637,7 @@ func cmdReport(args []string) error {
 	var dir string
 	switch {
 	case !in.Empty():
-		dir, err = a.ReportFromFiles(in, *out)
+		dir, err = a.ReportFromFiles(in, *out, from, to) // the period applies to files too (R9)
 	case !from.IsZero():
 		dir, err = a.ReportRange(from, to)
 	default:
@@ -675,12 +675,20 @@ func cmdCheck(args []string) error {
 		if locked {
 			next = "reboot (the loaded rules are locked with -e 2)"
 		}
-		fmt.Fprintf(os.Stderr, "To install: blackbox check --audit-rules --missing | sudo install -m 0600 /dev/stdin %s, then %s.\n", check.RulesFile, next)
-		if n := check.RulesOnlyInAuditRules(); n > 0 {
-			fmt.Fprintf(os.Stderr, "\nCAUTION: /etc/audit/audit.rules has %d rules that are not in /etc/audit/rules.d (Ubuntu's usg fix\n"+
-				"writes audit.rules directly). augenrules rebuilds audit.rules from rules.d, so adding a file there\n"+
-				"would remove them, at the next augenrules --load or reboot. Keep them first:\n"+
-				"  sudo install -m 0600 /etc/audit/audit.rules /etc/audit/rules.d/50-existing.rules\n", n)
+		how := fmt.Sprintf("blackbox check --audit-rules --missing | sudo install -m 0600 /dev/stdin %s", check.RulesFile)
+		for _, f := range check.OldRulesFilesPresent() {
+			how += "; sudo rm " + f // an earlier version's file: rules in both would stop auditctl
+		}
+		fmt.Fprintf(os.Stderr, "To install: %s, then %s.\n", how, next)
+		if only := check.RulesOnlyInAuditRules(); len(only) > 0 {
+			// Only the rules rules.d lacks, so nothing is loaded twice (I2).
+			fmt.Fprintf(os.Stderr, "\nCAUTION: /etc/audit/audit.rules has %d rule(s) that no file in /etc/audit/rules.d holds (a tool\n"+
+				"wrote audit.rules without its rules.d file). augenrules rebuilds audit.rules from rules.d, so they would\n"+
+				"be dropped at the next augenrules --load or reboot. To keep them, save just these as\n"+
+				"/etc/audit/rules.d/50-existing.rules (mode 0600) first:\n\n", len(only))
+			for _, l := range only {
+				fmt.Fprintln(os.Stderr, "  "+l)
+			}
 		}
 		return nil
 	}

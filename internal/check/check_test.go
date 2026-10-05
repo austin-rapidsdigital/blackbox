@@ -2,6 +2,7 @@ package check
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -274,12 +275,41 @@ func TestMissingRulesAddsOnlyGaps(t *testing.T) {
 
 func TestNotInRulesDFindsRulesAugenrulesWouldDrop(t *testing.T) {
 	auditRules := "-D\n-b 8192\n-w /etc/sudoers -p wa -k actions\n-a always,exit -F arch=b64 -S execve -F euid=0 -k rootcmd\n-e 2\n"
-	if n := NotInRulesD(auditRules, nil); n != 2 {
-		t.Errorf("empty rules.d: %d, want 2", n)
+	if got := NotInRulesD(auditRules, nil); len(got) != 2 || got[0] != "-w /etc/sudoers -p wa -k actions" {
+		t.Errorf("empty rules.d: %q, want 2", got)
 	}
 	d := []string{"-w /etc/sudoers/ -p aw -k other_key\n", "-a always,exit -F arch=b64 -S execve -F euid=0\n"}
-	if n := NotInRulesD(auditRules, d); n != 0 {
-		t.Errorf("all in rules.d: %d, want 0", n)
+	if got := NotInRulesD(auditRules, d); len(got) != 0 {
+		t.Errorf("all in rules.d: %q, want none", got)
+	}
+	// I2: only the rule rules.d lacks, not all of audit.rules.
+	if got := NotInRulesD(auditRules, d[:1]); len(got) != 1 || !strings.Contains(got[0], "execve") {
+		t.Errorf("one missing: %q", got)
+	}
+}
+
+// I5: on a merged-/usr system, a rule on /sbin/modprobe is the rule on
+// /usr/sbin/modprobe; --missing does not propose it again.
+func TestMergedUsrPaths(t *testing.T) {
+	defer func(v bool) { MergedUsr = v }(MergedUsr)
+	rec := "-a always,exit -F path=/usr/sbin/modprobe -F perm=x -F auid>=1000 -F auid!=unset -k modules\n-w /usr/sbin/fdisk -p x -k fdisk\n"
+	loaded := "-a always,exit -S all -F path=/sbin/modprobe -F perm=x -F auid>=1000 -F auid!=-1 -F key=stig\n-w /sbin/fdisk -p x -k stig\n"
+	MergedUsr = true
+	if got := MissingRules(rec, loaded, nil); len(got) != 0 {
+		t.Errorf("merged /usr: proposed %q", got)
+	}
+	MergedUsr = false
+	if got := MissingRules(rec, loaded, nil); len(got) != 2 {
+		t.Errorf("separate /usr: proposed %q", got)
+	}
+}
+
+// I1: the rules file sorts after a STIG baseline's own files.
+func TestRulesFileSortsLast(t *testing.T) {
+	for _, stig := range []string{"actions.rules", "privileged.rules", "time-change.rules", "99-finalize.rules", "audit_rules_usergroup_modification.rules"} {
+		if !(stig < filepath.Base(RulesFile)) {
+			t.Errorf("%s sorts after %s", stig, RulesFile)
+		}
 	}
 }
 

@@ -174,3 +174,32 @@ func TestRoutineFileWrites(t *testing.T) {
 		t.Errorf("rows:\n%s", got)
 	}
 }
+
+// I4: configuration management (systemd-run, no login user) changing the
+// SSH or PAM settings is shown at Low; a package update is not.
+func TestUnattendedChange(t *testing.T) {
+	unset := func(lines []string) []string {
+		for i := range lines {
+			lines[i] = strings.Replace(lines[i], "auid=1001", "auid=4294967295", 1)
+		}
+		return lines
+	}
+	var lines []string
+	lines = append(lines, unset(sysRec(1, "257", "yes", "3", "7ffd", "241", "/usr/bin/python3.12", "sshd_config", "/etc/ssh/sshd_config"))...)
+	lines = append(lines, unset(sysRec(2, "257", "yes", "3", "7ffd", "241", "/usr/bin/dpkg", "pam", "/etc/pam.d/common-auth"))...)
+	lines = append(lines, unset(sysRec(3, "257", "yes", "3", "7ffd", "241", "/usr/bin/python3.12", "logins", "/var/log/lastlog"))...)
+	evs := translateLines(t, Users{1001: "jsmith"}, lines...)
+	if len(evs) != 1 || evs[0].Action != "unattended_change" || evs[0].Severity != event.SevLow || evs[0].User != "" ||
+		!strings.Contains(evs[0].Summary, "The SSH server settings were changed with no one logged on") {
+		t.Errorf("rows:\n%s", summaries(evs))
+	}
+}
+
+// I7: on a STIG image that watches /var/log/sudo.log, sudo appending to
+// its own log is not a row (the sudo command is).
+func TestSudoLogAppend(t *testing.T) {
+	evs := translateLines(t, Users{1001: "jsmith"}, sysRec(1, "257", "yes", "3", "7ffd", "441", "/usr/bin/sudo", "maintenance", "/var/log/sudo.log")...)
+	if len(evs) != 0 {
+		t.Errorf("rows:\n%s", summaries(evs))
+	}
+}

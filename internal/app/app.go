@@ -738,7 +738,10 @@ func (in Inputs) Empty() bool {
 }
 
 // ReportFromFiles builds a one-off report from exported logs.
-func (a *App) ReportFromFiles(in Inputs, outDir string) (string, error) {
+//
+// from and to (zero for no limit) keep only the events in that period
+// (report --from/--to/--days, R9).
+func (a *App) ReportFromFiles(in Inputs, outDir string, from, to time.Time) (string, error) {
 	now := a.now()
 	var events []*event.Event
 	var runs []*store.Run
@@ -776,19 +779,31 @@ func (a *App) ReportFromFiles(in Inputs, outDir string) (string, error) {
 			names = append(names, filepath.Base(p))
 		}
 	}
-	end := now
-	if len(events) > 0 {
-		last := events[0].Time
+	if !from.IsZero() || !to.IsZero() {
+		kept := events[:0]
 		for _, e := range events {
-			if e.Time.After(last) {
-				last = e.Time
+			if (from.IsZero() || !e.Time.Before(from)) && (to.IsZero() || e.Time.Before(to)) {
+				kept = append(kept, e)
 			}
 		}
-		end = last
+		events = kept
+	}
+	end := to
+	if end.IsZero() {
+		end = now
+		if len(events) > 0 {
+			last := events[0].Time
+			for _, e := range events {
+				if e.Time.After(last) {
+					last = e.Time
+				}
+			}
+			end = last
+		}
 	}
 	r := report.Build(events, runs, report.Options{
-		Site:      a.Cfg.SiteName,
-		WindowEnd: end, Generated: now, Version: a.Version,
+		Site:        a.Cfg.SiteName,
+		WindowStart: from, WindowEnd: end, Generated: now, Version: a.Version,
 		Source: "Exported log file" + plural(len(names)) + ": " + strings.Join(names, ", "), Location: a.loc(),
 		ExcludeUsers: a.Cfg.ExcludeUsers, ExcludeProcesses: a.Cfg.ExcludeProcesses,
 	})

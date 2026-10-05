@@ -56,4 +56,7 @@ func MissingRulesLive() (string, bool, error) {
 }
 
 // RulesOnlyInAuditRules is only meaningful on Linux.
-func RulesOnlyInAuditRules() int { return 0 }
+func RulesOnlyInAuditRules() []string { return nil }
+
+// OldRulesFilesPresent is only meaningful on Linux.
+func OldRulesFilesPresent() []string { return nil }

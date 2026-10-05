@@ -336,7 +336,11 @@ func (t *Translator) syscall(ev *Event, r *Record) *event.Event {
 	}
 
 	if actor == "" {
-		return nil // routine system activity
+		// Configuration management (Ansible or Salt through systemd-run)
+		// runs with no login user, so its changes name no one. Changes to
+		// the logon, SSH, audit and service settings are still shown, at
+		// Low (I4); everything else is routine system activity.
+		return t.unattendedChange(r, sc, paths, exe, cmd)
 	}
 	if e := t.watchedFile(r, actor, sc, paths, exe, cmd); e != nil {
 		return e
@@ -367,6 +371,52 @@ func (t *Translator) syscall(ev *Event, r *Record) *event.Event {
 		return t.execRecord(r, actor, exe, prog, cmd, shown)
 	}
 	return t.fileChange(r, actor, sc, paths, exe, cmd)
+}
+
+// unattendedSettings are the settings whose change is shown even when no
+// one was logged on (I4).
+var unattendedSettings = []struct{ prefix, what string }{
+	{"/etc/pam.d/", "the logon rules (PAM)"},
+	{"/etc/security/", "the logon security settings"},
+	{"/etc/ssh/sshd_config", "the SSH server settings"},
+	{"/etc/audit/", "the audit settings"},
+	{"/etc/systemd/system/", "the services and timers (systemd)"},
+	{"/usr/lib/systemd/system/", "the services and timers (systemd)"},
+	{"/lib/systemd/system/", "the services and timers (systemd)"},
+}
+
+// unattendedChange is a change to logon, SSH, audit or service settings
+// with no login user: configuration management, or a service. Software
+// updates (package managers) are left out: their own records cover them.
+func (t *Translator) unattendedChange(r *Record, sc string, paths []string, exe, cmd string) *event.Event {
+	prog := base(exe)
+	if packageManagers[prog] || packageManagers[r.Get("comm")] || sc == "execve" || sc == "execveat" || r.Get("key") == "" {
+		return nil
+	}
+	for _, p := range paths {
+		for _, u := range unattendedSettings {
+			if !strings.HasPrefix(p, u.prefix) {
+				continue
+			}
+			e := &event.Event{Category: event.CatOther, Severity: event.SevLow, Action: "unattended_change", Target: p, Process: exe, Command: cmd,
+				DedupeKey: "unattended|" + p,
+				Summary:   fmt.Sprintf("%s were changed with no one logged on (configuration management or a service): %s%s.", capitalize(u.what), p, usingProg(prog))}
+			e.AddDetail("File", p)
+			e.AddDetail("System call", sc)
+			e.AddDetail("Command", cmd)
+			e.AddDetail("Audit rule", r.Get("key"))
+			e.AddDetail("Why no person", "The change ran without a login session (auid unset), as Ansible, Salt or another tool run through systemd-run does. The tool's own log says who started it.")
+			return e
+		}
+	}
+	return nil
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // execRecord is a program started under a keyed rule: a person's command
