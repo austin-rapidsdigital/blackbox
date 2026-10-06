@@ -1,4 +1,4 @@
-You're working on Blackbox (github.com/casea1/blackbox). This round is a UI/UX review of 0.15.0. All three test machines were upgraded to 0.15.0, manual reports were made on an Ubuntu 26.04 standalone and a Windows 11 collector (with a Server 2025 sender), and both reports folders were opened in Chromium at 1440×900 and 1280×800. Details and evidence are in `docs/testing/2026-10-02-v0.10.1/findings.md`, section "UI/UX review", rows UI1–UI7. Only things seen on screen or confirmed in `summary.json` are listed.
+You're working on Blackbox (github.com/casea1/blackbox). This round is a UI/UX review of 0.15.0. All three test machines were upgraded to 0.15.0, manual reports were made on an Ubuntu 26.04 standalone and a Windows 11 collector (with a Server 2025 sender), and both reports folders were opened in Chromium at 1440×900 and 1280×800. Details and evidence are in `docs/testing/2026-10-02-v0.10.1/findings.md`, section "UI/UX review", rows UI1–UI8. Only things seen on screen or confirmed in `summary.json` are listed.
 
 Same owner decisions as before (`docs/design.md` §13): report only, no third-party dependencies (the report stays a self-contained HTML file), plain-English sentences, no sign-off section. Keep what works: Inventory, the Antivirus table, All reports with its Incomplete filter, "Manual" naming, the SCAP rule list (SC3), clickable boxes.
 
@@ -25,6 +25,12 @@ Fix:
 4. **Label the x-axis with real dates or ISO weeks**, and say how many weeks are shown.
 5. **Too little history:** with fewer than 2 complete weeks, say "Not enough history yet: trends start after 2 full weeks", instead of an empty box or a 2-point line. Do the same in "What changed".
 6. **Tests:** a fixture with a long first report, daily reports, a manual report, and two reports in one week.
+7. **All reports page (UI8, owner noticed):** the "Detections per week" chart (`internal/report/write.go`, `weekLabel`) draws one bar per report, labelled with the ISO week of its end, blanking every other label, so a week with several reports shows a row of "W40" bars. Use the same weekly counts as above:
+   - one bar per calendar week, labelled with its dates;
+   - the current week labelled "This week (so far)";
+   - no manual reports, with a test that a tray or `blackbox report` manual report never adds a bar;
+   - nothing drawn until there are 2 complete weeks;
+   - the subtitle says "Last N weeks", not "Last N reports".
 
 ## 2. Accuracy shown on screen
 
@@ -52,7 +58,7 @@ Fix:
 
 ## Done means
 
-- UI1–UI7 fixed, with tests (UI1 with the fixture above) and screenshots at 1280 and 1440.
+- UI1–UI8 fixed, with tests (UI1 with the fixture above) and screenshots at 1280 and 1440.
 - The new rows in findings.md get a "Fixed in" entry.
 - The version is bumped, with the IDs in the release notes.
 
