@@ -7,6 +7,7 @@ Ubuntu 26.04 sender and Windows Server 2025 collector tested live (the Windows 1
 - [worker-prompt-2.md](worker-prompt-2.md): the second work list: what 0.10.4 didn't fix, what it introduced, the collector and delivery findings, SCAP, and STIG-image compatibility.
 - [worker-prompt-3.md](worker-prompt-3.md): the third work list, from the 0.11.0 re-test and the Windows 11 standalone tests (clock changes, noise on a fresh Windows 11, SC3). Its [addendum](worker-prompt-3-addendum.md) added L12, U8b, U4b and A14b.
 - [worker-prompt-4.md](worker-prompt-4.md): the fourth work list, from the 0.12.1 re-test: original-log archives (AR1-AR4), role changes (L13, L14, W1b) and smaller items.
+- [worker-prompt-5.md](worker-prompt-5.md): UI/UX review of 0.15.0: trends counted per report instead of per week (UI1), a silent computer shown Healthy (UI2), hidden Audit health columns (UI3), upgrade read as covering of tracks (UI4), and smaller layout and wording items.
 - [test-plan.md](test-plan.md): what was planned, including the collector tests still to run.
 - [test-activity.log](test-activity.log): every test action, timestamped (UTC).
 - [scripts/](scripts/): the scripts typed into the VMs (test passwords come from environment variables and aren't stored).
