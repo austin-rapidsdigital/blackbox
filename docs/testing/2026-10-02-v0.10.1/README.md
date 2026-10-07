@@ -10,8 +10,10 @@ Ubuntu 26.04 sender and Windows Server 2025 collector tested live (the Windows 1
 - [worker-prompt-5.md](worker-prompt-5.md): UI/UX review of 0.15.0: trends counted per report instead of per week (UI1), a silent computer shown Healthy (UI2), hidden Audit health columns (UI3), upgrade read as covering of tracks (UI4), and smaller layout and wording items.
 - [worker-prompt-6.md](worker-prompt-6.md): from the 0.16.1 re-test: false High rows from the per-collection exports (AR2b), the tray needing two clicks (TRAY1, owner report), a gap that never clears (L13b), and small items.
 - [worker-prompt-7.md](worker-prompt-7.md): from the 0.17.0 re-test: a stale run lock that silently stops collection (LOCK1), the slow tray menu (TRAY2), and a docs note on old gaps (L13c).
+- [worker-prompt-8.md](worker-prompt-8.md): from the 0.19.0 deep test: archiving stopped by one missing piece (AR5), "Security log cleared" for any log (LC1), a clear counted as rollover (LC2), the report ledger missing deleted logs (LEDGER1), STIG IDs on shared gap rows (STIG1), and smaller items.
 - [test-plan.md](test-plan.md): what was planned, including the collector tests still to run.
 - [test-activity.log](test-activity.log): every test action, timestamped (UTC).
 - [scripts/](scripts/): the scripts typed into the VMs (test passwords come from environment variables and aren't stored).
 - [shots/](shots/): screenshots. One test password in `ubu-09` is blacked out.
+- [v0.19.0/](v0.19.0/): 0.19.0 deep-test screenshots (report overview, Audit health gaps table, a cleared-log report, All reports, Original logs, phone width, the status icon).
 - [v0.10.4/](v0.10.4/): 0.10.4 evidence: the Ubuntu activity rows and report summary, the Windows upgrade screens, the SCAP results summary and CSV, and raw records for U5 (OpenSSH 10) and O1 (sudo-rs) to use as test fixtures.
