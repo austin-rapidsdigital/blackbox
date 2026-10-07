@@ -9,6 +9,7 @@ Ubuntu 26.04 sender and Windows Server 2025 collector tested live (the Windows 1
 - [worker-prompt-4.md](worker-prompt-4.md): the fourth work list, from the 0.12.1 re-test: original-log archives (AR1-AR4), role changes (L13, L14, W1b) and smaller items.
 - [worker-prompt-5.md](worker-prompt-5.md): UI/UX review of 0.15.0: trends counted per report instead of per week (UI1), a silent computer shown Healthy (UI2), hidden Audit health columns (UI3), upgrade read as covering of tracks (UI4), and smaller layout and wording items.
 - [worker-prompt-6.md](worker-prompt-6.md): from the 0.16.1 re-test: false High rows from the per-collection exports (AR2b), the tray needing two clicks (TRAY1, owner report), a gap that never clears (L13b), and small items.
+- [worker-prompt-7.md](worker-prompt-7.md): from the 0.17.0 re-test: a stale run lock that silently stops collection (LOCK1), the slow tray menu (TRAY2), and a docs note on old gaps (L13c).
 - [test-plan.md](test-plan.md): what was planned, including the collector tests still to run.
 - [test-activity.log](test-activity.log): every test action, timestamped (UTC).
 - [scripts/](scripts/): the scripts typed into the VMs (test passwords come from environment variables and aren't stored).

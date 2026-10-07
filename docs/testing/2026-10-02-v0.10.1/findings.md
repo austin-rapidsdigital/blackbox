@@ -256,6 +256,25 @@ All three machines upgraded to 0.16.1. **Confirmed live:**
 | UI13 | (minor) Audit health's section bar says "Antivirus · all current" while the Antivirus table lists ubuntu-server as "None found · Not checked". Count "not checked" in the bar. | Confirmed |
 | TRAY1 | **Owner report: the tray's "Make a manual report…" needs two clicks before the period window appears.** Not reproduced here (the Windows 11 VM has no screen this tester can drive). The code shows the dialog with `ShowWindow(SW_SHOWNORMAL)` and then `SetForegroundWindow` (`internal/gui/window_windows.go`). A likely cause: the first `ShowWindow` call a process makes can use the show mode it was started with (`STARTUPINFO.wShowWindow`), so the first window the icon opens may be created hidden. If so, "Status details…" would also fail on first use after logon. To confirm, click "Status details…" first after a logon. Reproduce it, and fix it, e.g. call `ShowWindow` with `SW_SHOW` after the first call, or consume the startup show mode on the hidden tray window at start. Also check that a hidden first dialog doesn't stay behind as a stray window. | Owner report |
 
+## 0.17.0 re-test (7 Oct 2026)
+
+Live on all three machines. **Confirmed:**
+- **TRAY1:** on the Server, with the icon started by the logon task, one click on "Make a manual report…" opened the period window, and the report was made.
+- **SETUP1:** the setup window's "Upgrade now, keep current settings", with the settings listed; the console's "Keep these settings and upgrade now?".
+- **SETUP2:** the new SCAP results page.
+- **AR2b:** a hand-run report has no export rows and no covering-of-tracks, while a hand deletion of an export piece is still High.
+- **UI4b:** the upgrade is one row, "upgraded Blackbox from 0.16.1 to 0.17.0", plus the two task updates.
+- **`blackbox gaps accept`:** records who, when and why; `status` drops from exit 4 to 0; the report has the row.
+- **UI13, UI14:** "Antivirus · 1 not checked"; "STIG compliance (SCAP) · score 63% · 7 open CAT I · 2 not scanned".
+- **UI15:** Inventory tabs, filter and expandable rows.
+- **SCAP:** a new OpenSCAP scan from the Ubuntu sender reached the collector.
+
+| # | Finding | Status |
+|---|---|---|
+| LOCK1 | **High: a run that dies leaves a lock that stops collection for 2 hours, silently.** The Ubuntu installer was killed mid-run (by the tester's shell: the output was piped into `head`, so it died of SIGPIPE). `/var/lib/blackbox/blackbox.lock` (PID 31025) stayed behind. For the next 30 minutes, until the tester removed it, every scheduled run logged "waiting for the run in progress to finish" and then "run failed: another Blackbox run is in progress". Nothing was collected or sent, and `blackbox status` said "Last collection 12:45 (31 minutes ago)" with exit 0. `Store.Lock` only removes a lock older than 2 hours and never checks whether its PID is alive. A crash, `kill -9`, power loss or out-of-memory kill does the same, and on a busy system 2 hours without collection can mean lost events. Fix:<br>(1) use an OS lock the kernel releases when the process dies (`flock` / `LockFileEx`), or treat a lock whose PID isn't running as stale;<br>(2) when a scheduled run is refused because of the lock, have `status` say so and exit 4, and log it so it reaches the report. | Confirmed |
+| TRAY2 | (minor) The status icon's menu appeared about **8 seconds** after the click (Server 2025 VM; `showMenu` recalculates the full status before showing the menu). An admin will click again, which may be part of what the owner saw as needing two clicks. Show the menu at once with the last known status, and refresh the status lines in the background. | Confirmed |
+| L13c | (minor) The old "Missing 1-280" gap didn't clear by itself after a 0.17 batch from the sender (the 0.17 notes say it clears "once that sender's batches say where its earlier batches went"). Ubuntu's batches since the role change carried no earlier-collector note, so the collector can't tell. `gaps accept` covers it. Mention in the release notes that gaps from before 0.14 may need `gaps accept`. | Confirmed |
+
 ## ISSO / ISSM review: audit coverage (AU-2, AU-6, AU-12)
 
 Looked at as an ISSO doing the weekly audit review, and as an assessor checking that what the STIG makes you audit is actually reviewed. Owner decisions respected and not re-raised: no review/sign-off section (reviews are recorded on a separate platform) and no classification banner (`design.md` §13).
