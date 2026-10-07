@@ -35,9 +35,34 @@ On the Server 2025 VM the menu appeared about 8 seconds after the click. `showMe
 
 A "Missing 1-280" gap recorded before 0.14 didn't clear after a 0.17 batch from that sender, because nothing in the sender's batches says where its earlier batches went. `gaps accept` covers it. Say in the release notes and in lan.md that gaps from before 0.14 may need `blackbox gaps accept`.
 
+## 4. LOG1 (owner report): "events lost" with 15-minute collection and the log sizes `check` asks for
+
+The owner sees "events overwritten" on several systems, though they collect every 15 minutes and the log sizes match what `check` recommends. Reproduced on the Windows 11 VM:
+- every rollover Blackbox recorded since 5 Oct is in **Microsoft-Windows-PowerShell/Operational**;
+- the 7 Oct report's "Events lost to log rollover: WIN11-TEST: 447" was 447 events overwritten in **9 minutes**.
+
+The cause:
+- That log's Windows default is 15 MB.
+- With script block logging (WN11-CC-000326, plus Windows' automatic logging of "suspicious" blocks), each 4104 event is about 34 KB, so the full log holds about 460 events.
+- Any admin session or management script (SCCM, Intune, Ansible, WinRM, SSH) can turn it over in minutes, faster than any collection interval.
+- The Server 2025 shows the same: 15 MB, full, 556 records.
+- `check` sizes only Security, System and Application, so a system set up exactly as `check` says still reports losses.
+- The status advice, "collect every 15 minutes … or make the log larger", is misleading here: 15 minutes wouldn't help, and no size is given.
+
+Fix:
+1. **Add a `check` line for the PowerShell/Operational log size**, and for any other channel Blackbox reads that can roll over quickly.
+   - Recommend a minimum, e.g. 1 GB, or the size that holds a week at the observed rate.
+   - Give the way to set it: there is no GPO under Event Log Service for this log, so give `wevtutil sl "Microsoft-Windows-PowerShell/Operational" /ms:<bytes>` or the registry-based policy.
+2. **Name the log wherever a loss is shown** (Overview checklist, Audit health gap, tray, status): "PowerShell log on WIN11-TEST: 447 events overwritten", not "WIN11-TEST: 447 events".
+3. **Base the advice on the rate.**
+   - If the loss happened faster than the collection interval, say the log is too small for its volume, and give the size needed.
+   - Don't suggest 15 minutes to a system that already collects every 15 minutes.
+4. **Keep severities apart.** Security-log loss stays High. Show PowerShell/Operational loss as its own, lower-severity line, and say that the per-collection original-log exports kept what was there before each overwrite.
+5. **Tests:** a channel with a gap where `collect_every` is already 15m (no "collect every 15 minutes" advice), and the log name in each message.
+
 ## Done means
 
-- LOCK1 is fixed with tests on both OSes, TRAY2 is fixed or explained, and L13c is documented.
+- LOCK1 is fixed with tests on both OSes, TRAY2 is fixed or explained, L13c is documented, and LOG1 is fixed with tests.
 - The new rows in findings.md get a "Fixed in" entry.
 - The version is bumped, with the IDs in the release notes.
 
