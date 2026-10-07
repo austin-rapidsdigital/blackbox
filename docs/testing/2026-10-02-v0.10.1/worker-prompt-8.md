@@ -78,9 +78,46 @@ Same owner decisions and working rules as before.
   - `keep_sent_days 0` should say it turns off resends.
 - **CONF1:** the `blackbox.conf` template still says "Events are collected every hour regardless, so nothing is lost to log rollover" (`config.go:497`). Reword it.
 
+## 5. UI/UX: simple, no duplicated data (owner request)
+
+The owner wants the report "simple yet detailed", like Splunk, with no duplicated data to confuse auditors. Detections, Inventory and Search are the model. Details: findings.md "UI/UX review, every page", with screenshots in `v0.19.0/ux/`.
+
+**Rule for all of it:**
+- each fact is shown once, where it belongs, and everything else links to it;
+- repeats become one row with a count;
+- a panel with nothing to show is one line, or is hidden.
+
+- **UX1 (do first): fold duplicate rows, and count the folded rows everywhere.**
+  - `conhost.exe` children are 500 of 859 privileged rows: fold them into the parent.
+  - The split-token 4624 pairs are 33 of 74 logons: join them on `TargetLinkedLogonId` into one logon "with administrator rights".
+  - Identical rows (same system, person, action and text within a minute): one row "×N", with every record kept in the detail.
+- **UX2:** Audit integrity labels all 33 rows "Logging stopped" (an upgrade, a firewall rule, task updates). Label each kind, and count only real stops in the tile.
+- **AR2c (regression):** export-piece writes from a hand-run `blackbox run` on 0.19.0 are High again (17 rows; 7 of 8 People "Notable actions"; 2 false "Possible covering of tracks" in the scheduled report). Find why `exportWrites` misses them, and add a fixture from these records.
+- **UX3: one fact, one place.**
+  - Overview: one "Needs attention" list, each problem once; 4 headline tiles; non-zero activity counters only, with the zeros in one line; no system tiles.
+  - Systems page: the reporting problem once; the audit gaps as a count linking to Audit health.
+- **UX4: empty states.**
+  - A page with no events is one line.
+  - "Not enough history" is said once, and trend tiles are hidden until there is history.
+  - Fix the "1, 0, 0" y-axis.
+  - Use hours for a period of a day or less, and never mark "Above normal" without a baseline.
+- **UX5:** give every number its scope ("this report" / "this week, all reports"), and reconcile Privileged actions 4,074 (trend tile) with 1,901 (Trends grid, same week, one person). Also reconcile Systems reporting 3 vs 4, and "High-severity events 113" next to "Detections 0".
+- **UX6:** two words, Detections (investigate) and Health (fix). A High row that is not in a detection is Medium, or a detection. Drop "Flagged this week" / "Notable" / "something unusual".
+- **UX7:**
+  - hide a column whose values are all empty or all the same (Severity "—", Session, Kind);
+  - drop the person's name from table summaries ("claude ran with …") and keep it in the detail.
+- **UX8:** SSH logons show "From: local". Join OpenSSH/Operational's "Accepted … from <address>" to the 4624, so the source address is shown.
+- **UX9:**
+  - Sidebar: Overview, Detections, Search, Systems, People, Audit health, Original logs, All reports, with the event categories as chips in Search (zero-count hidden).
+  - The manual-report banner becomes a chip after the Overview.
+  - "this week" → "this period".
+  - Time labels on the Search timeline.
+
+Check the result against the same report data: Privileged activity should drop from 859 to about 360 rows and Logons from 74 to 37, with the same information.
+
 ## Done means
 
-- AR5, LC1, LC2 and LEDGER1 are fixed with tests on both OSes, and the rest are fixed or answered.
+- AR5, LC1, LC2, LEDGER1, AR2c, UX1 and UX2 are fixed with tests on both OSes, and the rest are fixed or answered.
 - The new rows in findings.md get a "Fixed in" entry.
 - The version is bumped, with the IDs in the release notes.
 
