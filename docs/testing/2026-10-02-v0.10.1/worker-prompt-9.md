@@ -46,6 +46,38 @@ Fix:
    - one bad archive among good ones;
    - a collector bundling a sender's bad archive.
 
+## 1b. The original logs must not depend on time (must fix, High)
+
+An assessor-style check of a real scheduled report traced every row to its original record. Windows Security was complete, but two holes were found (findings.md "Assessor test").
+
+- **AR8: Linux audit records written in the same second as a run are lost.**
+  - The 6 Oct report's `audit.log` is missing 33 serials in 6 places, each in the first second of a Blackbox run. 16 are rows in the report itself, with no original record.
+  - On 0.20.0, the sender's pieces miss 26 serials in 11 places: e.g. 41323 is between piece 000096 (ends 41322) and 000097 (starts 41324), yet it is in `/var/log/audit/audit.log`.
+  - Cause: pieces are cut at the run's exact time (`[from, to)`), but `auditTime` in `export_unix.go` drops the milliseconds. A record written in that second, after the cut, reads as earlier than the next piece's `from`.
+- **AR9: anything logged while the clock is set back is never exported.**
+  - Exports select records stamped after the previous export's end.
+  - Win11's clock was moved back 10 minutes for 20 seconds. Security 172279-172285 are missing from the pieces: the 4616 clock change itself, and a logon (4624/4672) made while the clock was back. No gap was recorded.
+  - The System log lost 1605-1627 the same way after a VM clock jump.
+  - Moving the clock back is how someone hides activity.
+
+Fix:
+1. **Export by position, not time.**
+   - Windows: `EventRecordID` greater than the last one exported, per channel. `wevtutil epl` takes it as an XPath query. Keep the last ID in the state.
+   - Linux: the audit serial, or the file offset and inode, as collection already does.
+   - Time stays in `piece.json` for display only.
+2. **Check continuity.** Each piece starts at the record after the last one. A jump is a recorded gap ("records N-M were not exported: …"), which `status` and the report show.
+3. **Tests:**
+   - an audit record in the same second as the cut;
+   - the clock set back, a logon, the clock set forward, then a run: the 4616 and the logon are in the next piece;
+   - rotation of `audit.log` between runs.
+
+**AR10 (backlog):** a sender's `logs-*.zip` covers its own day (6 Oct 00:00Z to 7 Oct 00:01Z), not the report's period (6 Oct 07:00Z to 7 Oct 07:00Z). `docs/reports.md` says "covering the report's period". Cut senders' archives at the collector's report boundary, or show each computer's coverage on Original logs, with where the rest is.
+
+**ASSESS1 (backlog):**
+- a `README.txt` in each report folder: the files, how to check them (`sha256sum -c manifest.sha256` / `Get-FileHash`), how to open the logs (`Get-WinEvent -Path (Get-ChildItem *.evtx)`, `ausearch -if audit.log`), and the time zone;
+- a time zone on `events.csv` times;
+- `wevtutil al` so message text shows on other computers.
+
 ## 2. Logs and the ledger
 
 - **LC2b (must fix):** after `wevtutil cl` on the PowerShell log, `status` added "Logs incomplete: … had already overwritten its events from 16:24 to 16:25 … Make the log larger". Label a gap that follows a clear (System 104 / 1102) as "cleared by <who> at <time>", with no size advice.
@@ -78,7 +110,7 @@ Fix:
 
 ## Done means
 
-- AR7, LC2b, LEDGER1b, LEDGER3, UX1b and DUP2 are fixed, with tests.
+- AR7, AR8, AR9, LC2b, LEDGER1b, LEDGER3, UX1b and DUP2 are fixed, with tests.
 - The new rows in findings.md get a "Fixed in" entry.
 - The version is bumped, with the IDs in the release notes.
 
