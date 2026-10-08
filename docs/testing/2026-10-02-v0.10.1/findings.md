@@ -480,6 +480,49 @@ All three machines were upgraded in place to 0.23.0 (checksums OK, `blackbox ver
 | LEDGER4b | Low: event 101 for a missing `events.zip` says "It held the only copy of that period's original logs"; only `logs-*.zip` hold the original logs. Say it only for those files. | Confirmed |
 | TZ1b | Low: `piece.json` log ranges still mix offsets (`"from": "2026-10-07T20:51:49-07:00"`, `"to": "2026-10-08T03:52:12Z"`). | Confirmed |
 
+## 0.24.0 pre-production test (8 Oct 2026)
+
+**What was tested:**
+- **Upgrade in the documented order:** the Ubuntu sender first (the collector still on 0.23), then the Windows 11 collector. The Server 2025 was upgraded and made a second sender (Windows, over SMB, with its own delivery account).
+- **Release files:** checksums OK. They are still unsigned (A10).
+- **Then:** drop-only and forgery tests from the Ubuntu sender's account, a key change, a forced scheduled report, and the redesigned report on real data in Chromium.
+
+**Confirmed live:**
+- **Senders first:** the 0.24 sender delivered `…471-<random>.bbx` into its 0.23 folder, and the 0.23 collector imported it.
+- **Collector upgrade:** it emptied the 0.23 folders, imported the waiting batch 472 and removed the folders.
+- **Drop-only inbox (Windows):** Blackbox Senders has `CreateFiles, Synchronize` on the folder only. The marker is readable.
+- **The Ubuntu sender's account over SMB:**
+  - it can create a file and read the marker;
+  - it cannot list the inbox or `rejected`, read its own file, rename or delete its own file, mkdir, or delete the marker;
+  - it cannot overwrite or append once its handle is closed (within the cifs deferred-close second it can, through the creating handle).
+- **Signing:** each sender shows `Signing key: SHA256:…` (key file root 0600). The collector pins it on first signed delivery, with a "New sender" status line and Needs attention row, and `blackbox senders` lists both computers as signed.
+- **Forgeries refused:**
+  - a signed batch copied under another computer's name, or under another number ("its contents say …");
+  - an unsigned replay ("ubuntu-server has signed its deliveries since …: an unsigned file claiming to be from it is refused").
+- **Key change** (sender key deleted, as on a reinstall): the delivery is held in `rejected\held`, with `KEY CHANGED` and exit 4, a High row, and `blackbox senders` showing both keys. `senders rekey ubuntu-server "why"` writes Application event 102 with who and why, and the held batch is then imported.
+- **Windows sender over SMB** (Server 2025, 0.24) delivered signed into the drop-only inbox and was pinned.
+- **Scheduled report:**
+  - `verify` OK and `sha256sum -c` OK;
+  - `README.txt` present (ASSESS1), with a correct PowerShell check;
+  - no duplicate rows.
+- **Redesign on real data:**
+  - every page renders, with no console errors and no horizontal scroll at 1440 or 390 px;
+  - old `#failed`/`#usb`/`#accounts` links land on their new pages;
+  - the "Accounts named claude" table lists the three local accounts;
+  - the collection strip, Delivery line and key change all show.
+- **TZ1b:** `archive.json` and `piece.json` are in UTC. **CLI2:** options after subcommands work (`senders rekey NAME "why"`).
+
+| # | Finding | Status |
+|---|---|---|
+| SEC1e | **Medium: the collector upgrade still makes a false gap, and a resend then imports a second time (SEC1c not fully fixed).** Batch 472 was waiting in the 0.23 folder at the collector upgrade and was imported at 05:37:26. At the next delivery (473), `gaps` said "Missing ubuntu-server batches 472-472", and `send --resend 472` imported it again at 05:40:36. The report merges the copy, so there are no duplicate rows, but an administrator following the "send --resend" advice imports twice. Likely cause: `MigrateSenderFolders` sets `st.State.InboxFolders = nil` while the sender's import record for batches taken through its folder isn't carried over to the sender-ID record. Test: a batch waiting in a 0.23 folder at the upgrade, then the next batch, with no gap listed. | Confirmed |
+| OS1 | **Medium: a Linux system's OS shows as "Blackbox's advice".** ubuntu-server's OS on Systems, Overview's glance and its own page ("Blackbox's advice · server · QEMU …") comes from `osLabel` (report/overview.go:55), which shows the settings check's `Baseline`. Since COMP2 the Linux checks' first label is "Blackbox's advice". Use the OS from inventory (`Ubuntu 26.04.1 LTS`) and the baseline only for STIG text. | Confirmed |
+| PPL1 | **Medium: "Domain account" on a network with no domain.** People shows "claude · Domain account win11-test\\claude · used on 3 this period", while "Accounts named claude" correctly lists three local accounts (`ubuntu-server\\claude`, `WIN-498EC8UMUEL\\claude`, `WIN11-TEST\\claude`). Say "Local account on 3 systems". Call it a domain account only when the account's domain isn't a computer name in the report. | Confirmed |
+| DET1 | **Medium: a refused delete is reported as a deletion.** The tester's refused `rm` of a file in the inbox (Permission denied) appears in a High "Blackbox's files removed" detection, and under the person as "deleted Blackbox's files: /usr/bin/rm /var/lib/blackbox/collector/probe_create.txt 3 times". Use the audit record's `success=no`/exit code: a refused delete is "tried to delete … (refused)", Medium, not a removal. | Confirmed |
+| SEC1f | Low: (a) files in the inbox that aren't deliveries (e.g. `probe2.txt`, written by a sender account) stay there for ever: set them aside in `rejected` after 10 minutes, so a sender can't fill the disk unseen. (b) Batches emptied from 0.23 folders at the upgrade are imported without pinning the key (pinning started at the next delivery). (c) The sender's `outbox\sent` copies are unsigned, so a replayed copy is refused as unsigned rather than as already imported (harmless, but the reason reads oddly). | Confirmed |
+| UI22 | Low: a sender that has just delivered for the first time (WIN-498EC8UMUEL) has a grey "no data" Reporting cell on Systems. Overview's summary line prints two full key fingerprints; shorten them to `SHA256:Luoi…`. | Confirmed |
+
+**Verdict for production: go.** The inbox protection, signing, key pinning, key-change handling, upgrade order and the report all work on real machines. Nothing found loses or alters evidence. The findings above are display errors, false alarms, and one false gap after the collector upgrade. They are prompt 13 and can follow in the next release. Release files are still unsigned (A10): check `SHA256SUMS` from the GitHub release page before installing.
+
 ## ISSO / ISSM review: audit coverage (AU-2, AU-6, AU-12)
 
 Looked at as an ISSO doing the weekly audit review, and as an assessor checking that what the STIG makes you audit is actually reviewed. Owner decisions respected and not re-raised: no review/sign-off section (reviews are recorded on a separate platform) and no classification banner (`design.md` §13).

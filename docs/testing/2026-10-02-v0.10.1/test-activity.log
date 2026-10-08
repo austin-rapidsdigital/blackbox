@@ -327,3 +327,13 @@
 03:53:00  manual report: ubuntu SSH logon at 03:50:17 one row joining USER_START and auth.log with key fingerprint (LNX1 OK); 03:48 logons were in rejected batch 434
 03:54:28  ubuntu 'send --resend 434' -> imported; gaps then says 'Missing ubuntu-server batches 431-433' although imported 20:46:06; resend 431-433 imported them again 20:55:14 (SEC1c)
 04:10:00  owner decision DESIGN1: per-sender folders too complex for a 30-PC network with no domain; worker-prompt-12.md rewritten for a drop-only inbox plus signed deliveries (key pinned on first use)
+12:33:00  0.24.0 downloaded, SHA256SUMS OK (release files still unsigned, A10)
+12:36:00  ubuntu-server upgraded first (collector still 0.23): signing key SHA256:pyYPjc..., sender-key.pem root 0600; batch 471 delivered as ...471-b8b12a9b2284.bbx into its 0.23 folder; 0.23 collector imported it
+12:37:00  ubuntu sent 472 into the 0.23 folder; win11 collector upgraded to 0.24: 0.23 folders emptied and removed, 472 imported once; inbox ACL Blackbox Senders CreateFiles+Synchronize (this folder only), protected, owner Administrators; marker readable
+12:38:00  473: key pinned, 'New sender' line; blackbox senders lists ubuntu-server signed
+12:38:40  ubuntu over SMB: list/read own/rename/delete own/mkdir/delete marker/list rejected/read rejected all refused; create and read marker allowed; overwrite/append refused after the cifs deferred close
+12:39:29  forged copies (as WIN-498EC8UMUEL, as seq 999, unsigned replay) all set aside with reasons; probe .txt files left in the inbox (SEC1f)
+12:39:52  ubuntu key deleted (reinstall simulation): batch 474 held, KEY CHANGED, exit 4; 'senders rekey ubuntu-server "..."' -> event 102, held batch imported; gaps then 'Missing 472-472' though imported 05:37:26; resend 472 imported again 05:40:36 (SEC1e); no duplicate rows in the report
+12:47:00  windows-server-2025 upgraded to 0.24 and made a sender (account bbsend4, password not stored): final report made, signed delivery over SMB imported, pinned
+12:50:00  test files moved out of the inbox, test account bbsend3 removed, status exit 0; forced scheduled report 2026-10-08_0548: verify OK, sha256sum -c OK, README.txt; report_at back to 00:00
+12:55:00  report in Chromium: no console errors, no overflow at 1440/390, old #failed/#usb/#accounts links redirect; ubuntu OS shown as "Blackbox's advice" (OS1); People "Domain account" (PPL1); refused rm reported as deletion (DET1); WIN-498 Reporting grey (UI22)
