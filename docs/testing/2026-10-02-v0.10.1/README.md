@@ -18,6 +18,7 @@ Ubuntu 26.04 sender and Windows Server 2025 collector tested live (the Windows 1
 - [loop.md](loop.md): how the tester and worker agents hand work over through labelled issues in casea1/blackbox (from 8 Oct 2026: prompt 12 = #102, prompt 11 = #103).
 - [worker-prompt-13.md](worker-prompt-13.md): from the 0.24.0 pre-production test (verdict: go): false gap after the collector upgrade (SEC1e), Linux OS label (OS1), "Domain account" (PPL1), refused deletes reported as deletions (DET1), small items.
 - [v0.24.0/](v0.24.0/): 0.24.0 report pages on real data.
+- [worker-prompt-14.md](worker-prompt-14.md): from the 0.25.0 quick re-test: a refused `rm` still a High deletion when only the command line is recorded (DET1b), and a log wording item.
 - [test-plan.md](test-plan.md): what was planned, including the collector tests still to run.
 - [test-activity.log](test-activity.log): every test action, timestamped (UTC).
 - [scripts/](scripts/): the scripts typed into the VMs (test passwords come from environment variables and aren't stored).

@@ -337,3 +337,7 @@
 12:47:00  windows-server-2025 upgraded to 0.24 and made a sender (account bbsend4, password not stored): final report made, signed delivery over SMB imported, pinned
 12:50:00  test files moved out of the inbox, test account bbsend3 removed, status exit 0; forced scheduled report 2026-10-08_0548: verify OK, sha256sum -c OK, README.txt; report_at back to 00:00
 12:55:00  report in Chromium: no console errors, no overflow at 1440/390, old #failed/#usb/#accounts links redirect; ubuntu OS shown as "Blackbox's advice" (OS1); People "Domain account" (PPL1); refused rm reported as deletion (DET1); WIN-498 Reporting grey (UI22)
+14:30:00  0.25.0: SHA256SUMS OK; ubuntu, server, collector upgraded (senders first); signing keys kept
+14:35:00  ubuntu: stray file into inbox; refused 'sudo rm' of it (Permission denied); refused non-root rm of state.json; resend 475 -> collector '1 batch already imported' (SEC1f OK; per-file line still says imported, LOG2)
+14:37:00  manual report: ubuntu-server 'Ubuntu 26.04' (OS1 OK), 'Local account on 3 systems' (PPL1 OK), WIN-498 Reporting ok (UI22 OK); refused rm of stray file still High 'deleted Blackbox's files' from the execve only, no unlink record (DET1b)
+14:46:21  stray-0.25.txt set aside with note naming bbsend2, status exit 4 (SEC1f OK); moved to evidence, status exit 0

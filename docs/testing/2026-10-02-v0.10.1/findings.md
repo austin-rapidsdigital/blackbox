@@ -523,6 +523,26 @@ All three machines were upgraded in place to 0.23.0 (checksums OK, `blackbox ver
 
 **Verdict for production: go.** The inbox protection, signing, key pinning, key-change handling, upgrade order and the report all work on real machines. Nothing found loses or alters evidence. The findings above are display errors, false alarms, and one false gap after the collector upgrade. They are prompt 13 and can follow in the next release. Release files are still unsigned (A10): check `SHA256SUMS` from the GitHub release page before installing.
 
+## 0.25.0 quick re-test (8 Oct 2026)
+
+All three machines were upgraded to 0.25.0, senders first (checksums OK; signing keys kept across the upgrade).
+
+**Confirmed live:**
+- **SEC1f:**
+  - a resend of an already-imported batch (475) is "1 batch already imported (sent again)", not a second import;
+  - a stray `stray-0.25.txt` written by the Ubuntu sender's account was set aside after 10 minutes, with a note naming `bbsend2`, and `status` exit 4.
+- **OS1:** ubuntu-server shows "Ubuntu 26.04".
+- **PPL1:** "Local account on 3 systems · administrator on 2".
+- **UI22:** a new sender's Reporting cell is green.
+- SEC1e couldn't be re-tested live, because the 0.23 folders were already gone.
+
+| # | Finding | Status |
+|---|---|---|
+| DET1b | **Medium: a refused delete on Linux is still a High "Blackbox's files removed".** `sudo rm /var/lib/blackbox/collector/stray-0.25.txt` (the drop-only inbox refused it: Permission denied) gives "claude deleted Blackbox's files: /usr/bin/rm /var/lib/blackbox/collector/stray-0.25.txt", High. The audit log has only the `execve` of `rm` (success=yes, the program started). There is no unlink record: the file is on a CIFS mount, and the Blackbox data-folder watch rules aren't installed (`check` warns). The 0.25 fix reads the unlink's result, which isn't there. When the only evidence is the command line, say "ran rm on Blackbox's files: …" at Medium, with "whether it worked isn't recorded". Keep High only when a record shows the delete succeeded (PATH nametype=DELETE / unlink success=yes, or the file gone at the next run). | Confirmed |
+| LOG2 | Low: for a resent batch that was already imported, the per-file log line still says "inbox: imported …475…", and only the summary line says "1 batch already imported". Say "already imported" on the file's line. | Confirmed |
+
+**Verdict: still go.** DET1b is a false High alarm, not lost evidence.
+
 ## ISSO / ISSM review: audit coverage (AU-2, AU-6, AU-12)
 
 Looked at as an ISSO doing the weekly audit review, and as an assessor checking that what the STIG makes you audit is actually reviewed. Owner decisions respected and not re-raised: no review/sign-off section (reviews are recorded on a separate platform) and no classification banner (`design.md` §13).
