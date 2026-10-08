@@ -326,3 +326,4 @@
 03:52:20  win11: small Application log cleared: status 'Log cleared:', piece.json cleared (LC2c OK); events.zip moved out of the 19:01 report: reports CHANGED exit 4, Application event 101 (LEDGER4 OK; wording LEDGER4b); restored OK
 03:53:00  manual report: ubuntu SSH logon at 03:50:17 one row joining USER_START and auth.log with key fingerprint (LNX1 OK); 03:48 logons were in rejected batch 434
 03:54:28  ubuntu 'send --resend 434' -> imported; gaps then says 'Missing ubuntu-server batches 431-433' although imported 20:46:06; resend 431-433 imported them again 20:55:14 (SEC1c)
+04:10:00  owner decision DESIGN1: per-sender folders too complex for a 30-PC network with no domain; worker-prompt-12.md rewritten for a drop-only inbox plus signed deliveries (key pinned on first use)
