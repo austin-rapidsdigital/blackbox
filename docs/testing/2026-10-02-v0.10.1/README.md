@@ -15,6 +15,7 @@ Ubuntu 26.04 sender and Windows Server 2025 collector tested live (the Windows 1
 - [worker-prompt-10.md](worker-prompt-10.md): from the 0.21.0 full test (live, source review and compliance review): the inbox trusts any sender (SEC1, SEC2), no SSH logons from Ubuntu 26.04 (LNX1), separate actions folded as duplicates (DUP3, DUP4), retention deleting unreported logs (RET1), STIG/FIPS/NIST claims (COMP1-3, DOC1, AU3), and smaller items, labelled must fix or backlog. Go tests that fail on 0.21.0 are in `v0.21.0/review-tests/`.
 - [worker-prompt-11.md](worker-prompt-11.md): the report redesign chosen page by page by the owner on 8 Oct 2026 (UI-R1), for a 30-system network with local accounts only; the chosen mockups are in [redesign-2026-10-08/](redesign-2026-10-08/).
 - [worker-prompt-12.md](worker-prompt-12.md): from the 0.23.0 live check and the owner's decision (DESIGN1): replace per-sender inbox folders with a drop-only inbox and signed deliveries pinned on first use, upgrade without lost or doubled batches, CLI flags after subcommands, small items.
+- [loop.md](loop.md): how the tester and worker agents hand work over through labelled issues in casea1/blackbox (from 8 Oct 2026: prompt 12 = #102, prompt 11 = #103).
 - [test-plan.md](test-plan.md): what was planned, including the collector tests still to run.
 - [test-activity.log](test-activity.log): every test action, timestamped (UTC).
 - [scripts/](scripts/): the scripts typed into the VMs (test passwords come from environment variables and aren't stored).
