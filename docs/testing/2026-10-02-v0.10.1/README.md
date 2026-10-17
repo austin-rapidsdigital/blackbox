@@ -19,6 +19,8 @@ Ubuntu 26.04 sender and Windows Server 2025 collector tested live (the Windows 1
 - [worker-prompt-13.md](worker-prompt-13.md): from the 0.24.0 pre-production test (verdict: go): false gap after the collector upgrade (SEC1e), Linux OS label (OS1), "Domain account" (PPL1), refused deletes reported as deletions (DET1), small items.
 - [v0.24.0/](v0.24.0/): 0.24.0 report pages on real data.
 - [worker-prompt-14.md](worker-prompt-14.md): from the 0.25.0 quick re-test: a refused `rm` still a High deletion when only the command line is recorded (DET1b), and a log wording item.
+- [worker-prompt-15.md](worker-prompt-15.md): from the 0.30.0 live test: a Windows sender stuck on a stale SMB session for 3 days (SEND2), one stuck sender giving 92 High detections a day (DET5), small items.
+- [v0.30.0/](v0.30.0/): 0.30.0 Overview and Systems pages on real data.
 - [test-plan.md](test-plan.md): what was planned, including the collector tests still to run.
 - [test-activity.log](test-activity.log): every test action, timestamped (UTC).
 - [scripts/](scripts/): the scripts typed into the VMs (test passwords come from environment variables and aren't stored).

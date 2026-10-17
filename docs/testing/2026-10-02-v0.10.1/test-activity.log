@@ -341,3 +341,18 @@
 14:35:00  ubuntu: stray file into inbox; refused 'sudo rm' of it (Permission denied); refused non-root rm of state.json; resend 475 -> collector '1 batch already imported' (SEC1f OK; per-file line still says imported, LOG2)
 14:37:00  manual report: ubuntu-server 'Ubuntu 26.04' (OS1 OK), 'Local account on 3 systems' (PPL1 OK), WIN-498 Reporting ok (UI22 OK); refused rm of stray file still High 'deleted Blackbox's files' from the execve only, no unlink record (DET1b)
 14:46:21  stray-0.25.txt set aside with note naming bbsend2, status exit 4 (SEC1f OK); moved to evidence, status exit 0
+02:43:00  0.30.0 downloaded, SHA256SUMS OK (still unsigned, A10); all three were on 0.25.0
+02:43:30  ubuntu-server upgraded (install.sh): key kept, /usr/bin/blackbox link made, conf gains network/tray_groups/setup_asked (blank on a sender)
+02:51:00  windows-server-2025 upgraded (setup install --yes, 298 s): "Sent 296 batches"; its log shows every run failing since 2026-10-14 01:20 UTC "(The user name or password is incorrect.)"; the run after setup failed again
+02:52:00  win11 collector upgraded (install --yes): "New setting: who sees the status icon" only, network left blank (UPG1b); Blackbox Status task present; no Defender detections on either Windows machine
+02:55:00  win11 Security 4625: ~20 per run for bbsend3 (0xC0000064, account removed 8 Oct) from 192.168.1.21; win11 rebooted twice on 13 Oct for Windows Update (KB5127647/8, KB5127690)
+02:57:00  as SYSTEM on the server: net use shows a Disconnected \\192.168.1.76\BlackboxInbox; blackbox send fails the same way; source: share.Connect returns nil on 1219 (SEND2)
+02:58:00  16 Oct daily report: WIN-498EC8UMUEL "silent" (correct); 92 High "Possible password guessing" for bbsend3, one per 15 min (DET5)
+03:00:57  as SYSTEM: net use \\192.168.1.76\BlackboxInbox /delete, then blackbox send: "Sent 3 batches" (SEND2 workaround)
+03:01:51  ubuntu: sudo touch + sudo rm /etc/blackbox/det-030-test.conf; rm of a stray file not yet there ("No such file")
+03:01:56  ubuntu: stray-0.30.txt written to the CIFS inbox; sudo rm refused (Permission denied); send --resend 1303
+03:02:06  win11: two files in C:\ProgramData\Blackbox, one with Deny Delete for Everyone; both del'd by cmd and both gone (the admin's delete-child right on the folder overrides the Deny: a test error, not a Blackbox one)
+03:02:19  win11 run: "...1303... was already imported (sent again), written by win11-test\bbsend2" (LOG2 OK)
+03:04:18  win11: file held open, del refused ("being used by another process"), still there; run; manual report 2026-10-16_2004
+03:05:00  report: ubuntu refused rm Medium "ran rm on Blackbox's files", real rm High; win locked del Medium "ran del", real del High (DET1b OK); missing-file rm "(refused)" (DET1c); Blackbox-Setup write test High (DET6)
+03:05:30  report in Chromium at 1440: Overview without systems table, Systems with one Status column (PAGES1 OK); no console errors; settings-to-fix 47 / 51 / 56 across pages (CNT1); fix-list.html 1.2 MB (FIX1b); UI23
